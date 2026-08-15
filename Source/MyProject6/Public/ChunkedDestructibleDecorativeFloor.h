@@ -1,0 +1,353 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "ChunkedDestructibleFloor.h"
+#include "ChunkedDestructibleDecorativeFloor.generated.h"
+
+/** Selectable silhouette used by the unified destructible floor. */
+UENUM(BlueprintType)
+enum class EChunkedDecorativeFloorShape : uint8
+{
+	Grid UMETA(DisplayName = "Rectangle"),
+	Triangle,
+	FivePointStar UMETA(Hidden),
+	SixPointStar UMETA(Hidden),
+	RoundedBlob UMETA(DisplayName = "Rounded Blob"),
+	Square,
+	Circle,
+	Star
+};
+
+/** Material-layer and geometry controls shown only while Heart Motif is selected. */
+USTRUCT(BlueprintType)
+struct FChunkedHeartMotifSettings
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "0"))
+	int32 BackgroundMaterialIndex = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "0"))
+	int32 AccentMaterialIndex = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "0"))
+	int32 InnerMaterialIndex = 2;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "1.0", Units = "cm"))
+	FVector2D Size = FVector2D(2200.0, 1750.0);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "0.05", ClampMax = "0.9"))
+	float InnerScale = 0.32f;
+
+	/** Keeps the motif bounds centered inside the selected outer shape. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (DisplayName = "Auto Center"))
+	bool bAutoCenter = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (EditCondition = "!bAutoCenter", Units = "cm"))
+	FVector2D Offset = FVector2D::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (Units = "deg"))
+	float RotationDegrees = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "32", ClampMax = "256"))
+	int32 CurveResolution = 192;
+};
+
+/** Material-layer and geometry controls shown only while Star Motif is selected. */
+USTRUCT(BlueprintType)
+struct FChunkedStarMotifSettings
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "0"))
+	int32 BackgroundMaterialIndex = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "0"))
+	int32 AccentMaterialIndex = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "0"))
+	int32 InnerMaterialIndex = 2;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "1.0", Units = "cm"))
+	FVector2D Size = FVector2D(2200.0, 2200.0);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "3", ClampMax = "32"))
+	int32 PointCount = 5;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "0.1", ClampMax = "0.9"))
+	float InnerRadius = 0.45f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "0.05", ClampMax = "0.9"))
+	float InnerScale = 0.35f;
+
+	/** Keeps the motif bounds centered inside the selected outer shape. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (DisplayName = "Auto Center"))
+	bool bAutoCenter = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (EditCondition = "!bAutoCenter", Units = "cm"))
+	FVector2D Offset = FVector2D::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (Units = "deg"))
+	float RotationDegrees = 0.0f;
+};
+
+/**
+ * A selectable, chunked floor silhouette with optional borders and smooth overlay motifs.
+ *
+ * This remains as a compatibility class for existing assets. New floors should use AChunkedFloor,
+ * which exposes this implementation under the shorter unified actor name. Every visible tile is
+ * still part of the inherited destructible grid, so damage, explosions, ripple, flash, sound and
+ * chunk-local rebuilding all share the same implementation.
+ */
+UCLASS(BlueprintType, Blueprintable)
+class MYPROJECT6_API AChunkedDestructibleDecorativeFloor : public AChunkedDestructibleFloor
+{
+	GENERATED_BODY()
+
+public:
+	AChunkedDestructibleDecorativeFloor();
+	virtual void PostLoad() override;
+	virtual void OnConstruction(const FTransform& Transform) override;
+
+#if WITH_EDITOR
+	virtual bool CanEditChange(const FProperty* InProperty) const override;
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
+	/** Changes the outer silhouette and rebuilds the floor. */
+	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Generation")
+	void SetDecorativeFloorShape(
+		EChunkedDecorativeFloorShape NewShape,
+		FVector2D NewShapeSize,
+		bool bPreserveCellState = true);
+
+	/** Configures the silhouette, cell dimensions and spacing in one rebuild. */
+	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Generation")
+	void ConfigureDecorativeFloor(
+		EChunkedDecorativeFloorShape NewShape,
+		FVector2D NewShapeSize,
+		FVector NewCellDimensions,
+		FVector2D NewCellSpacing,
+		bool bPreserveCellState = true);
+
+	/** Selects the parametric star silhouette and rebuilds the floor. */
+	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Shape")
+	void ConfigureStarShape(
+		int32 NewPointCount,
+		float NewInnerRadius,
+		float NewRotationDegrees,
+		bool bPreserveCellState = true);
+
+	/** Selects the organic silhouette and applies its deterministic outline parameters. */
+	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Shape")
+	void ConfigureRoundedBlobShape(
+		int32 NewLobeCount,
+		float NewLobeStrength,
+		float NewEdgeRoundness,
+		int32 NewShapeSeed,
+		bool bPreserveCellState = true);
+
+	/** Configures the two nested hearts. InnerHeartScale is relative to the large heart. */
+	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Materials")
+	void ConfigureHeartMotif(
+		bool bNewHeartMotifEnabled,
+		FVector2D NewHeartSize,
+		float NewInnerHeartScale,
+		FVector2D NewHeartOffset,
+		float NewHeartRotationDegrees);
+
+	/** Selects and configures the two-layer parametric star motif. */
+	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Materials")
+	void ConfigureStarMotif(
+		FVector2D NewStarSize,
+		int32 NewPointCount,
+		float NewInnerRadius,
+		float NewInnerStarScale,
+		FVector2D NewStarOffset,
+		float NewStarRotationDegrees);
+
+protected:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Shape")
+	EChunkedDecorativeFloorShape OuterShape = EChunkedDecorativeFloorShape::Grid;
+
+	/** Exact bounding size. Square and Circle use X as their side length / diameter. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Shape", meta = (ClampMin = "1.0", Units = "cm"))
+	FVector2D ShapeSize = FVector2D(6000.0, 4500.0);
+
+	/** Horizontal triangle apex: -1 is left, 0 centered and +1 right. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Shape", meta = (EditCondition = "OuterShape == EChunkedDecorativeFloorShape::Triangle", EditConditionHides, ClampMin = "-1.0", ClampMax = "1.0"))
+	float TriangleApexOffset = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Shape", meta = (EditCondition = "OuterShape == EChunkedDecorativeFloorShape::Star", EditConditionHides, ClampMin = "3", ClampMax = "32"))
+	int32 StarPointCount = 5;
+
+	/** Radius of the inward star corners relative to the outside radius. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Shape", meta = (EditCondition = "OuterShape == EChunkedDecorativeFloorShape::Star || OuterShape == EChunkedDecorativeFloorShape::FivePointStar || OuterShape == EChunkedDecorativeFloorShape::SixPointStar", EditConditionHides, ClampMin = "0.1", ClampMax = "0.9"))
+	float StarInnerRadius = 0.45f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Shape", meta = (EditCondition = "OuterShape == EChunkedDecorativeFloorShape::Star || OuterShape == EChunkedDecorativeFloorShape::FivePointStar || OuterShape == EChunkedDecorativeFloorShape::SixPointStar", EditConditionHides, Units = "deg"))
+	float StarRotationDegrees = 0.0f;
+
+	/** More segments produce a smoother circular edge while retaining exact straight segment cuts. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Shape", meta = (EditCondition = "OuterShape == EChunkedDecorativeFloorShape::Circle", EditConditionHides, ClampMin = "16", ClampMax = "256"))
+	int32 CircleEdgeSegments = 96;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Rounded Blob", meta = (EditCondition = "OuterShape == EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides, ClampMin = "3", ClampMax = "16"))
+	int32 BlobLobeCount = 7;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Rounded Blob", meta = (EditCondition = "OuterShape == EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides, ClampMin = "0.0", ClampMax = "0.45"))
+	float BlobLobeStrength = 0.22f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Rounded Blob", meta = (EditCondition = "OuterShape == EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
+	float BlobEdgeRoundness = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Rounded Blob", meta = (EditCondition = "OuterShape == EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides))
+	int32 BlobShapeSeed = 1337;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Rounded Blob", meta = (EditCondition = "OuterShape == EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides, ClampMin = "4", ClampMax = "32"))
+	int32 BlobOutlineSamplesPerLobe = 12;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Bright Border")
+	bool bUseBrightBorder = true;
+
+	/** The inner edge is an inset copy of the selected outer shape. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Bright Border", meta = (EditCondition = "bUseBrightBorder", ClampMin = "0.0", Units = "cm"))
+	float BorderWidth = 250.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Bright Border", meta = (EditCondition = "bUseBrightBorder", ClampMin = "0"))
+	int32 BorderMaterialIndex = 1;
+
+	/** Deprecated compatibility state. Heart Motif is now selected exclusively through FloorPattern. */
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Select Heart Motif in Floor Pattern instead."))
+	bool bUseHeartMotif = false;
+
+	/** Native expandable group, ordered directly below Floor Pattern without an editor customization. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DisplayName = "Heart", EditCondition = "FloorPattern == EChunkedFloorPattern::HeartMotif", EditConditionHides, DisplayAfter = "FloorPattern", DisplayPriority = "0", FullyExpand = "true"))
+	FChunkedHeartMotifSettings HeartMotifSettings;
+
+	/** Native expandable group, ordered directly below Floor Pattern without an editor customization. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DisplayName = "Star", EditCondition = "FloorPattern == EChunkedFloorPattern::StarMotif", EditConditionHides, DisplayAfter = "FloorPattern", DisplayPriority = "0", FullyExpand = "true"))
+	FChunkedStarMotifSettings StarMotifSettings;
+
+	/** Legacy serialized fields retained for automatic asset migration and Blueprint compatibility. */
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Heart Motif settings."))
+	FVector2D HeartSize = FVector2D(2200.0, 1750.0);
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Heart Motif settings."))
+	float InnerHeartScale = 0.32f;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Heart Motif settings."))
+	FVector2D HeartOffset = FVector2D::ZeroVector;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Heart Motif settings."))
+	float HeartRotationDegrees = 0.0f;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Heart Motif settings."))
+	int32 HeartCurveResolution = 192;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Heart Motif settings."))
+	int32 HeartAccentMaterialIndex = 1;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Heart Motif settings."))
+	int32 InnerHeartMaterialIndex = 2;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Star Motif settings."))
+	FVector2D MotifStarSize = FVector2D(2200.0, 2200.0);
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Star Motif settings."))
+	int32 MotifStarPointCount = 5;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Star Motif settings."))
+	float MotifStarInnerRadius = 0.45f;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Star Motif settings."))
+	float InnerStarScale = 0.35f;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Star Motif settings."))
+	FVector2D MotifStarOffset = FVector2D::ZeroVector;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Star Motif settings."))
+	float MotifStarRotationDegrees = 0.0f;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Star Motif settings."))
+	int32 StarAccentMaterialIndex = 1;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Star Motif settings."))
+	int32 InnerStarMaterialIndex = 2;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use the selected motif's Background Material Index."))
+	int32 BackgroundMaterialIndex = 0;
+
+	/** False only on assets saved before motif settings became native structs. */
+	UPROPERTY()
+	bool bMotifSettingsMigrated = false;
+
+	virtual bool CalculateLayout() override;
+	virtual bool ShouldCellExistInGeneratedShape(FIntPoint Cell) const override;
+	virtual int32 EvaluatePatternMaterial(FIntPoint Cell) const override;
+	virtual void BuildChunkMesh(int32 ChunkIndex, UE::Geometry::FDynamicMesh3& OutMesh) const override;
+	virtual void BuildChunkSimpleCollision(int32 ChunkIndex, FKAggregateGeom& OutCollision) const override;
+	virtual FTransform GetCellFlashTransform(FIntPoint Cell) const override;
+
+private:
+	struct FShapeTriangle
+	{
+		FVector2D A = FVector2D::ZeroVector;
+		FVector2D B = FVector2D::ZeroVector;
+		FVector2D C = FVector2D::ZeroVector;
+		FBox2D Bounds = FBox2D(EForceInit::ForceInit);
+	};
+
+	TArray<float> CachedBlobRadii;
+	TArray<FVector2D> CachedShapeOutline;
+	TArray<FShapeTriangle> CachedShapeTriangles;
+	FVector2D CachedShapeFanCenter = FVector2D::ZeroVector;
+
+	void RebuildBlobCache();
+	void RebuildShapeOutline();
+	void CenterMotifsInShape();
+	bool IsPointInsideOuterShape(const FVector2D& LocalPoint, float Inset = 0.0f) const;
+	bool IsPointInsideNormalizedShape(const FVector2D& Point) const;
+	bool IsPointInsidePolygon(const FVector2D& Point, const TArray<FVector2D>& Polygon) const;
+	bool IsPointInsideGeneratedShape(const FVector2D& Point, double Tolerance = 0.01) const;
+	bool DoesShapeOutlineIntersectCell(FIntPoint Cell) const;
+	bool IsCellFullyInsideGeneratedShape(FIntPoint Cell) const;
+	bool GetClippedCellFragments(FIntPoint Cell, TArray<TArray<FVector2D>>& OutFragments) const;
+	void GetCellBounds(FIntPoint Cell, double& OutMinX, double& OutMinY, double& OutMaxX, double& OutMaxY) const;
+	float SampleBlobRadius(float Angle) const;
+	int32 ClampMaterialIndex(int32 MaterialIndex) const;
+	void SyncMotifSettingsFromLegacyFields();
+	void SyncLegacyFieldsFromMotifSettings();
+	void AppendGreedyFullHorizontalFaces(
+		UE::Geometry::FDynamicMesh3& Mesh,
+		int32 MinCellX,
+		int32 MinCellY,
+		int32 MaxCellX,
+		int32 MaxCellY,
+		bool bTopFace) const;
+	void AppendPolygonHorizontalFace(
+		UE::Geometry::FDynamicMesh3& Mesh,
+		const TArray<FVector2D>& Polygon,
+		bool bTopFace,
+		int32 MaterialIndex) const;
+	void AppendHeartSurface(
+		UE::Geometry::FDynamicMesh3& Mesh,
+		int32 ChunkIndex,
+		float Scale,
+		int32 MaterialIndex,
+		double SurfaceZ) const;
+	void AppendStarSurface(
+		UE::Geometry::FDynamicMesh3& Mesh,
+		int32 ChunkIndex,
+		float Scale,
+		int32 MaterialIndex,
+		double SurfaceZ) const;
+	void AppendPolygonSurface(
+		UE::Geometry::FDynamicMesh3& Mesh,
+		int32 ChunkIndex,
+		const TArray<FVector2D>& Outline,
+		int32 MaterialIndex,
+		double SurfaceZ) const;
+};
