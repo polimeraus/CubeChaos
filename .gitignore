@@ -1,0 +1,42 @@
+# This repository intentionally tracks source code only from the requested
+# Source/MyProject6/Private and Source/MyProject6/Public directories.
+*
+!.gitignore
+
+# Keep Git able to traverse only the requested source roots.
+!Source/
+!Source/MyProject6/
+!Source/MyProject6/Private/
+!Source/MyProject6/Public/
+!Source/MyProject6/Private/**/
+!Source/MyProject6/Public/**/
+
+# C / C++ / Unreal source in Private and Public.
+!Source/MyProject6/Private/**/*.c
+!Source/MyProject6/Private/**/*.cc
+!Source/MyProject6/Private/**/*.cpp
+!Source/MyProject6/Private/**/*.cxx
+!Source/MyProject6/Private/**/*.h
+!Source/MyProject6/Private/**/*.hh
+!Source/MyProject6/Private/**/*.hpp
+!Source/MyProject6/Private/**/*.inl
+!Source/MyProject6/Private/**/*.ipp
+!Source/MyProject6/Public/**/*.c
+!Source/MyProject6/Public/**/*.cc
+!Source/MyProject6/Public/**/*.cpp
+!Source/MyProject6/Public/**/*.cxx
+!Source/MyProject6/Public/**/*.h
+!Source/MyProject6/Public/**/*.hh
+!Source/MyProject6/Public/**/*.hpp
+!Source/MyProject6/Public/**/*.inl
+!Source/MyProject6/Public/**/*.ipp
+
+# Optional script/build/shader source when placed in the same requested roots.
+!Source/MyProject6/Private/**/*.cs
+!Source/MyProject6/Private/**/*.py
+!Source/MyProject6/Private/**/*.usf
+!Source/MyProject6/Private/**/*.ush
+!Source/MyProject6/Public/**/*.cs
+!Source/MyProject6/Public/**/*.py
+!Source/MyProject6/Public/**/*.usf
+!Source/MyProject6/Public/**/*.ush
