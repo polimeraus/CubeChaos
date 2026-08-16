@@ -59,23 +59,29 @@ void FChunkedFloorDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& D
 	const TSharedPtr<IPropertyHandle> StarSettingsHandle = DetailBuilder.GetProperty(
 		TEXT("StarMotifSettings"),
 		AChunkedDestructibleDecorativeFloor::StaticClass());
+	const TSharedPtr<IPropertyHandle> FlowerSettingsHandle = DetailBuilder.GetProperty(
+		TEXT("FlowerMotifSettings"),
+		AChunkedDestructibleDecorativeFloor::StaticClass());
 
 	if (!FloorPatternHandle.IsValid() ||
 		!SpiralSettingsHandle.IsValid() ||
 		!HeartSettingsHandle.IsValid() ||
-		!StarSettingsHandle.IsValid())
+		!StarSettingsHandle.IsValid() ||
+		!FlowerSettingsHandle.IsValid())
 	{
 		return;
 	}
 
 	// The struct properties remain the serialized source of truth, but their native top-level
 	// rows are replaced by true child groups beneath the Floor Pattern property row.
+	DetailBuilder.HideProperty(FloorPatternHandle);
 	DetailBuilder.HideProperty(SpiralSettingsHandle);
 	DetailBuilder.HideProperty(HeartSettingsHandle);
 	DetailBuilder.HideProperty(StarSettingsHandle);
+	DetailBuilder.HideProperty(FlowerSettingsHandle);
 
 	IDetailCategoryBuilder& MaterialsCategory = DetailBuilder.EditCategory(
-		TEXT("Chunked Floor|Materials"));
+		TEXT("Chunked Floor"));
 	IDetailGroup& FloorPatternGroup = MaterialsCategory.AddGroup(
 		TEXT("FloorPatternWithMotifs"),
 		LOCTEXT("FloorPatternGroup", "Floor Pattern"),
@@ -106,6 +112,14 @@ void FChunkedFloorDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& D
 	ConfigureMotifGroup(
 		StarGroup,
 		StarSettingsHandle);
+
+	IDetailGroup& FlowerGroup = FloorPatternGroup.AddGroup(
+		TEXT("FlowerMotifChildren"),
+		LOCTEXT("FlowerMotifGroup", "Flower"),
+		true);
+	ConfigureMotifGroup(
+		FlowerGroup,
+		FlowerSettingsHandle);
 }
 
 #undef LOCTEXT_NAMESPACE

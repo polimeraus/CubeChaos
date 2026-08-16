@@ -7,6 +7,9 @@ public class MyProject6 : ModuleRules
 	public MyProject6(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+		// Several actor implementations intentionally reuse translation-unit-local helper names.
+		// Keep them as separate translation units so clean builds do not merge those names together.
+		bUseUnity = false;
 
 		PublicDependencyModuleNames.AddRange(new string[] {
 			"Core",

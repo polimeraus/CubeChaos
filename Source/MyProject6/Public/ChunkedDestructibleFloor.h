@@ -42,7 +42,8 @@ enum class EChunkedFloorPattern : uint8
 	SeededRandom,
 	HypnoticSpiral UMETA(DisplayName = "Spiral"),
 	HeartMotif UMETA(DisplayName = "Heart"),
-	StarMotif UMETA(DisplayName = "Star")
+	StarMotif UMETA(DisplayName = "Star"),
+	FlowerMotif UMETA(DisplayName = "Flower")
 };
 
 /** Geometry and direction controls shown only while the Spiral floor pattern is selected. */

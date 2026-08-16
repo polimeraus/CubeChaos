@@ -42,6 +42,34 @@ namespace
 			Point.X * SinAngle + Point.Y * CosAngle);
 	}
 
+	TArray<FVector2D> BuildFlowerEllipseOutline(
+		const FVector2D& FlowerCenter,
+		const FVector2D& FlowerHalfSize,
+		const FVector2D& EllipseCenter,
+		const FVector2D& EllipseHalfSize,
+		float EllipseRotationRadians,
+		float FlowerRotationRadians,
+		int32 Resolution)
+	{
+		const int32 SafeResolution = FMath::Clamp(Resolution, 8, 64);
+		const FVector2D Radial(
+			FMath::Cos(EllipseRotationRadians),
+			FMath::Sin(EllipseRotationRadians));
+		const FVector2D Tangent(-Radial.Y, Radial.X);
+
+		TArray<FVector2D> Outline;
+		Outline.Reserve(SafeResolution);
+		for (int32 Index = 0; Index < SafeResolution; ++Index)
+		{
+			const float T = UE_TWO_PI * static_cast<float>(Index) / SafeResolution;
+			const FVector2D LocalPoint = EllipseCenter +
+				Radial * (FMath::Cos(T) * EllipseHalfSize.X) +
+				Tangent * (FMath::Sin(T) * EllipseHalfSize.Y);
+			Outline.Add(FlowerCenter + RotatePoint(LocalPoint * FlowerHalfSize, FlowerRotationRadians));
+		}
+		return Outline;
+	}
+
 	TArray<FVector2D> BuildStarOutline(
 		const FVector2D& StarSize,
 		const FVector2D& StarOffset,
@@ -667,6 +695,10 @@ void AChunkedDestructibleDecorativeFloor::SyncLegacyFieldsFromMotifSettings()
 	{
 		BackgroundMaterialIndex = StarMotifSettings.BackgroundMaterialIndex;
 	}
+	else if (FloorPattern == EChunkedFloorPattern::FlowerMotif)
+	{
+		BackgroundMaterialIndex = FlowerMotifSettings.BackgroundMaterialIndex;
+	}
 }
 
 void AChunkedDestructibleDecorativeFloor::SetDecorativeFloorShape(
@@ -785,6 +817,35 @@ void AChunkedDestructibleDecorativeFloor::ConfigureStarMotif(
 	ApplyMaterialPattern();
 }
 
+void AChunkedDestructibleDecorativeFloor::ConfigureFlowerMotif(
+	EChunkedFlowerType NewFlowerType,
+	FVector2D NewFlowerSize,
+	int32 NewPetalCount,
+	FVector2D NewOffset,
+	float NewRotationDegrees)
+{
+	FlowerMotifSettings.FlowerType = NewFlowerType;
+	FlowerMotifSettings.FlowerSize = FVector2D(
+		FMath::Max(FMath::Abs(NewFlowerSize.X), 50.0),
+		FMath::Max(FMath::Abs(NewFlowerSize.Y), 50.0));
+	if (NewFlowerType == EChunkedFlowerType::Daisy)
+	{
+		FlowerMotifSettings.PetalCount = FMath::Clamp(NewPetalCount, 3, 24);
+	}
+	else
+	{
+		FlowerMotifSettings.SimplePetalCount = FMath::Clamp(NewPetalCount, 3, 12);
+	}
+	if (!FlowerMotifSettings.bAutoCenter)
+	{
+		FlowerMotifSettings.Offset = NewOffset;
+	}
+	FlowerMotifSettings.RotationDegrees = NewRotationDegrees;
+	FloorPattern = EChunkedFloorPattern::FlowerMotif;
+	SyncLegacyFieldsFromMotifSettings();
+	ApplyMaterialPattern();
+}
+
 bool AChunkedDestructibleDecorativeFloor::CalculateLayout()
 {
 	ShapeSize = FVector2D(
@@ -815,6 +876,20 @@ bool AChunkedDestructibleDecorativeFloor::CalculateLayout()
 	MotifStarPointCount = FMath::Clamp(MotifStarPointCount, 3, 32);
 	MotifStarInnerRadius = FMath::Clamp(MotifStarInnerRadius, 0.1f, 0.9f);
 	InnerStarScale = FMath::Clamp(InnerStarScale, 0.05f, 0.9f);
+	FlowerMotifSettings.FlowerSize = FVector2D(
+		FMath::Max(FMath::Abs(FlowerMotifSettings.FlowerSize.X), 50.0),
+		FMath::Max(FMath::Abs(FlowerMotifSettings.FlowerSize.Y), 50.0));
+	FlowerMotifSettings.PetalCount = FMath::Clamp(FlowerMotifSettings.PetalCount, 3, 24);
+	FlowerMotifSettings.PetalLengthRatio = FMath::Clamp(FlowerMotifSettings.PetalLengthRatio, 0.15f, 0.75f);
+	FlowerMotifSettings.PetalWidthRatio = FMath::Clamp(FlowerMotifSettings.PetalWidthRatio, 0.08f, 0.65f);
+	FlowerMotifSettings.CenterRadiusRatio = FMath::Clamp(FlowerMotifSettings.CenterRadiusRatio, 0.05f, 0.55f);
+	FlowerMotifSettings.LargeTypeScale = FMath::Clamp(FlowerMotifSettings.LargeTypeScale, 1.0f, 4.0f);
+	FlowerMotifSettings.SimplePetalCount = FMath::Clamp(FlowerMotifSettings.SimplePetalCount, 3, 12);
+	FlowerMotifSettings.SimplePetalLengthRatio = FMath::Clamp(FlowerMotifSettings.SimplePetalLengthRatio, 0.3f, 0.8f);
+	FlowerMotifSettings.SimplePetalWidthRatio = FMath::Clamp(FlowerMotifSettings.SimplePetalWidthRatio, 0.2f, 0.8f);
+	FlowerMotifSettings.SimpleCenterRadiusRatio = FMath::Clamp(FlowerMotifSettings.SimpleCenterRadiusRatio, 0.15f, 0.65f);
+	FlowerMotifSettings.OutlineWidth = FMath::Max(FlowerMotifSettings.OutlineWidth, 0.0f);
+	FlowerMotifSettings.CurveResolution = FMath::Clamp(FlowerMotifSettings.CurveResolution, 8, 64);
 	AreaSize = ShapeSize;
 	RebuildBlobCache();
 	RebuildShapeOutline();
@@ -977,6 +1052,10 @@ void AChunkedDestructibleDecorativeFloor::CenterMotifsInShape()
 	if (StarMotifSettings.bAutoCenter)
 	{
 		StarMotifSettings.Offset = ShapeBoundsCenter;
+	}
+	if (FlowerMotifSettings.bAutoCenter)
+	{
+		FlowerMotifSettings.Offset = ShapeBoundsCenter;
 	}
 	HeartOffset = HeartMotifSettings.Offset;
 	MotifStarOffset = StarMotifSettings.Offset;
@@ -1286,6 +1365,10 @@ int32 AChunkedDestructibleDecorativeFloor::EvaluatePatternMaterial(FIntPoint Cel
 	}
 
 	// Smooth overlay motifs use a neutral backing to avoid a blocky cell-colored fringe.
+	if (FloorPattern == EChunkedFloorPattern::FlowerMotif)
+	{
+		return ClampMaterialIndex(FlowerMotifSettings.BackgroundMaterialIndex);
+	}
 	if (FloorPattern == EChunkedFloorPattern::HeartMotif ||
 		FloorPattern == EChunkedFloorPattern::StarMotif)
 	{
@@ -1681,6 +1764,11 @@ void AChunkedDestructibleDecorativeFloor::BuildChunkMesh(
 			ClampMaterialIndex(InnerStarMaterialIndex),
 			HeartSurfaceLift + HeartLayerSeparation);
 	}
+
+	if (FloorPattern == EChunkedFloorPattern::FlowerMotif)
+	{
+		AppendFlowerPattern(OutMesh, ChunkIndex);
+	}
 }
 
 void AChunkedDestructibleDecorativeFloor::BuildChunkSimpleCollision(
@@ -1888,6 +1976,138 @@ void AChunkedDestructibleDecorativeFloor::AppendStarSurface(
 		MotifStarPointCount,
 		MotifStarInnerRadius);
 	AppendPolygonSurface(Mesh, ChunkIndex, Outline, MaterialIndex, SurfaceZ);
+}
+
+void AChunkedDestructibleDecorativeFloor::AppendFlowerPattern(
+	UE::Geometry::FDynamicMesh3& Mesh,
+	int32 ChunkIndex) const
+{
+	if (ChunkCount.X <= 0 || ChunkIndex < 0 || ChunkIndex >= ChunkCount.X * ChunkCount.Y)
+	{
+		return;
+	}
+
+	const FVector2D BaseFlowerHalfSize(
+		FMath::Max(FMath::Abs(FlowerMotifSettings.FlowerSize.X), 50.0) * 0.5,
+		FMath::Max(FMath::Abs(FlowerMotifSettings.FlowerSize.Y), 50.0) * 0.5);
+	const bool bSimpleFlower = FlowerMotifSettings.FlowerType != EChunkedFlowerType::Daisy;
+	const float TypeScale = bSimpleFlower
+		? FMath::Clamp(FlowerMotifSettings.LargeTypeScale, 1.0f, 4.0f)
+		: 1.0f;
+	const FVector2D FlowerCenter = FlowerMotifSettings.Offset;
+	const FVector2D FlowerHalfSize = BaseFlowerHalfSize * TypeScale;
+	const float FlowerRotation = FMath::DegreesToRadians(FlowerMotifSettings.RotationDegrees);
+	const int32 PetalCount = bSimpleFlower
+		? FMath::Clamp(FlowerMotifSettings.SimplePetalCount, 3, 12)
+		: FMath::Clamp(FlowerMotifSettings.PetalCount, 3, 24);
+	const float PetalLength = bSimpleFlower
+		? FMath::Clamp(FlowerMotifSettings.SimplePetalLengthRatio, 0.3f, 0.8f)
+		: FMath::Clamp(FlowerMotifSettings.PetalLengthRatio, 0.15f, 0.75f);
+	const float PetalWidth = bSimpleFlower
+		? FMath::Clamp(FlowerMotifSettings.SimplePetalWidthRatio, 0.2f, 0.8f)
+		: FMath::Clamp(FlowerMotifSettings.PetalWidthRatio, 0.08f, 0.65f);
+	const float CenterRadius = bSimpleFlower
+		? FMath::Clamp(FlowerMotifSettings.SimpleCenterRadiusRatio, 0.15f, 0.65f)
+		: FMath::Clamp(FlowerMotifSettings.CenterRadiusRatio, 0.05f, 0.55f);
+	const int32 Resolution = FMath::Clamp(FlowerMotifSettings.CurveResolution, 8, 64);
+	const int32 OutlineMaterial = ClampMaterialIndex(FlowerMotifSettings.OutlineMaterialIndex);
+	const int32 CenterMaterial = ClampMaterialIndex(FlowerMotifSettings.CenterMaterialIndex);
+	const float NormalizedOutline = FlowerMotifSettings.OutlineWidth /
+		FMath::Max(FMath::Min(FlowerHalfSize.X, FlowerHalfSize.Y), 1.0);
+	const FVector2D InnerPetalHalfSize(
+		FMath::Max(PetalLength - NormalizedOutline, 0.01f),
+		FMath::Max(PetalWidth - NormalizedOutline, 0.01f));
+	const float InnerCenterRadius = FMath::Max(CenterRadius - NormalizedOutline, 0.01f);
+
+	for (int32 PetalIndex = 0; PetalIndex < PetalCount; ++PetalIndex)
+	{
+		const float PetalAngle = UE_TWO_PI * static_cast<float>(PetalIndex) / PetalCount;
+		const FVector2D PetalDirection(FMath::Cos(PetalAngle), FMath::Sin(PetalAngle));
+		const FVector2D PetalCenter = PetalDirection * (1.0f - PetalLength);
+		AppendPolygonSurface(
+			Mesh,
+			ChunkIndex,
+			BuildFlowerEllipseOutline(
+				FlowerCenter,
+				FlowerHalfSize,
+				PetalCenter,
+				FVector2D(PetalLength, PetalWidth),
+				PetalAngle,
+				FlowerRotation,
+				Resolution),
+			OutlineMaterial,
+			HeartSurfaceLift);
+		AppendPolygonSurface(
+			Mesh,
+			ChunkIndex,
+			BuildFlowerEllipseOutline(
+				FlowerCenter,
+				FlowerHalfSize,
+				PetalCenter,
+				InnerPetalHalfSize,
+				PetalAngle,
+				FlowerRotation,
+				Resolution),
+			CenterMaterial,
+			HeartSurfaceLift + HeartLayerSeparation);
+	}
+
+	if (FlowerMotifSettings.FlowerType == EChunkedFlowerType::LargeHeart)
+	{
+		const FVector2D HeartCenterSize = FlowerHalfSize * (CenterRadius * 2.0f);
+		const int32 HeartResolution = FMath::Clamp(Resolution * 2, 32, 128);
+		AppendPolygonSurface(
+			Mesh,
+			ChunkIndex,
+			BuildParametricHeartOutline(
+				HeartCenterSize,
+				FlowerCenter,
+				FMath::RadiansToDegrees(FlowerRotation),
+				1.0f,
+				HeartResolution),
+			OutlineMaterial,
+			HeartSurfaceLift + HeartLayerSeparation * 2.0);
+		AppendPolygonSurface(
+			Mesh,
+			ChunkIndex,
+			BuildParametricHeartOutline(
+				HeartCenterSize,
+				FlowerCenter,
+				FMath::RadiansToDegrees(FlowerRotation),
+				InnerCenterRadius / CenterRadius,
+				HeartResolution),
+			CenterMaterial,
+			HeartSurfaceLift + HeartLayerSeparation * 3.0);
+	}
+	else
+	{
+		AppendPolygonSurface(
+			Mesh,
+			ChunkIndex,
+			BuildFlowerEllipseOutline(
+				FlowerCenter,
+				FlowerHalfSize,
+				FVector2D::ZeroVector,
+				FVector2D(CenterRadius, CenterRadius),
+				0.0f,
+				FlowerRotation,
+				Resolution),
+			OutlineMaterial,
+			HeartSurfaceLift + HeartLayerSeparation * 2.0);
+		AppendPolygonSurface(
+			Mesh,
+			ChunkIndex,
+			BuildFlowerEllipseOutline(
+				FlowerCenter,
+				FlowerHalfSize,
+				FVector2D::ZeroVector,
+				FVector2D(InnerCenterRadius, InnerCenterRadius),
+				0.0f,
+				FlowerRotation,
+				Resolution),
+			CenterMaterial,
+			HeartSurfaceLift + HeartLayerSeparation * 3.0);
+	}
 }
 
 void AChunkedDestructibleDecorativeFloor::AppendPolygonSurface(

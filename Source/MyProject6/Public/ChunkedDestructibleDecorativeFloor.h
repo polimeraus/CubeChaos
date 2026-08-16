@@ -93,6 +93,88 @@ struct FChunkedStarMotifSettings
 	float RotationDegrees = 0.0f;
 };
 
+/** Shape family used by the Flower floor motif. */
+UENUM(BlueprintType)
+enum class EChunkedFlowerType : uint8
+{
+	Daisy UMETA(DisplayName = "Small Daisy"),
+	LargeRound UMETA(DisplayName = "Large Simple (Round Center)"),
+	LargeHeart UMETA(DisplayName = "Large Simple (Heart Center)")
+};
+
+/** Single, hand-drawn flower controls shown only while Flower is selected. */
+USTRUCT(BlueprintType)
+struct FChunkedFlowerMotifSettings
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif")
+	EChunkedFlowerType FlowerType = EChunkedFlowerType::Daisy;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "0"))
+	int32 BackgroundMaterialIndex = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "0"))
+	int32 OutlineMaterialIndex = 2;
+
+	/** Shared fill material for the center and the inside of every petal. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (DisplayName = "Petal + Center Material Index", ClampMin = "0"))
+	int32 CenterMaterialIndex = 1;
+
+	/** Exact base width and height of the centered flower. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "50.0", Units = "cm"))
+	FVector2D FlowerSize = FVector2D(2200.0, 2200.0);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (DisplayName = "Daisy Petal Count", EditCondition = "FlowerType == EChunkedFlowerType::Daisy", EditConditionHides, ClampMin = "3", ClampMax = "24"))
+	int32 PetalCount = 8;
+
+	/** Half-length of a petal relative to the flower radius. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (DisplayName = "Daisy Petal Length", EditCondition = "FlowerType == EChunkedFlowerType::Daisy", EditConditionHides, ClampMin = "0.15", ClampMax = "0.75"))
+	float PetalLengthRatio = 0.42f;
+
+	/** Half-width of a petal relative to the flower radius. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (DisplayName = "Daisy Petal Width", EditCondition = "FlowerType == EChunkedFlowerType::Daisy", EditConditionHides, ClampMin = "0.08", ClampMax = "0.65"))
+	float PetalWidthRatio = 0.27f;
+
+	/** Center-disc radius relative to the flower radius. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (DisplayName = "Daisy Center Size", EditCondition = "FlowerType == EChunkedFlowerType::Daisy", EditConditionHides, ClampMin = "0.05", ClampMax = "0.55"))
+	float CenterRadiusRatio = 0.22f;
+
+	/** Makes both simple variants substantially larger than the daisy at the same base size. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (DisplayName = "Large Type Scale", EditCondition = "FlowerType != EChunkedFlowerType::Daisy", EditConditionHides, ClampMin = "1.0", ClampMax = "4.0"))
+	float LargeTypeScale = 1.65f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (DisplayName = "Simple Petal Count", EditCondition = "FlowerType != EChunkedFlowerType::Daisy", EditConditionHides, ClampMin = "3", ClampMax = "12"))
+	int32 SimplePetalCount = 5;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (DisplayName = "Simple Petal Length", EditCondition = "FlowerType != EChunkedFlowerType::Daisy", EditConditionHides, ClampMin = "0.3", ClampMax = "0.8"))
+	float SimplePetalLengthRatio = 0.56f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (DisplayName = "Simple Petal Width", EditCondition = "FlowerType != EChunkedFlowerType::Daisy", EditConditionHides, ClampMin = "0.2", ClampMax = "0.8"))
+	float SimplePetalWidthRatio = 0.50f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (DisplayName = "Simple Center Size", EditCondition = "FlowerType != EChunkedFlowerType::Daisy", EditConditionHides, ClampMin = "0.15", ClampMax = "0.65"))
+	float SimpleCenterRadiusRatio = 0.38f;
+
+	/** Thickness of the visible outline around petals and the center shape. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (DisplayName = "Line Thickness", ClampMin = "0.0", Units = "cm"))
+	float OutlineWidth = 28.0f;
+
+	/** Keeps the flower centered inside the selected outer shape. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (DisplayName = "Auto Center"))
+	bool bAutoCenter = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (EditCondition = "!bAutoCenter", Units = "cm"))
+	FVector2D Offset = FVector2D::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (Units = "deg"))
+	float RotationDegrees = 0.0f;
+
+	/** Curve samples used by every petal and center disc. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motif", meta = (ClampMin = "8", ClampMax = "64"))
+	int32 CurveResolution = 24;
+};
+
 /**
  * A selectable, chunked floor silhouette with optional borders and smooth overlay motifs.
  *
@@ -168,6 +250,15 @@ public:
 		FVector2D NewStarOffset,
 		float NewStarRotationDegrees);
 
+	/** Selects and configures the single parametric flower motif. */
+	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Materials")
+	void ConfigureFlowerMotif(
+		EChunkedFlowerType NewFlowerType,
+		FVector2D NewFlowerSize,
+		int32 NewPetalCount,
+		FVector2D NewOffset,
+		float NewRotationDegrees);
+
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Shape")
 	EChunkedDecorativeFloorShape OuterShape = EChunkedDecorativeFloorShape::Grid;
@@ -230,6 +321,10 @@ protected:
 	/** Native expandable group, ordered directly below Floor Pattern without an editor customization. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DisplayName = "Star", EditCondition = "FloorPattern == EChunkedFloorPattern::StarMotif", EditConditionHides, DisplayAfter = "FloorPattern", DisplayPriority = "0", FullyExpand = "true"))
 	FChunkedStarMotifSettings StarMotifSettings;
+
+	/** Native expandable group, ordered directly below Floor Pattern. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DisplayName = "Flower", EditCondition = "FloorPattern == EChunkedFloorPattern::FlowerMotif", EditConditionHides, DisplayAfter = "FloorPattern", DisplayPriority = "0", FullyExpand = "true"))
+	FChunkedFlowerMotifSettings FlowerMotifSettings;
 
 	/** Legacy serialized fields retained for automatic asset migration and Blueprint compatibility. */
 	UPROPERTY(BlueprintReadWrite, Category = "Chunked Floor|Materials", meta = (DeprecatedProperty, DeprecationMessage = "Use Heart Motif settings."))
@@ -344,6 +439,9 @@ private:
 		float Scale,
 		int32 MaterialIndex,
 		double SurfaceZ) const;
+	void AppendFlowerPattern(
+		UE::Geometry::FDynamicMesh3& Mesh,
+		int32 ChunkIndex) const;
 	void AppendPolygonSurface(
 		UE::Geometry::FDynamicMesh3& Mesh,
 		int32 ChunkIndex,
