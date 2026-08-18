@@ -37,6 +37,12 @@ public:
 		FVector2D NewCellSpacing,
 		bool bPreserveCellState = true);
 
+	/** Assigns randomized generation, shape, pattern and destruction settings before spawning. */
+	void RandomizeFloorParameters(
+		float MinFloorSize,
+		float MaxFloorSize,
+		FRandomStream& RandomStream);
+
 	UFUNCTION(BlueprintPure, Category = "Chunked Floor|Shape")
 	EChunkedDecorativeFloorShape GetFloorShape() const { return OuterShape; }
 
