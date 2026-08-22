@@ -135,9 +135,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Blocks", meta = (ClampMin = "1.0", Units = "cm"))
 	FVector BlockDimensions = FVector(100.0, 100.0, 100.0);
 
-	/** Prevents a single destructible cell from becoming an oversized horizontal slab. */
+	/** Keeps destruction cells square in the horizontal plane by default. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible Cone Structure|Blocks", meta = (ClampMin = "1.0", ClampMax = "16.0"))
-	float MaxHorizontalBlockAspectRatio = 2.0f;
+	float MaxHorizontalBlockAspectRatio = 1.0f;
+
+	/** Forces X/Y to the same size so newly exposed destruction volumes are regular cubes. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible Cone Structure|Blocks")
+	bool bUseSquareHorizontalDestructionCells = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Blocks", meta = (ClampMin = "0.0", Units = "cm"))
 	FVector BlockSpacing = FVector::ZeroVector;

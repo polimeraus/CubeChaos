@@ -78,6 +78,53 @@ namespace
 			}
 		}
 	}
+
+	bool DoesSurfaceTriangleIntersectBox(
+		const FVector3d& A,
+		const FVector3d& B,
+		const FVector3d& C,
+		const FVector3d& BoxMinimum,
+		const FVector3d& BoxMaximum)
+	{
+		TArray<FVector3d> Polygon = { A, B, C };
+		for (int32 Axis = 0; Axis < 3 && Polygon.Num() >= 3; ++Axis)
+		{
+			ClipSurfacePolygonToPlane(Polygon, Axis, BoxMinimum[Axis], true);
+			ClipSurfacePolygonToPlane(Polygon, Axis, BoxMaximum[Axis], false);
+		}
+		RemoveDuplicateSurfacePoints(Polygon);
+		if (Polygon.Num() < 3)
+		{
+			return false;
+		}
+
+		// A triangle which only touches a cell at an edge or a corner must not make that cell
+		// own geometry. Requiring real clipped area also prevents an endpoint from leaking into
+		// the vertical layer immediately above or below it.
+		for (int32 PointIndex = 1; PointIndex + 1 < Polygon.Num(); ++PointIndex)
+		{
+			if (FVector3d::CrossProduct(
+				Polygon[PointIndex] - Polygon[0],
+				Polygon[PointIndex + 1] - Polygon[0]).SquaredLength() >
+				FMath::Square(ConeSurfaceTolerance))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool DoesSurfaceQuadIntersectBox(
+		const FVector3d& A,
+		const FVector3d& B,
+		const FVector3d& C,
+		const FVector3d& D,
+		const FVector3d& BoxMinimum,
+		const FVector3d& BoxMaximum)
+	{
+		return DoesSurfaceTriangleIntersectBox(A, B, C, BoxMinimum, BoxMaximum) ||
+			DoesSurfaceTriangleIntersectBox(A, C, D, BoxMinimum, BoxMaximum);
+	}
 }
 
 AChunkedDestructibleConeStructure::AChunkedDestructibleConeStructure()
@@ -355,7 +402,9 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 		FMath::Max(FMath::Abs(BlockDimensions.X), MinimumConeDimension),
 		FMath::Max(FMath::Abs(BlockDimensions.Y), MinimumConeDimension),
 		FMath::Max(FMath::Abs(BlockDimensions.Z), MinimumConeDimension));
-	MaxHorizontalBlockAspectRatio = FMath::Clamp(MaxHorizontalBlockAspectRatio, 1.0f, 16.0f);
+	MaxHorizontalBlockAspectRatio = bUseSquareHorizontalDestructionCells
+		? 1.0f
+		: FMath::Clamp(MaxHorizontalBlockAspectRatio, 1.0f, 16.0f);
 	const double MinimumHorizontalDimension = FMath::Min(BlockDimensions.X, BlockDimensions.Y);
 	const double MaximumHorizontalDimension =
 		MinimumHorizontalDimension * MaxHorizontalBlockAspectRatio;
@@ -499,18 +548,45 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 		const float CellBottom = Z * PitchZ;
 		const float CellTop = CellBottom + BlockDimensions.Z;
 		const FVector Center = GetPhysicalCenter(X, Y, Z);
+		const FVector3d CellMinimum = FVector3d(Center - BlockDimensions * 0.5f);
+		const FVector3d CellMaximum = FVector3d(Center + BlockDimensions * 0.5f);
+		const float TotalSpiralAngle = UE_TWO_PI * PlatformSpiralTurns;
+		const float StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
+		const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
+		const float RadialOverhang = PlatformOverhangBlocks * NewRadialBlockUnit;
+		const float WallOverlap = SpiralWallOverlapBlocks * NewRadialBlockUnit;
+		auto EndCapIntersectsCell = [&](bool bEnd)
+		{
+			const float Alpha = bEnd ? 1.0f : 0.0f;
+			const float Bottom = FMath::Lerp(StartBottom, EndBottom, Alpha);
+			const float Top = Bottom + SpiralThickness;
+			const double CapAngle = StartAngle + Direction * TotalSpiralAngle * Alpha;
+			const double CosAngle = FMath::Cos(CapAngle);
+			const double SinAngle = FMath::Sin(CapAngle);
+			const float ConeRadius = GetOuterRadius(Top);
+			const float InnerRadius = FMath::Max(ConeRadius - WallOverlap, 0.0f);
+			const float OuterRadius = ConeRadius + RadialOverhang;
+			const FVector3d InnerBottom(CosAngle * InnerRadius, SinAngle * InnerRadius, Bottom);
+			const FVector3d OuterBottom(CosAngle * OuterRadius, SinAngle * OuterRadius, Bottom);
+			const FVector3d OuterTop(CosAngle * OuterRadius, SinAngle * OuterRadius, Top);
+			const FVector3d InnerTop(CosAngle * InnerRadius, SinAngle * InnerRadius, Top);
+			return DoesSurfaceQuadIntersectBox(
+				InnerBottom, OuterBottom, OuterTop, InnerTop, CellMinimum, CellMaximum);
+		};
+		if (EndCapIntersectsCell(false) || EndCapIntersectsCell(true))
+		{
+			return true;
+		}
+
 		const float CenterRadius = FVector2D(Center.X, Center.Y).Size();
 		const float HalfDiagonal = FVector2D(BlockDimensions.X, BlockDimensions.Y).Size() * 0.5f;
 		const float CellAngularHalfWidth = FMath::Atan2(
 			HalfDiagonal, FMath::Max(CenterRadius - HalfDiagonal, NewRadialBlockUnit * 0.25f));
-		const float TotalSpiralAngle = UE_TWO_PI * PlatformSpiralTurns;
 		const float HeightPerRadian = FMath::Abs(EndBottom - StartBottom) /
 			FMath::Max(TotalSpiralAngle, KINDA_SMALL_NUMBER);
 		const float HeightMargin = HeightPerRadian *
 			(CellAngularHalfWidth + UE_PI / SpiralSegmentsPerTurn) + ConeSpacingTolerance;
 		const float Angle = FMath::Atan2(Center.Y, Center.X);
-		const float StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
-		const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
 		float BaseProgressAngle = FMath::Fmod(Direction * (Angle - StartAngle), UE_TWO_PI);
 		if (BaseProgressAngle < 0.0f)
 		{
@@ -850,18 +926,45 @@ bool AChunkedDestructibleConeStructure::IsSpiralPlatformCell(int32 X, int32 Y, i
 	const float CellBottom = Z * PitchZ;
 	const float CellTop = CellBottom + BlockDimensions.Z;
 	const FVector Center = GetPhysicalCellLocalCenter(X, Y, Z);
+	const FVector3d CellMinimum = FVector3d(Center - BlockDimensions * 0.5f);
+	const FVector3d CellMaximum = FVector3d(Center + BlockDimensions * 0.5f);
+	const float TotalSpiralAngle = UE_TWO_PI * PlatformSpiralTurns;
+	const float StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
+	const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
+	const float RadialOverhang = PlatformOverhangBlocks * CachedRadialBlockUnit;
+	const float WallOverlap = SpiralWallOverlapBlocks * CachedRadialBlockUnit;
+	auto EndCapIntersectsCell = [&](bool bEnd)
+	{
+		const float Alpha = bEnd ? 1.0f : 0.0f;
+		const float Bottom = FMath::Lerp(StartBottom, EndBottom, Alpha);
+		const float Top = Bottom + SpiralThickness;
+		const double CapAngle = StartAngle + Direction * TotalSpiralAngle * Alpha;
+		const double CosAngle = FMath::Cos(CapAngle);
+		const double SinAngle = FMath::Sin(CapAngle);
+		const float ConeRadius = GetConeOuterRadiusAtHeight(Top);
+		const float InnerRadius = FMath::Max(ConeRadius - WallOverlap, 0.0f);
+		const float OuterRadius = ConeRadius + RadialOverhang;
+		const FVector3d InnerBottom(CosAngle * InnerRadius, SinAngle * InnerRadius, Bottom);
+		const FVector3d OuterBottom(CosAngle * OuterRadius, SinAngle * OuterRadius, Bottom);
+		const FVector3d OuterTop(CosAngle * OuterRadius, SinAngle * OuterRadius, Top);
+		const FVector3d InnerTop(CosAngle * InnerRadius, SinAngle * InnerRadius, Top);
+		return DoesSurfaceQuadIntersectBox(
+			InnerBottom, OuterBottom, OuterTop, InnerTop, CellMinimum, CellMaximum);
+	};
+	if (EndCapIntersectsCell(false) || EndCapIntersectsCell(true))
+	{
+		return true;
+	}
+
 	const float CenterRadius = FVector2D(Center.X, Center.Y).Size();
 	const float HalfDiagonal = FVector2D(BlockDimensions.X, BlockDimensions.Y).Size() * 0.5f;
 	const float CellAngularHalfWidth = FMath::Atan2(
 		HalfDiagonal, FMath::Max(CenterRadius - HalfDiagonal, CachedRadialBlockUnit * 0.25f));
-	const float TotalSpiralAngle = UE_TWO_PI * PlatformSpiralTurns;
 	const float HeightPerRadian = FMath::Abs(EndBottom - StartBottom) /
 		FMath::Max(TotalSpiralAngle, KINDA_SMALL_NUMBER);
 	const float HeightMargin = HeightPerRadian *
 		(CellAngularHalfWidth + UE_PI / SpiralSegmentsPerTurn) + ConeSpacingTolerance;
 	const float Angle = FMath::Atan2(Center.Y, Center.X);
-	const float StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
-	const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
 	float BaseProgressAngle = FMath::Fmod(Direction * (Angle - StartAngle), UE_TWO_PI);
 	if (BaseProgressAngle < 0.0f)
 	{
