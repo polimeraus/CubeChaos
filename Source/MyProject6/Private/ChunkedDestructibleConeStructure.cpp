@@ -113,6 +113,23 @@ void AChunkedDestructibleConeStructure::EndPlay(const EEndPlayReason::Type EndPl
 	Super::EndPlay(EndPlayReason);
 }
 
+void AChunkedDestructibleConeStructure::ClearAdditionalRuntimeEffects()
+{
+	for (const TWeakObjectPtr<UDynamicMeshComponent>& WeakFlash : ActiveSurfaceFlashComponents)
+	{
+		if (UDynamicMeshComponent* SurfaceFlash = WeakFlash.Get())
+		{
+			RemoveInstanceComponent(SurfaceFlash);
+			SurfaceFlash->DestroyComponent();
+		}
+	}
+	ActiveSurfaceFlashComponents.Reset();
+	CurrentSurfaceFlashComponent.Reset();
+	CurrentSurfaceFlashCells.Reset();
+	CurrentSurfaceFlashTime = -TNumericLimits<double>::Max();
+	SurfaceFlashCellFilter.Reset();
+}
+
 #if WITH_EDITOR
 bool AChunkedDestructibleConeStructure::CanEditChange(const FProperty* InProperty) const
 {
@@ -137,6 +154,47 @@ void AChunkedDestructibleConeStructure::RebuildConeStructure(bool bPreserveCellS
 	GenerateFloor(bPreserveCellState);
 }
 
+void AChunkedDestructibleConeStructure::SetPlatformRingWidth(
+	float NewRingWidthBlocks,
+	bool bPreserveCellState)
+{
+	PlatformOverhangBlocks = FMath::Clamp(FMath::Abs(NewRingWidthBlocks), 0.0f, 32.0f);
+	GenerateFloor(bPreserveCellState);
+}
+
+void AChunkedDestructibleConeStructure::SetPlatformStyle(
+	EConeStructurePlatformStyle NewStyle,
+	bool bPreserveCellState)
+{
+	PlatformStyle = NewStyle;
+	GenerateFloor(bPreserveCellState);
+}
+
+void AChunkedDestructibleConeStructure::ConfigureArchedDoors(
+	int32 NewDoorCount,
+	int32 NewDoorWidthBlocks,
+	int32 NewDoorHeightBlocks,
+	float NewDoorArchHeightBlocks,
+	int32 NewFirstDoorBottomHeightBlocks,
+	int32 NewDoorVerticalSpacingBlocks,
+	float NewFirstDoorAngleDegrees,
+	float NewDoorAngleStepDegrees,
+	bool bPreserveCellState)
+{
+	bGenerateEntrance = NewDoorCount > 0;
+	DoorCount = FMath::Clamp(NewDoorCount, 1, 32);
+	EntranceWidthBlocks = FMath::Clamp(NewDoorWidthBlocks, 1, 64);
+	EntranceHeightBlocks = FMath::Clamp(NewDoorHeightBlocks, 1, ConeHeightBlocks);
+	DoorArchHeightBlocks = FMath::Clamp(
+		FMath::Abs(NewDoorArchHeightBlocks), 0.0f, static_cast<float>(EntranceHeightBlocks));
+	FirstDoorBottomHeightBlocks = FMath::Clamp(
+		NewFirstDoorBottomHeightBlocks, 0, ConeHeightBlocks - 1);
+	DoorVerticalSpacingBlocks = FMath::Clamp(NewDoorVerticalSpacingBlocks, 1, 128);
+	EntranceAngleDegrees = NewFirstDoorAngleDegrees;
+	DoorAngleStepDegrees = NewDoorAngleStepDegrees;
+	GenerateFloor(bPreserveCellState);
+}
+
 void AChunkedDestructibleConeStructure::SetStructureMaterials(
 	UMaterialInterface* NewConeMaterial,
 	UMaterialInterface* NewPlatformMaterial)
@@ -149,7 +207,117 @@ void AChunkedDestructibleConeStructure::SetStructureMaterials(
 bool AChunkedDestructibleConeStructure::DestroyConeCellFromHit(const FHitResult& Hit)
 {
 	FIntPoint Cell;
-	return ResolveExistingCellFromHit(Hit, Cell) && DestroyCell(Cell);
+	if (!ResolveExistingCellFromHit(Hit, Cell))
+	{
+		return false;
+	}
+
+	TArray<FIntPoint, TInlineAllocator<4>> CellsToDestroy;
+	CellsToDestroy.Add(Cell);
+
+	// A rising spiral can be several backing cells thick. Removing only the Z layer touched by a
+	// side hit leaves the other layer's coplanar outer wall behind, which reads as a detached,
+	// paper-thin face rather than a missing volume. Resolve the helical cross-section at the actual
+	// impact and remove every vertical backing layer occupied by that same section in one batch.
+	if (bGeneratePlatforms && PlatformStyle == EConeStructurePlatformStyle::RisingSpiral)
+	{
+		int32 HitX;
+		int32 HitY;
+		int32 HitZ;
+		if (DecodeCell(Cell, HitX, HitY, HitZ))
+		{
+			const FVector WorldImpact = Hit.ImpactPoint.ContainsNaN() ? Hit.Location : Hit.ImpactPoint;
+			const FVector LocalImpact = GetActorTransform().InverseTransformPosition(WorldImpact);
+			const float ImpactRadius = FVector2D(LocalImpact.X, LocalImpact.Y).Size();
+			const float ImpactAngle = FMath::Atan2(LocalImpact.Y, LocalImpact.X);
+			const float StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
+			const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
+			const float TotalSpiralAngle = UE_TWO_PI * PlatformSpiralTurns;
+			const float StartBottom = GetSpiralBottomHeight(false);
+			const float EndBottom = GetSpiralBottomHeight(true);
+			const float Thickness = GetSpiralThickness();
+			const float InnerOverlap = SpiralWallOverlapBlocks * CachedRadialBlockUnit;
+			const float OuterOverhang = PlatformOverhangBlocks * CachedRadialBlockUnit;
+			float BaseProgressAngle = FMath::Fmod(
+				Direction * (ImpactAngle - StartAngle), UE_TWO_PI);
+			if (BaseProgressAngle < 0.0f)
+			{
+				BaseProgressAngle += UE_TWO_PI;
+			}
+
+			float ClosestSpiralBottom = 0.0f;
+			float ClosestDistanceSquared = TNumericLimits<float>::Max();
+			const int32 RevolutionCount = FMath::CeilToInt(PlatformSpiralTurns);
+			for (int32 Revolution = 0; Revolution <= RevolutionCount; ++Revolution)
+			{
+				const float ProgressAngle = BaseProgressAngle + UE_TWO_PI * Revolution;
+				if (ProgressAngle > TotalSpiralAngle + KINDA_SMALL_NUMBER)
+				{
+					continue;
+				}
+
+				const float Alpha = FMath::Clamp(
+					ProgressAngle / FMath::Max(TotalSpiralAngle, KINDA_SMALL_NUMBER),
+					0.0f,
+					1.0f);
+				const float SpiralBottom = FMath::Lerp(StartBottom, EndBottom, Alpha);
+				const float SpiralTop = SpiralBottom + Thickness;
+				const float ConeRadius = GetConeOuterRadiusAtHeight(SpiralTop);
+				const float InnerRadius = FMath::Max(ConeRadius - InnerOverlap, 0.0f);
+				const float OuterRadius = ConeRadius + OuterOverhang;
+				const float RadialDistance = ImpactRadius < InnerRadius
+					? InnerRadius - ImpactRadius
+					: (ImpactRadius > OuterRadius ? ImpactRadius - OuterRadius : 0.0f);
+				const float VerticalDistance = LocalImpact.Z < SpiralBottom
+					? SpiralBottom - LocalImpact.Z
+					: (LocalImpact.Z > SpiralTop ? LocalImpact.Z - SpiralTop : 0.0f);
+				const float DistanceSquared = FMath::Square(RadialDistance) +
+					FMath::Square(VerticalDistance);
+				if (DistanceSquared < ClosestDistanceSquared)
+				{
+					ClosestDistanceSquared = DistanceSquared;
+					ClosestSpiralBottom = SpiralBottom;
+				}
+			}
+
+			const float SurfaceTolerance = FMath::Max(ConeSpacingTolerance, 0.1f);
+			if (ClosestDistanceSquared <= FMath::Square(SurfaceTolerance))
+			{
+				const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
+				const int32 MinimumZ = FMath::Clamp(
+					FMath::FloorToInt((ClosestSpiralBottom + SurfaceTolerance) / PitchZ),
+					0,
+					GridHeightBlocks - 1);
+				const int32 MaximumZ = FMath::Clamp(
+					FMath::FloorToInt(
+						(ClosestSpiralBottom + Thickness - SurfaceTolerance) / PitchZ),
+					0,
+					GridHeightBlocks - 1);
+				for (int32 Z = MinimumZ; Z <= MaximumZ; ++Z)
+				{
+					const FIntPoint LayerCell = EncodeCell(HitX, HitY, Z);
+					if (LayerCell != FIntPoint::NoneValue &&
+						Cells.IsValidIndex(ToCellIndex(LayerCell)) &&
+						Cells[ToCellIndex(LayerCell)].bExists &&
+						IsSpiralPlatformCell(HitX, HitY, Z))
+					{
+						CellsToDestroy.AddUnique(LayerCell);
+					}
+				}
+			}
+		}
+	}
+
+	bool bQueuedAnyCell = false;
+	for (const FIntPoint CellToDestroy : CellsToDestroy)
+	{
+		bQueuedAnyCell |= QueueCellDestruction(ToCellIndex(CellToDestroy), 0.0f, false);
+	}
+	if (bQueuedAnyCell)
+	{
+		ProcessQueuedDestructions(GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0);
+	}
+	return bQueuedAnyCell;
 }
 
 void AChunkedDestructibleConeStructure::ConfigureConeStructure(
@@ -187,6 +355,12 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 		FMath::Max(FMath::Abs(BlockDimensions.X), MinimumConeDimension),
 		FMath::Max(FMath::Abs(BlockDimensions.Y), MinimumConeDimension),
 		FMath::Max(FMath::Abs(BlockDimensions.Z), MinimumConeDimension));
+	MaxHorizontalBlockAspectRatio = FMath::Clamp(MaxHorizontalBlockAspectRatio, 1.0f, 16.0f);
+	const double MinimumHorizontalDimension = FMath::Min(BlockDimensions.X, BlockDimensions.Y);
+	const double MaximumHorizontalDimension =
+		MinimumHorizontalDimension * MaxHorizontalBlockAspectRatio;
+	BlockDimensions.X = FMath::Min(BlockDimensions.X, MaximumHorizontalDimension);
+	BlockDimensions.Y = FMath::Min(BlockDimensions.Y, MaximumHorizontalDimension);
 	BlockSpacing = FVector(
 		FMath::Max(BlockSpacing.X, 0.0),
 		FMath::Max(BlockSpacing.Y, 0.0),
@@ -196,17 +370,29 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 	PlatformVerticalSpacingBlocks = FMath::Clamp(PlatformVerticalSpacingBlocks, 1, 128);
 	PlatformOverhangBlocks = FMath::Clamp(FMath::Abs(PlatformOverhangBlocks), 0.0f, 32.0f);
 	PlatformThicknessBlocks = FMath::Clamp(PlatformThicknessBlocks, 1, 16);
+	SpiralEndHeightBlocks = FMath::Clamp(SpiralEndHeightBlocks, 0, ConeHeightBlocks - 1);
+	PlatformSpiralTurns = FMath::Clamp(FMath::Abs(PlatformSpiralTurns), 0.25f, 32.0f);
+	SpiralSegmentsPerTurn = FMath::Clamp(SpiralSegmentsPerTurn, 16, 256);
+	SpiralWallOverlapBlocks = FMath::Clamp(FMath::Abs(SpiralWallOverlapBlocks), 0.0f, 4.0f);
+	DoorCount = FMath::Clamp(DoorCount, 1, 32);
 	EntranceWidthBlocks = FMath::Clamp(EntranceWidthBlocks, 1, 64);
 	EntranceHeightBlocks = FMath::Clamp(EntranceHeightBlocks, 1, ConeHeightBlocks);
+	DoorArchHeightBlocks = FMath::Clamp(
+		FMath::Abs(DoorArchHeightBlocks), 0.0f, static_cast<float>(EntranceHeightBlocks));
+	FirstDoorBottomHeightBlocks = FMath::Clamp(FirstDoorBottomHeightBlocks, 0, ConeHeightBlocks - 1);
+	DoorVerticalSpacingBlocks = FMath::Clamp(DoorVerticalSpacingBlocks, 1, 128);
 	CircularSegments = FMath::Clamp(CircularSegments, 32, 512);
 	MaxRuntimeCircularSegments = FMath::Clamp(MaxRuntimeCircularSegments, 32, 512);
+	SurfaceGapSealFraction = FMath::Clamp(SurfaceGapSealFraction, 0.0f, 1.0f);
 
 	const float PitchX = BlockDimensions.X + BlockSpacing.X;
 	const float PitchY = BlockDimensions.Y + BlockSpacing.Y;
 	const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
 	const float NewRadialBlockUnit = FMath::Max(FMath::Min(PitchX, PitchY), MinimumConeDimension);
+	const bool bHasSecondaryStructure = bGeneratePlatforms &&
+		(PlatformStyle == EConeStructurePlatformStyle::RisingSpiral || PlatformCount > 0);
 	const float MaximumRadius = (BottomRadiusBlocks +
-		(bGeneratePlatforms && PlatformCount > 0 ? PlatformOverhangBlocks : 0.0f)) * NewRadialBlockUnit;
+		(bHasSecondaryStructure ? PlatformOverhangBlocks : 0.0f)) * NewRadialBlockUnit;
 	const int32 RadiusInGridCells = FMath::CeilToInt(
 		MaximumRadius / FMath::Max(FMath::Min(PitchX, PitchY), MinimumConeDimension)) + 1;
 	const int32 NewGridDiameterBlocks = RadiusInGridCells * 2 + 1;
@@ -264,30 +450,100 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 	};
 	auto IsPlatformBackingCell = [&](int32 X, int32 Y, int32 Z)
 	{
-		if (!bGeneratePlatforms || PlatformCount <= 0)
+		if (!bGeneratePlatforms)
 		{
 			return false;
 		}
-		for (int32 PlatformIndex = 0; PlatformIndex < PlatformCount; ++PlatformIndex)
+		if (PlatformStyle == EConeStructurePlatformStyle::CircularRings)
 		{
-			const int32 BottomZ = LowestPlatformHeightBlocks +
-				PlatformIndex * PlatformVerticalSpacingBlocks;
-			if (BottomZ >= NewGridHeightBlocks)
+			if (PlatformCount <= 0)
 			{
-				break;
+				return false;
 			}
-			if (Z < BottomZ || Z >= FMath::Min(BottomZ + PlatformThicknessBlocks, NewGridHeightBlocks))
+			for (int32 PlatformIndex = 0; PlatformIndex < PlatformCount; ++PlatformIndex)
+			{
+				const int32 BottomZ = LowestPlatformHeightBlocks +
+					PlatformIndex * PlatformVerticalSpacingBlocks;
+				if (BottomZ >= NewGridHeightBlocks)
+				{
+					break;
+				}
+				if (Z < BottomZ || Z >= FMath::Min(BottomZ + PlatformThicknessBlocks, NewGridHeightBlocks))
+				{
+					continue;
+				}
+				const float PlatformLocalZ = BlockDimensions.Z * 0.5f + BottomZ * PitchZ;
+				const float InnerRadius = GetInnerRadius(PlatformLocalZ);
+				const float OuterRadius = GetOuterRadius(PlatformLocalZ) +
+					PlatformOverhangBlocks * NewRadialBlockUnit;
+				float MinimumRadius;
+				float MaximumCellRadius;
+				GetRadialRange(X, Y, MinimumRadius, MaximumCellRadius);
+				return MinimumRadius <= OuterRadius && MaximumCellRadius >= InnerRadius;
+			}
+			return false;
+		}
+		if (PlatformOverhangBlocks <= KINDA_SMALL_NUMBER &&
+			SpiralWallOverlapBlocks <= KINDA_SMALL_NUMBER)
+		{
+			return false;
+		}
+
+		const float SpiralThickness = BlockDimensions.Z * PlatformThicknessBlocks +
+			BlockSpacing.Z * FMath::Max(PlatformThicknessBlocks - 1, 0);
+		const float MaximumSpiralBottom = FMath::Max(TotalConeHeight - SpiralThickness, 0.0f);
+		const float StartBottom = FMath::Clamp(
+			LowestPlatformHeightBlocks * PitchZ, 0.0f, MaximumSpiralBottom);
+		const float EndBottom = FMath::Clamp(
+			SpiralEndHeightBlocks * PitchZ, 0.0f, MaximumSpiralBottom);
+		const float CellBottom = Z * PitchZ;
+		const float CellTop = CellBottom + BlockDimensions.Z;
+		const FVector Center = GetPhysicalCenter(X, Y, Z);
+		const float CenterRadius = FVector2D(Center.X, Center.Y).Size();
+		const float HalfDiagonal = FVector2D(BlockDimensions.X, BlockDimensions.Y).Size() * 0.5f;
+		const float CellAngularHalfWidth = FMath::Atan2(
+			HalfDiagonal, FMath::Max(CenterRadius - HalfDiagonal, NewRadialBlockUnit * 0.25f));
+		const float TotalSpiralAngle = UE_TWO_PI * PlatformSpiralTurns;
+		const float HeightPerRadian = FMath::Abs(EndBottom - StartBottom) /
+			FMath::Max(TotalSpiralAngle, KINDA_SMALL_NUMBER);
+		const float HeightMargin = HeightPerRadian *
+			(CellAngularHalfWidth + UE_PI / SpiralSegmentsPerTurn) + ConeSpacingTolerance;
+		const float Angle = FMath::Atan2(Center.Y, Center.X);
+		const float StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
+		const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
+		float BaseProgressAngle = FMath::Fmod(Direction * (Angle - StartAngle), UE_TWO_PI);
+		if (BaseProgressAngle < 0.0f)
+		{
+			BaseProgressAngle += UE_TWO_PI;
+		}
+		float MinimumRadius;
+		float MaximumCellRadius;
+		GetRadialRange(X, Y, MinimumRadius, MaximumCellRadius);
+		const int32 RevolutionCount = FMath::CeilToInt(PlatformSpiralTurns);
+		for (int32 Revolution = 0; Revolution <= RevolutionCount; ++Revolution)
+		{
+			const float ProgressAngle = BaseProgressAngle + UE_TWO_PI * Revolution;
+			if (ProgressAngle > TotalSpiralAngle + CellAngularHalfWidth)
 			{
 				continue;
 			}
-			const float PlatformLocalZ = BlockDimensions.Z * 0.5f + BottomZ * PitchZ;
-			const float InnerRadius = GetInnerRadius(PlatformLocalZ);
-			const float OuterRadius = GetOuterRadius(PlatformLocalZ) +
-				PlatformOverhangBlocks * NewRadialBlockUnit;
-			float MinimumRadius;
-			float MaximumCellRadius;
-			GetRadialRange(X, Y, MinimumRadius, MaximumCellRadius);
-			return MinimumRadius <= OuterRadius && MaximumCellRadius >= InnerRadius;
+			const float Alpha = FMath::Clamp(ProgressAngle / TotalSpiralAngle, 0.0f, 1.0f);
+			const float SpiralBottom = FMath::Lerp(StartBottom, EndBottom, Alpha);
+			if (CellTop < SpiralBottom - HeightMargin ||
+				CellBottom > SpiralBottom + SpiralThickness + HeightMargin)
+			{
+				continue;
+			}
+			const float ReferenceZ = SpiralBottom + SpiralThickness;
+			const float ConeRadius = GetOuterRadius(ReferenceZ);
+			const float InnerRadius = FMath::Max(
+				ConeRadius - SpiralWallOverlapBlocks * NewRadialBlockUnit, 0.0f);
+			const float OuterRadius = ConeRadius + PlatformOverhangBlocks * NewRadialBlockUnit;
+			if (MinimumRadius <= OuterRadius + ConeSpacingTolerance &&
+				MaximumCellRadius >= InnerRadius - ConeSpacingTolerance)
+			{
+				return true;
+			}
 		}
 		return false;
 	};
@@ -517,12 +773,24 @@ bool AChunkedDestructibleConeStructure::IsConeShellCell(int32 X, int32 Y, int32 
 	float MinimumRadius;
 	float MaximumRadius;
 	GetCellRadialRange(X, Y, MinimumRadius, MaximumRadius);
-	return MinimumRadius <= OuterRadius && MaximumRadius >= InnerRadius;
+	return MinimumRadius <= OuterRadius + ConeSpacingTolerance &&
+		MaximumRadius >= InnerRadius - ConeSpacingTolerance;
 }
 
 bool AChunkedDestructibleConeStructure::IsPlatformCell(int32 X, int32 Y, int32 Z) const
 {
-	if (!bGeneratePlatforms || PlatformCount <= 0)
+	if (!bGeneratePlatforms)
+	{
+		return false;
+	}
+	return PlatformStyle == EConeStructurePlatformStyle::RisingSpiral
+		? IsSpiralPlatformCell(X, Y, Z)
+		: IsCircularPlatformCell(X, Y, Z);
+}
+
+bool AChunkedDestructibleConeStructure::IsCircularPlatformCell(int32 X, int32 Y, int32 Z) const
+{
+	if (PlatformCount <= 0)
 	{
 		return false;
 	}
@@ -551,21 +819,142 @@ bool AChunkedDestructibleConeStructure::IsPlatformCell(int32 X, int32 Y, int32 Z
 	return false;
 }
 
+float AChunkedDestructibleConeStructure::GetSpiralThickness() const
+{
+	return BlockDimensions.Z * PlatformThicknessBlocks +
+		BlockSpacing.Z * FMath::Max(PlatformThicknessBlocks - 1, 0);
+}
+
+float AChunkedDestructibleConeStructure::GetSpiralBottomHeight(bool bEnd) const
+{
+	const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
+	const float TotalHeight = BlockDimensions.Z * GridHeightBlocks +
+		BlockSpacing.Z * FMath::Max(GridHeightBlocks - 1, 0);
+	const float MaximumBottom = FMath::Max(TotalHeight - GetSpiralThickness(), 0.0f);
+	const int32 HeightBlocks = bEnd ? SpiralEndHeightBlocks : LowestPlatformHeightBlocks;
+	return FMath::Clamp(HeightBlocks * PitchZ, 0.0f, MaximumBottom);
+}
+
+bool AChunkedDestructibleConeStructure::IsSpiralPlatformCell(int32 X, int32 Y, int32 Z) const
+{
+	if (PlatformOverhangBlocks <= KINDA_SMALL_NUMBER &&
+		SpiralWallOverlapBlocks <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
+	const float SpiralThickness = GetSpiralThickness();
+	const float StartBottom = GetSpiralBottomHeight(false);
+	const float EndBottom = GetSpiralBottomHeight(true);
+	const float CellBottom = Z * PitchZ;
+	const float CellTop = CellBottom + BlockDimensions.Z;
+	const FVector Center = GetPhysicalCellLocalCenter(X, Y, Z);
+	const float CenterRadius = FVector2D(Center.X, Center.Y).Size();
+	const float HalfDiagonal = FVector2D(BlockDimensions.X, BlockDimensions.Y).Size() * 0.5f;
+	const float CellAngularHalfWidth = FMath::Atan2(
+		HalfDiagonal, FMath::Max(CenterRadius - HalfDiagonal, CachedRadialBlockUnit * 0.25f));
+	const float TotalSpiralAngle = UE_TWO_PI * PlatformSpiralTurns;
+	const float HeightPerRadian = FMath::Abs(EndBottom - StartBottom) /
+		FMath::Max(TotalSpiralAngle, KINDA_SMALL_NUMBER);
+	const float HeightMargin = HeightPerRadian *
+		(CellAngularHalfWidth + UE_PI / SpiralSegmentsPerTurn) + ConeSpacingTolerance;
+	const float Angle = FMath::Atan2(Center.Y, Center.X);
+	const float StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
+	const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
+	float BaseProgressAngle = FMath::Fmod(Direction * (Angle - StartAngle), UE_TWO_PI);
+	if (BaseProgressAngle < 0.0f)
+	{
+		BaseProgressAngle += UE_TWO_PI;
+	}
+	float MinimumRadius;
+	float MaximumRadius;
+	GetCellRadialRange(X, Y, MinimumRadius, MaximumRadius);
+	const int32 RevolutionCount = FMath::CeilToInt(PlatformSpiralTurns);
+	for (int32 Revolution = 0; Revolution <= RevolutionCount; ++Revolution)
+	{
+		const float ProgressAngle = BaseProgressAngle + UE_TWO_PI * Revolution;
+		if (ProgressAngle > TotalSpiralAngle + CellAngularHalfWidth)
+		{
+			continue;
+		}
+		const float Alpha = FMath::Clamp(ProgressAngle / TotalSpiralAngle, 0.0f, 1.0f);
+		const float SpiralBottom = FMath::Lerp(StartBottom, EndBottom, Alpha);
+		if (CellTop < SpiralBottom - HeightMargin ||
+			CellBottom > SpiralBottom + SpiralThickness + HeightMargin)
+		{
+			continue;
+		}
+		const float ConeRadius = GetConeOuterRadiusAtHeight(SpiralBottom + SpiralThickness);
+		const float InnerRadius = FMath::Max(
+			ConeRadius - SpiralWallOverlapBlocks * CachedRadialBlockUnit, 0.0f);
+		const float OuterRadius = ConeRadius + PlatformOverhangBlocks * CachedRadialBlockUnit;
+		if (MinimumRadius <= OuterRadius + ConeSpacingTolerance &&
+			MaximumRadius >= InnerRadius - ConeSpacingTolerance)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 bool AChunkedDestructibleConeStructure::IsEntranceCell(int32 X, int32 Y, int32 Z) const
 {
-	if (!bGenerateEntrance || Z < 0 || Z >= EntranceHeightBlocks)
+	if (!bGenerateEntrance || DoorCount <= 0 || Z < 0 || Z >= GridHeightBlocks)
 	{
 		return false;
 	}
 	const FVector Center = GetPhysicalCellLocalCenter(X, Y, Z);
-	const float AngleRadians = FMath::DegreesToRadians(EntranceAngleDegrees);
-	const FVector2D FrontDirection(FMath::Sin(AngleRadians), -FMath::Cos(AngleRadians));
-	const FVector2D RightDirection(FMath::Cos(AngleRadians), FMath::Sin(AngleRadians));
-	const FVector2D Position(Center.X, Center.Y);
-	const float ForwardDistance = FVector2D::DotProduct(Position, FrontDirection);
-	const float LateralDistance = FMath::Abs(FVector2D::DotProduct(Position, RightDirection));
+	const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
+	const float CellBottom = Z * PitchZ;
+	const float CellTop = CellBottom + BlockDimensions.Z;
+	const float DoorHeight = BlockDimensions.Z * EntranceHeightBlocks +
+		BlockSpacing.Z * FMath::Max(EntranceHeightBlocks - 1, 0);
+	const float ArchHeight = FMath::Min(DoorArchHeightBlocks * PitchZ, DoorHeight);
+	const float StraightHeight = DoorHeight - ArchHeight;
 	const float OpeningHalfWidth = EntranceWidthBlocks * CachedRadialBlockUnit * 0.5f;
-	return ForwardDistance >= 0.0f && LateralDistance < OpeningHalfWidth;
+	const FVector2D Position(Center.X, Center.Y);
+	for (int32 DoorIndex = 0; DoorIndex < DoorCount; ++DoorIndex)
+	{
+		const int32 DoorBottomBlock = FirstDoorBottomHeightBlocks +
+			DoorIndex * DoorVerticalSpacingBlocks;
+		if (DoorBottomBlock >= GridHeightBlocks)
+		{
+			break;
+		}
+		const float DoorBottom = DoorBottomBlock * PitchZ;
+		const float DoorTop = DoorBottom + DoorHeight;
+		if (CellTop <= DoorBottom + ConeSpacingTolerance ||
+			CellBottom >= DoorTop - ConeSpacingTolerance)
+		{
+			continue;
+		}
+
+		const float AngleRadians = FMath::DegreesToRadians(
+			EntranceAngleDegrees + DoorIndex * DoorAngleStepDegrees);
+		const FVector2D FrontDirection(FMath::Sin(AngleRadians), -FMath::Cos(AngleRadians));
+		const FVector2D RightDirection(FMath::Cos(AngleRadians), FMath::Sin(AngleRadians));
+		const float ForwardDistance = FVector2D::DotProduct(Position, FrontDirection);
+		if (ForwardDistance < 0.0f)
+		{
+			continue;
+		}
+		const float LateralDistance = FMath::Abs(FVector2D::DotProduct(Position, RightDirection));
+		const float RelativeSampleHeight = FMath::Clamp(
+			Center.Z - DoorBottom, 0.0f, DoorHeight);
+		float AvailableHalfWidth = OpeningHalfWidth;
+		if (RelativeSampleHeight > StraightHeight && ArchHeight > KINDA_SMALL_NUMBER)
+		{
+			const float ArchAlpha = FMath::Clamp(
+				(RelativeSampleHeight - StraightHeight) / ArchHeight, 0.0f, 1.0f);
+			AvailableHalfWidth *= FMath::Sqrt(FMath::Max(1.0f - ArchAlpha * ArchAlpha, 0.0f));
+		}
+		if (LateralDistance < AvailableHalfWidth - ConeSpacingTolerance)
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 bool AChunkedDestructibleConeStructure::ShouldCellExistInGeneratedShape(FIntPoint Cell) const
@@ -638,44 +1027,64 @@ void AChunkedDestructibleConeStructure::AppendClippedSurfaceTriangle(
 		return;
 	}
 	const FVector3d TriangleMin(
-		FMath::Min3(A.X, B.X, C.X), FMath::Min3(A.Y, B.Y, C.Y), 0.0);
+		FMath::Min3(A.X, B.X, C.X),
+		FMath::Min3(A.Y, B.Y, C.Y),
+		FMath::Min3(A.Z, B.Z, C.Z));
 	const FVector3d TriangleMax(
-		FMath::Max3(A.X, B.X, C.X), FMath::Max3(A.Y, B.Y, C.Y), 0.0);
+		FMath::Max3(A.X, B.X, C.X),
+		FMath::Max3(A.Y, B.Y, C.Y),
+		FMath::Max3(A.Z, B.Z, C.Z));
 	const double PitchX = BlockDimensions.X + BlockSpacing.X;
 	const double PitchY = BlockDimensions.Y + BlockSpacing.Y;
 	const int32 MinimumX = FMath::Clamp(
-		FMath::FloorToInt((TriangleMin.X - ConeGridLocalMin.X) / PitchX), 0, GridDiameterBlocks - 1);
+		FMath::FloorToInt((TriangleMin.X - ConeGridLocalMin.X) / PitchX) - 1,
+		0, GridDiameterBlocks - 1);
 	const int32 MaximumX = FMath::Clamp(
-		FMath::FloorToInt((TriangleMax.X - ConeGridLocalMin.X) / PitchX), 0, GridDiameterBlocks - 1);
+		FMath::FloorToInt((TriangleMax.X - ConeGridLocalMin.X) / PitchX) + 1,
+		0, GridDiameterBlocks - 1);
 	const int32 MinimumY = FMath::Clamp(
-		FMath::FloorToInt((TriangleMin.Y - ConeGridLocalMin.Y) / PitchY), 0, GridDiameterBlocks - 1);
+		FMath::FloorToInt((TriangleMin.Y - ConeGridLocalMin.Y) / PitchY) - 1,
+		0, GridDiameterBlocks - 1);
 	const int32 MaximumY = FMath::Clamp(
-		FMath::FloorToInt((TriangleMax.Y - ConeGridLocalMin.Y) / PitchY), 0, GridDiameterBlocks - 1);
+		FMath::FloorToInt((TriangleMax.Y - ConeGridLocalMin.Y) / PitchY) + 1,
+		0, GridDiameterBlocks - 1);
 	const int32 SafeChunkSide = GetEffectiveConeChunkSideLength();
 	const float SafeUVScale = FMath::Max(UVWorldUnits, 1.0f);
+	const double SealFraction = FMath::Clamp(SurfaceGapSealFraction, 0.0f, 1.0f);
+	const double VisualHalfX = BlockDimensions.X * 0.5 + BlockSpacing.X * 0.5 * SealFraction;
+	const double VisualHalfY = BlockDimensions.Y * 0.5 + BlockSpacing.Y * 0.5 * SealFraction;
+	const double VisualHalfZ = BlockDimensions.Z * 0.5 + BlockSpacing.Z * 0.5 * SealFraction;
 
 	for (int32 Y = MinimumY; Y <= MaximumY; ++Y)
 	{
 		for (int32 X = MinimumX; X <= MaximumX; ++X)
 		{
 			const FIntPoint Cell = EncodeCell(X, Y, LogicalZ);
+			const bool bBuildingSurfaceFlash = !SurfaceFlashCellFilter.IsEmpty();
+			const bool bSelectedFlashCell = bBuildingSurfaceFlash && SurfaceFlashCellFilter.Contains(Cell);
 			if (Cell == FIntPoint::NoneValue ||
 				Cell.X / SafeChunkSide + (Cell.Y / SafeChunkSide) * ChunkCount.X != ChunkIndex ||
-				!Cells.IsValidIndex(ToCellIndex(Cell)) || !Cells[ToCellIndex(Cell)].bExists)
+				!Cells.IsValidIndex(ToCellIndex(Cell)) ||
+				(bBuildingSurfaceFlash && !bSelectedFlashCell) ||
+				(!Cells[ToCellIndex(Cell)].bExists && !bSelectedFlashCell))
 			{
 				continue;
 			}
 
 			const FVector CellCenter = GetCellLocalCenter(Cell);
-			const double CellMinX = CellCenter.X - BlockDimensions.X * 0.5;
-			const double CellMaxX = CellCenter.X + BlockDimensions.X * 0.5;
-			const double CellMinY = CellCenter.Y - BlockDimensions.Y * 0.5;
-			const double CellMaxY = CellCenter.Y + BlockDimensions.Y * 0.5;
+			const double CellMinX = CellCenter.X - VisualHalfX;
+			const double CellMaxX = CellCenter.X + VisualHalfX;
+			const double CellMinY = CellCenter.Y - VisualHalfY;
+			const double CellMaxY = CellCenter.Y + VisualHalfY;
+			const double CellMinZ = CellCenter.Z - VisualHalfZ;
+			const double CellMaxZ = CellCenter.Z + VisualHalfZ;
 			TArray<FVector3d> Polygon = { A, B, C };
 			ClipSurfacePolygonToPlane(Polygon, 0, CellMinX, true);
 			ClipSurfacePolygonToPlane(Polygon, 0, CellMaxX, false);
 			ClipSurfacePolygonToPlane(Polygon, 1, CellMinY, true);
 			ClipSurfacePolygonToPlane(Polygon, 1, CellMaxY, false);
+			ClipSurfacePolygonToPlane(Polygon, 2, CellMinZ, true);
+			ClipSurfacePolygonToPlane(Polygon, 2, CellMaxZ, false);
 			RemoveDuplicateSurfacePoints(Polygon);
 			if (Polygon.Num() < 3)
 			{
@@ -712,6 +1121,33 @@ void AChunkedDestructibleConeStructure::AppendClippedSurfaceTriangle(
 					MakeUV(PointA), MakeUV(PointB), MakeUV(PointC));
 			}
 		}
+	}
+}
+
+void AChunkedDestructibleConeStructure::AppendClippedSurfaceTriangleAcrossLayers(
+	FDynamicMesh3& Mesh,
+	int32 ChunkIndex,
+	const FVector3d& A,
+	const FVector3d& B,
+	const FVector3d& C,
+	const FVector3f& Normal,
+	int32 MaterialIndex) const
+{
+	if (GridHeightBlocks <= 0)
+	{
+		return;
+	}
+	const double PitchZ = BlockDimensions.Z + BlockSpacing.Z;
+	const double MinimumTriangleZ = FMath::Min3(A.Z, B.Z, C.Z);
+	const double MaximumTriangleZ = FMath::Max3(A.Z, B.Z, C.Z);
+	const int32 MinimumZ = FMath::Clamp(
+		FMath::FloorToInt(MinimumTriangleZ / PitchZ) - 1, 0, GridHeightBlocks - 1);
+	const int32 MaximumZ = FMath::Clamp(
+		FMath::FloorToInt(MaximumTriangleZ / PitchZ) + 1, 0, GridHeightBlocks - 1);
+	for (int32 LogicalZ = MinimumZ; LogicalZ <= MaximumZ; ++LogicalZ)
+	{
+		AppendClippedSurfaceTriangle(
+			Mesh, ChunkIndex, LogicalZ, A, B, C, Normal, MaterialIndex);
 	}
 }
 
@@ -772,10 +1208,13 @@ void AChunkedDestructibleConeStructure::AppendConeSurfaces(
 		BlockSpacing.Z * FMath::Max(GridHeightBlocks - 1, 0);
 	const float RadiusSlope = (TopRadiusBlocks - BottomRadiusBlocks) *
 		CachedRadialBlockUnit / FMath::Max(TotalHeight, MinimumConeDimension);
+	const float VerticalSeal = BlockSpacing.Z * 0.5f *
+		FMath::Clamp(SurfaceGapSealFraction, 0.0f, 1.0f);
 	for (int32 Z = MinLogicalZ; Z < MaxLogicalZ; ++Z)
 	{
-		const float BottomZ = Z * PitchZ;
-		const float TopZ = BottomZ + BlockDimensions.Z;
+		const float BottomZ = FMath::Max(Z * PitchZ - VerticalSeal, 0.0f);
+		const float TopZ = FMath::Min(
+			Z * PitchZ + BlockDimensions.Z + VerticalSeal, TotalHeight);
 		const float OuterBottomRadius = GetConeOuterRadiusAtHeight(BottomZ);
 		const float OuterTopRadius = GetConeOuterRadiusAtHeight(TopZ);
 		const float InnerBottomRadius = GetConeInnerRadiusAtHeight(BottomZ);
@@ -822,7 +1261,16 @@ void AChunkedDestructibleConeStructure::AppendPlatformSurfaces(
 	FDynamicMesh3& Mesh,
 	int32 ChunkIndex) const
 {
-	if (!bGeneratePlatforms || PlatformCount <= 0 || ChunkCount.X <= 0)
+	if (!bGeneratePlatforms || ChunkCount.X <= 0)
+	{
+		return;
+	}
+	if (PlatformStyle == EConeStructurePlatformStyle::RisingSpiral)
+	{
+		AppendSpiralSurfaces(Mesh, ChunkIndex);
+		return;
+	}
+	if (PlatformCount <= 0)
 	{
 		return;
 	}
@@ -832,6 +1280,8 @@ void AChunkedDestructibleConeStructure::AppendPlatformSurfaces(
 	const int32 MinLogicalZ = ChunkY * SafeChunkSide;
 	const int32 MaxLogicalZ = FMath::Min(MinLogicalZ + SafeChunkSide, GridHeightBlocks);
 	const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
+	const float VerticalSeal = BlockSpacing.Z * 0.5f *
+		FMath::Clamp(SurfaceGapSealFraction, 0.0f, 1.0f);
 	for (int32 PlatformIndex = 0; PlatformIndex < PlatformCount; ++PlatformIndex)
 	{
 		const int32 PlatformBottomZ = LowestPlatformHeightBlocks +
@@ -854,9 +1304,13 @@ void AChunkedDestructibleConeStructure::AppendPlatformSurfaces(
 		for (int32 Z = FMath::Max(PlatformBottomZ, MinLogicalZ);
 			Z <= FMath::Min(PlatformTopZ, MaxLogicalZ - 1); ++Z)
 		{
-			const float BottomZ = Z * PitchZ;
-			const float TopZ = BottomZ + BlockDimensions.Z;
-			const bool bSeparateLayer = BlockSpacing.Z > ConeSpacingTolerance;
+			const float BottomZ = FMath::Max(Z * PitchZ - VerticalSeal, 0.0f);
+			const float TopZ = FMath::Min(
+				Z * PitchZ + BlockDimensions.Z + VerticalSeal,
+				BlockDimensions.Z * GridHeightBlocks +
+					BlockSpacing.Z * FMath::Max(GridHeightBlocks - 1, 0));
+			const bool bSeparateLayer = BlockSpacing.Z > ConeSpacingTolerance &&
+				SurfaceGapSealFraction < 1.0f - KINDA_SMALL_NUMBER;
 			if (Z == PlatformBottomZ || bSeparateLayer)
 			{
 				AppendAnnularSurface(Mesh, ChunkIndex, Z, BottomZ,
@@ -897,6 +1351,804 @@ void AChunkedDestructibleConeStructure::AppendPlatformSurfaces(
 				}
 			}
 		}
+	}
+}
+
+void AChunkedDestructibleConeStructure::AppendSpiralSurfaces(
+	FDynamicMesh3& Mesh,
+	int32 ChunkIndex) const
+{
+	if (!bGeneratePlatforms || PlatformStyle != EConeStructurePlatformStyle::RisingSpiral ||
+		ChunkCount.X <= 0 ||
+		(PlatformOverhangBlocks <= KINDA_SMALL_NUMBER &&
+			SpiralWallOverlapBlocks <= KINDA_SMALL_NUMBER))
+	{
+		return;
+	}
+
+	const float StartBottom = GetSpiralBottomHeight(false);
+	const float EndBottom = GetSpiralBottomHeight(true);
+	const float Thickness = GetSpiralThickness();
+	const float TotalAngle = UE_TWO_PI * PlatformSpiralTurns;
+	const float StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
+	const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
+	const int32 SegmentCount = FMath::Clamp(
+		FMath::CeilToInt(PlatformSpiralTurns * SpiralSegmentsPerTurn), 1, 8192);
+	const float RadialOverhang = PlatformOverhangBlocks * CachedRadialBlockUnit;
+	const float WallOverlap = SpiralWallOverlapBlocks * CachedRadialBlockUnit;
+
+	auto MakeSection = [&](int32 SectionIndex,
+		FVector3d& OutInnerBottom,
+		FVector3d& OutOuterBottom,
+		FVector3d& OutInnerTop,
+		FVector3d& OutOuterTop)
+	{
+		const float Alpha = static_cast<float>(SectionIndex) / SegmentCount;
+		const double Angle = StartAngle + Direction * TotalAngle * Alpha;
+		const float BottomZ = FMath::Lerp(StartBottom, EndBottom, Alpha);
+		const float TopZ = BottomZ + Thickness;
+		const float ConeRadius = GetConeOuterRadiusAtHeight(TopZ);
+		const float InnerRadius = FMath::Max(ConeRadius - WallOverlap, 0.0f);
+		const float OuterRadius = ConeRadius + RadialOverhang;
+		const double CosAngle = FMath::Cos(Angle);
+		const double SinAngle = FMath::Sin(Angle);
+		OutInnerBottom = FVector3d(CosAngle * InnerRadius, SinAngle * InnerRadius, BottomZ);
+		OutOuterBottom = FVector3d(CosAngle * OuterRadius, SinAngle * OuterRadius, BottomZ);
+		OutInnerTop = FVector3d(CosAngle * InnerRadius, SinAngle * InnerRadius, TopZ);
+		OutOuterTop = FVector3d(CosAngle * OuterRadius, SinAngle * OuterRadius, TopZ);
+	};
+
+	auto AppendOrientedTriangle = [&](FVector3d A, FVector3d B, FVector3d C, const FVector3d& DesiredNormal)
+	{
+		FVector3d GeometricNormal = FVector3d::CrossProduct(B - A, C - A);
+		if (GeometricNormal.SquaredLength() <= FMath::Square(ConeSurfaceTolerance))
+		{
+			return;
+		}
+		if (FVector3d::DotProduct(GeometricNormal, DesiredNormal) < 0.0)
+		{
+			Swap(B, C);
+			GeometricNormal = -GeometricNormal;
+		}
+		const FVector3d UnitNormal = GeometricNormal.GetSafeNormal();
+		AppendClippedSurfaceTriangleAcrossLayers(
+			Mesh, ChunkIndex, A, B, C,
+			FVector3f(
+				static_cast<float>(UnitNormal.X),
+				static_cast<float>(UnitNormal.Y),
+				static_cast<float>(UnitNormal.Z)),
+			1);
+	};
+
+	for (int32 SegmentIndex = 0; SegmentIndex < SegmentCount; ++SegmentIndex)
+	{
+		FVector3d InnerBottomA;
+		FVector3d OuterBottomA;
+		FVector3d InnerTopA;
+		FVector3d OuterTopA;
+		FVector3d InnerBottomB;
+		FVector3d OuterBottomB;
+		FVector3d InnerTopB;
+		FVector3d OuterTopB;
+		MakeSection(SegmentIndex,
+			InnerBottomA, OuterBottomA, InnerTopA, OuterTopA);
+		MakeSection(SegmentIndex + 1,
+			InnerBottomB, OuterBottomB, InnerTopB, OuterTopB);
+
+		const float MidAlpha = (SegmentIndex + 0.5f) / SegmentCount;
+		const double MidAngle = StartAngle + Direction * TotalAngle * MidAlpha;
+		const FVector3d OutwardNormal(FMath::Cos(MidAngle), FMath::Sin(MidAngle), 0.0);
+		const FVector3d TangentNormal(
+			Direction * -FMath::Sin(MidAngle),
+			Direction * FMath::Cos(MidAngle),
+			0.0);
+
+		AppendOrientedTriangle(InnerTopA, OuterTopA, OuterTopB, FVector3d::UnitZ());
+		AppendOrientedTriangle(InnerTopA, OuterTopB, InnerTopB, FVector3d::UnitZ());
+		AppendOrientedTriangle(InnerBottomA, OuterBottomB, OuterBottomA, -FVector3d::UnitZ());
+		AppendOrientedTriangle(InnerBottomA, InnerBottomB, OuterBottomB, -FVector3d::UnitZ());
+		AppendOrientedTriangle(OuterBottomA, OuterTopB, OuterTopA, OutwardNormal);
+		AppendOrientedTriangle(OuterBottomA, OuterBottomB, OuterTopB, OutwardNormal);
+		AppendOrientedTriangle(InnerBottomA, InnerTopA, InnerTopB, -OutwardNormal);
+		AppendOrientedTriangle(InnerBottomA, InnerTopB, InnerBottomB, -OutwardNormal);
+
+		if (SegmentIndex == 0)
+		{
+			AppendOrientedTriangle(InnerBottomA, OuterBottomA, OuterTopA, -TangentNormal);
+			AppendOrientedTriangle(InnerBottomA, OuterTopA, InnerTopA, -TangentNormal);
+		}
+		if (SegmentIndex + 1 == SegmentCount)
+		{
+			AppendOrientedTriangle(InnerBottomB, OuterTopB, OuterBottomB, TangentNormal);
+			AppendOrientedTriangle(InnerBottomB, InnerTopB, OuterTopB, TangentNormal);
+		}
+	}
+}
+
+bool AChunkedDestructibleConeStructure::IsPointInsideRenderedStructure(
+	const FVector3d& LocalPoint) const
+{
+	const double Radius = FVector2d(LocalPoint.X, LocalPoint.Y).Length();
+	const double Angle = FMath::Atan2(LocalPoint.Y, LocalPoint.X);
+	const double PitchZ = BlockDimensions.Z + BlockSpacing.Z;
+	const double TotalHeight = BlockDimensions.Z * GridHeightBlocks +
+		BlockSpacing.Z * FMath::Max(GridHeightBlocks - 1, 0);
+	const double VerticalSeal = BlockSpacing.Z * 0.5 *
+		FMath::Clamp(SurfaceGapSealFraction, 0.0f, 1.0f);
+	constexpr double BoundaryTolerance = 0.01;
+
+	auto IsInsideRenderedLayer = [&](int32 LayerIndex)
+	{
+		if (LayerIndex < 0 || LayerIndex >= GridHeightBlocks)
+		{
+			return false;
+		}
+		const double LayerBottom = FMath::Max(LayerIndex * PitchZ - VerticalSeal, 0.0);
+		const double LayerTop = FMath::Min(
+			LayerIndex * PitchZ + BlockDimensions.Z + VerticalSeal,
+			TotalHeight);
+		return LocalPoint.Z >= LayerBottom - BoundaryTolerance &&
+			LocalPoint.Z <= LayerTop + BoundaryTolerance;
+	};
+
+	auto GetFacetedRadius = [](double VertexRadius, double SampleAngle, int32 SegmentCount)
+	{
+		if (VertexRadius <= 0.0 || SegmentCount < 3)
+		{
+			return FMath::Max(VertexRadius, 0.0);
+		}
+		const double Step = UE_TWO_PI / SegmentCount;
+		double WrappedAngle = FMath::Fmod(SampleAngle, UE_TWO_PI);
+		if (WrappedAngle < 0.0)
+		{
+			WrappedAngle += UE_TWO_PI;
+		}
+		const int32 SegmentIndex = FMath::Clamp(
+			FMath::FloorToInt(WrappedAngle / Step), 0, SegmentCount - 1);
+		const double SegmentCenter = (SegmentIndex + 0.5) * Step;
+		const double AngleFromCenter = WrappedAngle - SegmentCenter;
+		return VertexRadius * FMath::Cos(Step * 0.5) /
+			FMath::Max(FMath::Cos(AngleFromCenter), UE_DOUBLE_SMALL_NUMBER);
+	};
+
+	const int32 CircularSegmentCount = GetEffectiveCircularSegments();
+	if (LocalPoint.Z >= -BoundaryTolerance &&
+		LocalPoint.Z <= TotalHeight + BoundaryTolerance)
+	{
+		const int32 BaseLayer = FMath::FloorToInt(LocalPoint.Z / FMath::Max(PitchZ, 1.0));
+		if (IsInsideRenderedLayer(BaseLayer) || IsInsideRenderedLayer(BaseLayer - 1) ||
+			IsInsideRenderedLayer(BaseLayer + 1))
+		{
+			const double SafeZ = FMath::Clamp(LocalPoint.Z, 0.0, TotalHeight);
+			const double OuterRadius = GetFacetedRadius(
+				GetConeOuterRadiusAtHeight(SafeZ), Angle, CircularSegmentCount);
+			const double InnerRadius = GetFacetedRadius(
+				GetConeInnerRadiusAtHeight(SafeZ), Angle, CircularSegmentCount);
+			if (Radius >= InnerRadius - BoundaryTolerance &&
+				Radius <= OuterRadius + BoundaryTolerance)
+			{
+				return true;
+			}
+		}
+	}
+
+	if (!bGeneratePlatforms)
+	{
+		return false;
+	}
+
+	if (PlatformStyle == EConeStructurePlatformStyle::CircularRings)
+	{
+		for (int32 PlatformIndex = 0; PlatformIndex < PlatformCount; ++PlatformIndex)
+		{
+			const int32 PlatformBottomLayer = LowestPlatformHeightBlocks +
+				PlatformIndex * PlatformVerticalSpacingBlocks;
+			if (PlatformBottomLayer >= GridHeightBlocks)
+			{
+				break;
+			}
+			const int32 PlatformTopLayer = FMath::Min(
+				PlatformBottomLayer + PlatformThicknessBlocks - 1,
+				GridHeightBlocks - 1);
+			bool bInsidePlatformHeight = false;
+			for (int32 LayerIndex = PlatformBottomLayer;
+				LayerIndex <= PlatformTopLayer && !bInsidePlatformHeight;
+				++LayerIndex)
+			{
+				bInsidePlatformHeight = IsInsideRenderedLayer(LayerIndex);
+			}
+			if (!bInsidePlatformHeight)
+			{
+				continue;
+			}
+
+			const double ReferenceZ = BlockDimensions.Z * 0.5 +
+				PlatformBottomLayer * PitchZ;
+			const double InnerRadius = GetFacetedRadius(
+				GetConeInnerRadiusAtHeight(ReferenceZ), Angle, CircularSegmentCount);
+			const double OuterRadius = GetFacetedRadius(
+				GetConeOuterRadiusAtHeight(ReferenceZ) +
+					PlatformOverhangBlocks * CachedRadialBlockUnit,
+				Angle,
+				CircularSegmentCount);
+			if (Radius >= InnerRadius - BoundaryTolerance &&
+				Radius <= OuterRadius + BoundaryTolerance)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	if ((PlatformOverhangBlocks <= KINDA_SMALL_NUMBER &&
+			SpiralWallOverlapBlocks <= KINDA_SMALL_NUMBER) ||
+		PlatformSpiralTurns <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	const double StartBottom = GetSpiralBottomHeight(false);
+	const double EndBottom = GetSpiralBottomHeight(true);
+	const double Thickness = GetSpiralThickness();
+	const double TotalSpiralAngle = UE_TWO_PI * PlatformSpiralTurns;
+	const double StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
+	const double Direction = bPlatformSpiralClockwise ? -1.0 : 1.0;
+	double BaseProgressAngle = FMath::Fmod(Direction * (Angle - StartAngle), UE_TWO_PI);
+	if (BaseProgressAngle < 0.0)
+	{
+		BaseProgressAngle += UE_TWO_PI;
+	}
+	const int32 SpiralSegmentCount = FMath::Clamp(
+		FMath::CeilToInt(PlatformSpiralTurns * SpiralSegmentsPerTurn), 1, 8192);
+	const double SegmentProgress = TotalSpiralAngle / SpiralSegmentCount;
+	const int32 RevolutionCount = FMath::CeilToInt(PlatformSpiralTurns);
+
+	auto IntersectPolarEdgeRadius = [](double RadiusA, double AngleA, double RadiusB,
+		double AngleB, double RayAngle)
+	{
+		const FVector2d PointA(FMath::Cos(AngleA) * RadiusA, FMath::Sin(AngleA) * RadiusA);
+		const FVector2d PointB(FMath::Cos(AngleB) * RadiusB, FMath::Sin(AngleB) * RadiusB);
+		const FVector2d Edge = PointB - PointA;
+		const FVector2d Ray(FMath::Cos(RayAngle), FMath::Sin(RayAngle));
+		const double Denominator = Edge.X * Ray.Y - Edge.Y * Ray.X;
+		if (FMath::Abs(Denominator) <= UE_DOUBLE_SMALL_NUMBER)
+		{
+			return (RadiusA + RadiusB) * 0.5;
+		}
+		const double Numerator = PointA.X * Ray.Y - PointA.Y * Ray.X;
+		const double EdgeAlpha = FMath::Clamp(-Numerator / Denominator, 0.0, 1.0);
+		return FVector2d::DotProduct(PointA + Edge * EdgeAlpha, Ray);
+	};
+
+	for (int32 Revolution = 0; Revolution <= RevolutionCount; ++Revolution)
+	{
+		const double ProgressAngle = BaseProgressAngle + UE_TWO_PI * Revolution;
+		if (ProgressAngle < -BoundaryTolerance ||
+			ProgressAngle > TotalSpiralAngle + BoundaryTolerance)
+		{
+			continue;
+		}
+		const int32 SegmentIndex = FMath::Clamp(
+			FMath::FloorToInt(ProgressAngle / FMath::Max(SegmentProgress, UE_DOUBLE_SMALL_NUMBER)),
+			0,
+			SpiralSegmentCount - 1);
+		const double ProgressA = SegmentIndex * SegmentProgress;
+		const double ProgressB = (SegmentIndex + 1) * SegmentProgress;
+		const double AlphaA = ProgressA / TotalSpiralAngle;
+		const double AlphaB = ProgressB / TotalSpiralAngle;
+		const double SegmentAlpha = FMath::Clamp(
+			(ProgressAngle - ProgressA) / FMath::Max(ProgressB - ProgressA, UE_DOUBLE_SMALL_NUMBER),
+			0.0,
+			1.0);
+		const double BottomA = FMath::Lerp(StartBottom, EndBottom, AlphaA);
+		const double BottomB = FMath::Lerp(StartBottom, EndBottom, AlphaB);
+		const double BottomZ = FMath::Lerp(BottomA, BottomB, SegmentAlpha);
+		const double TopZ = BottomZ + Thickness;
+		if (LocalPoint.Z < BottomZ - BoundaryTolerance ||
+			LocalPoint.Z > TopZ + BoundaryTolerance)
+		{
+			continue;
+		}
+
+		const double AngleA = StartAngle + Direction * ProgressA;
+		const double AngleB = StartAngle + Direction * ProgressB;
+		const double OuterRadiusA = GetConeOuterRadiusAtHeight(BottomA + Thickness) +
+			PlatformOverhangBlocks * CachedRadialBlockUnit;
+		const double OuterRadiusB = GetConeOuterRadiusAtHeight(BottomB + Thickness) +
+			PlatformOverhangBlocks * CachedRadialBlockUnit;
+		const double InnerRadiusA = FMath::Max(
+			GetConeOuterRadiusAtHeight(BottomA + Thickness) -
+				SpiralWallOverlapBlocks * CachedRadialBlockUnit,
+			0.0f);
+		const double InnerRadiusB = FMath::Max(
+			GetConeOuterRadiusAtHeight(BottomB + Thickness) -
+				SpiralWallOverlapBlocks * CachedRadialBlockUnit,
+			0.0f);
+		const double OuterRadius = IntersectPolarEdgeRadius(
+			OuterRadiusA, AngleA, OuterRadiusB, AngleB, Angle);
+		const double InnerRadius = IntersectPolarEdgeRadius(
+			InnerRadiusA, AngleA, InnerRadiusB, AngleB, Angle);
+		if (Radius >= InnerRadius - BoundaryTolerance &&
+			Radius <= OuterRadius + BoundaryTolerance)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void AChunkedDestructibleConeStructure::AppendSampledDestructionCutFace(
+	FDynamicMesh3& Mesh,
+	const FVector3d& A,
+	const FVector3d& B,
+	const FVector3d& C,
+	const FVector3d& D,
+	const FVector3f& Normal,
+	int32 MaterialIndex) const
+{
+	const FVector3d AxisU = B - A;
+	const FVector3d AxisV = D - A;
+	const double LengthU = AxisU.Length();
+	const double LengthV = AxisV.Length();
+	if (LengthU <= ConeSurfaceTolerance || LengthV <= ConeSurfaceTolerance)
+	{
+		return;
+	}
+	(void)C;
+
+	const double TargetEdgeLength = FMath::Clamp(
+		static_cast<double>(CachedRadialBlockUnit) * 0.25,
+		10.0,
+		50.0);
+	const int32 SubdivisionsU = FMath::Clamp(FMath::CeilToInt(LengthU / TargetEdgeLength), 1, 48);
+	const int32 SubdivisionsV = FMath::Clamp(FMath::CeilToInt(LengthV / TargetEdgeLength), 1, 48);
+	const float SafeUVScale = FMath::Max(UVWorldUnits, 1.0f);
+
+	auto MakeUV = [Normal, SafeUVScale](const FVector3d& Point)
+	{
+		if (FMath::Abs(Normal.Z) > 0.75f)
+		{
+			return FVector2f(Point.X / SafeUVScale, Point.Y / SafeUVScale);
+		}
+		return FMath::Abs(Normal.X) > FMath::Abs(Normal.Y)
+			? FVector2f(Point.Y / SafeUVScale, Point.Z / SafeUVScale)
+			: FVector2f(Point.X / SafeUVScale, Point.Z / SafeUVScale);
+	};
+
+	auto FindBoundary = [this](const FVector3d& First, const FVector3d& Second, bool bFirstInside)
+	{
+		FVector3d Inside = bFirstInside ? First : Second;
+		FVector3d Outside = bFirstInside ? Second : First;
+		for (int32 Iteration = 0; Iteration < 10; ++Iteration)
+		{
+			const FVector3d Midpoint = (Inside + Outside) * 0.5;
+			if (IsPointInsideRenderedStructure(Midpoint))
+			{
+				Inside = Midpoint;
+			}
+			else
+			{
+				Outside = Midpoint;
+			}
+		}
+		return (Inside + Outside) * 0.5;
+	};
+
+	auto AppendPolygon = [&](TArray<FVector3d>& Polygon)
+	{
+		RemoveDuplicateSurfacePoints(Polygon);
+		if (Polygon.Num() < 3)
+		{
+			return;
+		}
+		for (int32 PointIndex = 1; PointIndex + 1 < Polygon.Num(); ++PointIndex)
+		{
+			FVector3d PointA = Polygon[0];
+			FVector3d PointB = Polygon[PointIndex];
+			FVector3d PointC = Polygon[PointIndex + 1];
+			const FVector3d GeometricNormal = FVector3d::CrossProduct(PointB - PointA, PointC - PointA);
+			if (GeometricNormal.SquaredLength() <= FMath::Square(ConeSurfaceTolerance))
+			{
+				continue;
+			}
+			if (FVector3d::DotProduct(GeometricNormal, FVector3d(Normal)) < 0.0)
+			{
+				Swap(PointB, PointC);
+			}
+			AppendMeshTriangle(
+				Mesh,
+				PointA,
+				PointB,
+				PointC,
+				Normal,
+				MaterialIndex,
+				MakeUV(PointA),
+				MakeUV(PointB),
+				MakeUV(PointC));
+		}
+	};
+
+	auto AppendClippedTriangle = [&](const FVector3d& PointA, const FVector3d& PointB,
+		const FVector3d& PointC)
+	{
+		const FVector3d Points[] = { PointA, PointB, PointC };
+		const bool bInside[] = {
+			IsPointInsideRenderedStructure(PointA),
+			IsPointInsideRenderedStructure(PointB),
+			IsPointInsideRenderedStructure(PointC)
+		};
+		const int32 InsideCount = static_cast<int32>(bInside[0]) +
+			static_cast<int32>(bInside[1]) + static_cast<int32>(bInside[2]);
+		TArray<FVector3d> Polygon;
+		if (InsideCount == 0)
+		{
+			const FVector3d Center = (PointA + PointB + PointC) / 3.0;
+			if (!IsPointInsideRenderedStructure(Center))
+			{
+				return;
+			}
+			Polygon.Add(FindBoundary(Center, PointA, true));
+			Polygon.Add(FindBoundary(Center, PointB, true));
+			Polygon.Add(FindBoundary(Center, PointC, true));
+			AppendPolygon(Polygon);
+			return;
+		}
+
+		for (int32 CurrentIndex = 0; CurrentIndex < 3; ++CurrentIndex)
+		{
+			const int32 PreviousIndex = (CurrentIndex + 2) % 3;
+			if (bInside[PreviousIndex] != bInside[CurrentIndex])
+			{
+				Polygon.Add(FindBoundary(
+					Points[PreviousIndex],
+					Points[CurrentIndex],
+					bInside[PreviousIndex]));
+			}
+			if (bInside[CurrentIndex])
+			{
+				Polygon.Add(Points[CurrentIndex]);
+			}
+		}
+		AppendPolygon(Polygon);
+	};
+
+	for (int32 VIndex = 0; VIndex < SubdivisionsV; ++VIndex)
+	{
+		const double V0 = static_cast<double>(VIndex) / SubdivisionsV;
+		const double V1 = static_cast<double>(VIndex + 1) / SubdivisionsV;
+		for (int32 UIndex = 0; UIndex < SubdivisionsU; ++UIndex)
+		{
+			const double U0 = static_cast<double>(UIndex) / SubdivisionsU;
+			const double U1 = static_cast<double>(UIndex + 1) / SubdivisionsU;
+			const FVector3d Point00 = A + AxisU * U0 + AxisV * V0;
+			const FVector3d Point10 = A + AxisU * U1 + AxisV * V0;
+			const FVector3d Point11 = A + AxisU * U1 + AxisV * V1;
+			const FVector3d Point01 = A + AxisU * U0 + AxisV * V1;
+			AppendClippedTriangle(Point00, Point10, Point11);
+			AppendClippedTriangle(Point00, Point11, Point01);
+		}
+	}
+}
+
+void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
+	FDynamicMesh3& Mesh,
+	const FVector3d& A,
+	const FVector3d& B,
+	const FVector3d& C,
+	const FVector3d& D,
+	const FVector3f& Normal,
+	int32 MaterialIndex) const
+{
+	const FVector3d FaceCorners[] = { A, B, C, D };
+	FVector3d FaceMinimum = A;
+	FVector3d FaceMaximum = A;
+	for (const FVector3d& Corner : FaceCorners)
+	{
+		for (int32 Axis = 0; Axis < 3; ++Axis)
+		{
+			FaceMinimum[Axis] = FMath::Min(FaceMinimum[Axis], Corner[Axis]);
+			FaceMaximum[Axis] = FMath::Max(FaceMaximum[Axis], Corner[Axis]);
+		}
+	}
+
+	int32 PlaneAxis = 2;
+	if (FMath::Abs(Normal.X) > FMath::Abs(Normal.Y) &&
+		FMath::Abs(Normal.X) > FMath::Abs(Normal.Z))
+	{
+		PlaneAxis = 0;
+	}
+	else if (FMath::Abs(Normal.Y) > FMath::Abs(Normal.Z))
+	{
+		PlaneAxis = 1;
+	}
+	const double Plane = A[PlaneAxis];
+	const FVector3d SortAxisU = (B - A).GetSafeNormal();
+	const FVector3d SortAxisV = (D - A).GetSafeNormal();
+	const float SafeUVScale = FMath::Max(UVWorldUnits, 1.0f);
+	constexpr double IntersectionTolerance = 0.001;
+	static const FIntPoint ElementEdges[] = {
+		FIntPoint(0, 1), FIntPoint(0, 2), FIntPoint(1, 3), FIntPoint(2, 3),
+		FIntPoint(4, 5), FIntPoint(4, 6), FIntPoint(5, 7), FIntPoint(6, 7),
+		FIntPoint(0, 4), FIntPoint(1, 5), FIntPoint(2, 6), FIntPoint(3, 7)
+	};
+
+	auto MakeUV = [Normal, SafeUVScale](const FVector3d& Point)
+	{
+		if (FMath::Abs(Normal.Z) > 0.75f)
+		{
+			return FVector2f(Point.X / SafeUVScale, Point.Y / SafeUVScale);
+		}
+		return FMath::Abs(Normal.X) > FMath::Abs(Normal.Y)
+			? FVector2f(Point.Y / SafeUVScale, Point.Z / SafeUVScale)
+			: FVector2f(Point.X / SafeUVScale, Point.Z / SafeUVScale);
+	};
+
+	auto AppendElementIntersection = [&](const TArray<FVector3d, TInlineAllocator<8>>& Vertices)
+	{
+		if (Vertices.Num() != 8)
+		{
+			return;
+		}
+		FVector3d ElementMinimum = Vertices[0];
+		FVector3d ElementMaximum = Vertices[0];
+		for (const FVector3d& Vertex : Vertices)
+		{
+			for (int32 Axis = 0; Axis < 3; ++Axis)
+			{
+				ElementMinimum[Axis] = FMath::Min(ElementMinimum[Axis], Vertex[Axis]);
+				ElementMaximum[Axis] = FMath::Max(ElementMaximum[Axis], Vertex[Axis]);
+			}
+		}
+		if (Plane < ElementMinimum[PlaneAxis] - IntersectionTolerance ||
+			Plane > ElementMaximum[PlaneAxis] + IntersectionTolerance)
+		{
+			return;
+		}
+		for (int32 Axis = 0; Axis < 3; ++Axis)
+		{
+			if (Axis != PlaneAxis &&
+				(ElementMaximum[Axis] < FaceMinimum[Axis] - IntersectionTolerance ||
+					ElementMinimum[Axis] > FaceMaximum[Axis] + IntersectionTolerance))
+			{
+				return;
+			}
+		}
+
+		TArray<FVector3d> Polygon;
+		Polygon.Reserve(12);
+		auto AddUniquePoint = [&Polygon](const FVector3d& Point)
+		{
+			for (const FVector3d& Existing : Polygon)
+			{
+				if ((Existing - Point).SquaredLength() <= FMath::Square(IntersectionTolerance))
+				{
+					return;
+				}
+			}
+			Polygon.Add(Point);
+		};
+
+		for (const FIntPoint Edge : ElementEdges)
+		{
+			const FVector3d& Start = Vertices[Edge.X];
+			const FVector3d& End = Vertices[Edge.Y];
+			const double StartDistance = Start[PlaneAxis] - Plane;
+			const double EndDistance = End[PlaneAxis] - Plane;
+			if (FMath::Abs(StartDistance) <= IntersectionTolerance)
+			{
+				AddUniquePoint(Start);
+			}
+			if (FMath::Abs(EndDistance) <= IntersectionTolerance)
+			{
+				AddUniquePoint(End);
+			}
+			if ((StartDistance < -IntersectionTolerance && EndDistance > IntersectionTolerance) ||
+				(StartDistance > IntersectionTolerance && EndDistance < -IntersectionTolerance))
+			{
+				const double EdgeAlpha = StartDistance / (StartDistance - EndDistance);
+				AddUniquePoint(Start + (End - Start) * EdgeAlpha);
+			}
+		}
+		if (Polygon.Num() < 3)
+		{
+			return;
+		}
+
+		FVector3d Center = FVector3d::Zero();
+		for (const FVector3d& Point : Polygon)
+		{
+			Center += Point;
+		}
+		Center /= Polygon.Num();
+		Polygon.Sort([&](const FVector3d& Left, const FVector3d& Right)
+		{
+			const FVector3d LeftDelta = Left - Center;
+			const FVector3d RightDelta = Right - Center;
+			const double LeftAngle = FMath::Atan2(
+				FVector3d::DotProduct(LeftDelta, SortAxisV),
+				FVector3d::DotProduct(LeftDelta, SortAxisU));
+			const double RightAngle = FMath::Atan2(
+				FVector3d::DotProduct(RightDelta, SortAxisV),
+				FVector3d::DotProduct(RightDelta, SortAxisU));
+			return LeftAngle < RightAngle;
+		});
+
+		for (int32 Axis = 0; Axis < 3; ++Axis)
+		{
+			if (Axis == PlaneAxis)
+			{
+				continue;
+			}
+			ClipSurfacePolygonToPlane(Polygon, Axis, FaceMinimum[Axis], true);
+			ClipSurfacePolygonToPlane(Polygon, Axis, FaceMaximum[Axis], false);
+		}
+		RemoveDuplicateSurfacePoints(Polygon);
+		if (Polygon.Num() < 3)
+		{
+			return;
+		}
+
+		for (int32 PointIndex = 1; PointIndex + 1 < Polygon.Num(); ++PointIndex)
+		{
+			FVector3d PointA = Polygon[0];
+			FVector3d PointB = Polygon[PointIndex];
+			FVector3d PointC = Polygon[PointIndex + 1];
+			const FVector3d GeometricNormal = FVector3d::CrossProduct(PointB - PointA, PointC - PointA);
+			if (GeometricNormal.SquaredLength() <= FMath::Square(ConeSurfaceTolerance))
+			{
+				continue;
+			}
+			if (FVector3d::DotProduct(GeometricNormal, FVector3d(Normal)) < 0.0)
+			{
+				Swap(PointB, PointC);
+			}
+			AppendMeshTriangle(
+				Mesh,
+				PointA,
+				PointB,
+				PointC,
+				Normal,
+				MaterialIndex,
+				MakeUV(PointA),
+				MakeUV(PointB),
+				MakeUV(PointC));
+		}
+	};
+
+	const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
+	const float TotalHeight = BlockDimensions.Z * GridHeightBlocks +
+		BlockSpacing.Z * FMath::Max(GridHeightBlocks - 1, 0);
+	const float VerticalSeal = BlockSpacing.Z * 0.5f *
+		FMath::Clamp(SurfaceGapSealFraction, 0.0f, 1.0f);
+
+	if (MaterialIndex == 0 || !bGeneratePlatforms)
+	{
+		const int32 SegmentCount = GetEffectiveCircularSegments();
+		const int32 MinimumLayer = FMath::Clamp(
+			FMath::FloorToInt(FaceMinimum.Z / FMath::Max(PitchZ, 1.0f)) - 1,
+			0,
+			GridHeightBlocks - 1);
+		const int32 MaximumLayer = FMath::Clamp(
+			FMath::FloorToInt(FaceMaximum.Z / FMath::Max(PitchZ, 1.0f)) + 1,
+			0,
+			GridHeightBlocks - 1);
+		for (int32 Z = MinimumLayer; Z <= MaximumLayer; ++Z)
+		{
+			const float BottomZ = FMath::Max(Z * PitchZ - VerticalSeal, 0.0f);
+			const float TopZ = FMath::Min(Z * PitchZ + BlockDimensions.Z + VerticalSeal, TotalHeight);
+			const float OuterBottomRadius = GetConeOuterRadiusAtHeight(BottomZ);
+			const float OuterTopRadius = GetConeOuterRadiusAtHeight(TopZ);
+			const float InnerBottomRadius = GetConeInnerRadiusAtHeight(BottomZ);
+			const float InnerTopRadius = GetConeInnerRadiusAtHeight(TopZ);
+			for (int32 SegmentIndex = 0; SegmentIndex < SegmentCount; ++SegmentIndex)
+			{
+				const double AngleA = UE_TWO_PI * SegmentIndex / SegmentCount;
+				const double AngleB = UE_TWO_PI * (SegmentIndex + 1) / SegmentCount;
+				TArray<FVector3d, TInlineAllocator<8>> Vertices = {
+					FVector3d(FMath::Cos(AngleA) * InnerBottomRadius, FMath::Sin(AngleA) * InnerBottomRadius, BottomZ),
+					FVector3d(FMath::Cos(AngleA) * OuterBottomRadius, FMath::Sin(AngleA) * OuterBottomRadius, BottomZ),
+					FVector3d(FMath::Cos(AngleA) * InnerTopRadius, FMath::Sin(AngleA) * InnerTopRadius, TopZ),
+					FVector3d(FMath::Cos(AngleA) * OuterTopRadius, FMath::Sin(AngleA) * OuterTopRadius, TopZ),
+					FVector3d(FMath::Cos(AngleB) * InnerBottomRadius, FMath::Sin(AngleB) * InnerBottomRadius, BottomZ),
+					FVector3d(FMath::Cos(AngleB) * OuterBottomRadius, FMath::Sin(AngleB) * OuterBottomRadius, BottomZ),
+					FVector3d(FMath::Cos(AngleB) * InnerTopRadius, FMath::Sin(AngleB) * InnerTopRadius, TopZ),
+					FVector3d(FMath::Cos(AngleB) * OuterTopRadius, FMath::Sin(AngleB) * OuterTopRadius, TopZ)
+				};
+				AppendElementIntersection(Vertices);
+			}
+		}
+		return;
+	}
+
+	if (PlatformStyle == EConeStructurePlatformStyle::CircularRings)
+	{
+		const int32 SegmentCount = GetEffectiveCircularSegments();
+		for (int32 PlatformIndex = 0; PlatformIndex < PlatformCount; ++PlatformIndex)
+		{
+			const int32 BottomLayer = LowestPlatformHeightBlocks +
+				PlatformIndex * PlatformVerticalSpacingBlocks;
+			if (BottomLayer >= GridHeightBlocks)
+			{
+				break;
+			}
+			const int32 TopLayer = FMath::Min(
+				BottomLayer + PlatformThicknessBlocks - 1,
+				GridHeightBlocks - 1);
+			const float BottomZ = FMath::Max(BottomLayer * PitchZ - VerticalSeal, 0.0f);
+			const float TopZ = FMath::Min(
+				TopLayer * PitchZ + BlockDimensions.Z + VerticalSeal,
+				TotalHeight);
+			if (TopZ < FaceMinimum.Z - IntersectionTolerance ||
+				BottomZ > FaceMaximum.Z + IntersectionTolerance)
+			{
+				continue;
+			}
+			const float ReferenceZ = BlockDimensions.Z * 0.5f + BottomLayer * PitchZ;
+			const float InnerRadius = GetConeInnerRadiusAtHeight(ReferenceZ);
+			const float OuterRadius = GetConeOuterRadiusAtHeight(ReferenceZ) +
+				PlatformOverhangBlocks * CachedRadialBlockUnit;
+			for (int32 SegmentIndex = 0; SegmentIndex < SegmentCount; ++SegmentIndex)
+			{
+				const double AngleA = UE_TWO_PI * SegmentIndex / SegmentCount;
+				const double AngleB = UE_TWO_PI * (SegmentIndex + 1) / SegmentCount;
+				TArray<FVector3d, TInlineAllocator<8>> Vertices = {
+					FVector3d(FMath::Cos(AngleA) * InnerRadius, FMath::Sin(AngleA) * InnerRadius, BottomZ),
+					FVector3d(FMath::Cos(AngleA) * OuterRadius, FMath::Sin(AngleA) * OuterRadius, BottomZ),
+					FVector3d(FMath::Cos(AngleA) * InnerRadius, FMath::Sin(AngleA) * InnerRadius, TopZ),
+					FVector3d(FMath::Cos(AngleA) * OuterRadius, FMath::Sin(AngleA) * OuterRadius, TopZ),
+					FVector3d(FMath::Cos(AngleB) * InnerRadius, FMath::Sin(AngleB) * InnerRadius, BottomZ),
+					FVector3d(FMath::Cos(AngleB) * OuterRadius, FMath::Sin(AngleB) * OuterRadius, BottomZ),
+					FVector3d(FMath::Cos(AngleB) * InnerRadius, FMath::Sin(AngleB) * InnerRadius, TopZ),
+					FVector3d(FMath::Cos(AngleB) * OuterRadius, FMath::Sin(AngleB) * OuterRadius, TopZ)
+				};
+				AppendElementIntersection(Vertices);
+			}
+		}
+		return;
+	}
+
+	const float StartBottom = GetSpiralBottomHeight(false);
+	const float EndBottom = GetSpiralBottomHeight(true);
+	const float Thickness = GetSpiralThickness();
+	const float TotalAngle = UE_TWO_PI * PlatformSpiralTurns;
+	const float StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
+	const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
+	const int32 SegmentCount = FMath::Clamp(
+		FMath::CeilToInt(PlatformSpiralTurns * SpiralSegmentsPerTurn), 1, 8192);
+	const float RadialOverhang = PlatformOverhangBlocks * CachedRadialBlockUnit;
+	const float WallOverlap = SpiralWallOverlapBlocks * CachedRadialBlockUnit;
+	auto MakeSection = [&](int32 SectionIndex, FVector3d& InnerBottom, FVector3d& OuterBottom,
+		FVector3d& InnerTop, FVector3d& OuterTop)
+	{
+		const float Alpha = static_cast<float>(SectionIndex) / SegmentCount;
+		const double Angle = StartAngle + Direction * TotalAngle * Alpha;
+		const float BottomZ = FMath::Lerp(StartBottom, EndBottom, Alpha);
+		const float TopZ = BottomZ + Thickness;
+		const float ConeOuterRadius = GetConeOuterRadiusAtHeight(TopZ);
+		const float InnerRadius = FMath::Max(ConeOuterRadius - WallOverlap, 0.0f);
+		const float OuterRadius = ConeOuterRadius + RadialOverhang;
+		InnerBottom = FVector3d(FMath::Cos(Angle) * InnerRadius, FMath::Sin(Angle) * InnerRadius, BottomZ);
+		OuterBottom = FVector3d(FMath::Cos(Angle) * OuterRadius, FMath::Sin(Angle) * OuterRadius, BottomZ);
+		InnerTop = FVector3d(FMath::Cos(Angle) * InnerRadius, FMath::Sin(Angle) * InnerRadius, TopZ);
+		OuterTop = FVector3d(FMath::Cos(Angle) * OuterRadius, FMath::Sin(Angle) * OuterRadius, TopZ);
+	};
+	for (int32 SegmentIndex = 0; SegmentIndex < SegmentCount; ++SegmentIndex)
+	{
+		FVector3d InnerBottomA;
+		FVector3d OuterBottomA;
+		FVector3d InnerTopA;
+		FVector3d OuterTopA;
+		FVector3d InnerBottomB;
+		FVector3d OuterBottomB;
+		FVector3d InnerTopB;
+		FVector3d OuterTopB;
+		MakeSection(SegmentIndex, InnerBottomA, OuterBottomA, InnerTopA, OuterTopA);
+		MakeSection(SegmentIndex + 1, InnerBottomB, OuterBottomB, InnerTopB, OuterTopB);
+		TArray<FVector3d, TInlineAllocator<8>> Vertices = {
+			InnerBottomA, OuterBottomA, InnerTopA, OuterTopA,
+			InnerBottomB, OuterBottomB, InnerTopB, OuterTopB
+		};
+		AppendElementIntersection(Vertices);
 	}
 }
 
@@ -950,45 +2202,124 @@ void AChunkedDestructibleConeStructure::AppendDestroyedCellCutFaces(
 
 	if (BlockSpacing.X <= ConeSpacingTolerance && CellExists3D(X - 1, Y, Z))
 	{
-		AppendMeshQuad(Mesh,
+		AppendClippedDestructionCutFace(Mesh,
 			FVector3d(MinX, MaxY, MinZ), FVector3d(MinX, MaxY, MaxZ),
 			FVector3d(MinX, MinY, MaxZ), FVector3d(MinX, MinY, MinZ),
-			FVector3f::UnitX(), MaterialIndex, BlockDimensions.Z, BlockDimensions.Y, UVWorldUnits);
+			FVector3f::UnitX(), MaterialIndex);
 	}
 	if (BlockSpacing.X <= ConeSpacingTolerance && CellExists3D(X + 1, Y, Z))
 	{
-		AppendMeshQuad(Mesh,
+		AppendClippedDestructionCutFace(Mesh,
 			FVector3d(MaxX, MinY, MinZ), FVector3d(MaxX, MinY, MaxZ),
 			FVector3d(MaxX, MaxY, MaxZ), FVector3d(MaxX, MaxY, MinZ),
-			-FVector3f::UnitX(), MaterialIndex, BlockDimensions.Z, BlockDimensions.Y, UVWorldUnits);
+			-FVector3f::UnitX(), MaterialIndex);
 	}
 	if (BlockSpacing.Y <= ConeSpacingTolerance && CellExists3D(X, Y - 1, Z))
 	{
-		AppendMeshQuad(Mesh,
+		AppendClippedDestructionCutFace(Mesh,
 			FVector3d(MinX, MinY, MinZ), FVector3d(MinX, MinY, MaxZ),
 			FVector3d(MaxX, MinY, MaxZ), FVector3d(MaxX, MinY, MinZ),
-			FVector3f::UnitY(), MaterialIndex, BlockDimensions.Z, BlockDimensions.X, UVWorldUnits);
+			FVector3f::UnitY(), MaterialIndex);
 	}
 	if (BlockSpacing.Y <= ConeSpacingTolerance && CellExists3D(X, Y + 1, Z))
 	{
-		AppendMeshQuad(Mesh,
+		AppendClippedDestructionCutFace(Mesh,
 			FVector3d(MaxX, MaxY, MinZ), FVector3d(MaxX, MaxY, MaxZ),
 			FVector3d(MinX, MaxY, MaxZ), FVector3d(MinX, MaxY, MinZ),
-			-FVector3f::UnitY(), MaterialIndex, BlockDimensions.Z, BlockDimensions.X, UVWorldUnits);
+			-FVector3f::UnitY(), MaterialIndex);
 	}
 	if (BlockSpacing.Z <= ConeSpacingTolerance && CellExists3D(X, Y, Z - 1))
 	{
-		AppendMeshQuad(Mesh,
+		AppendClippedDestructionCutFace(Mesh,
 			FVector3d(MinX, MinY, MinZ), FVector3d(MaxX, MinY, MinZ),
 			FVector3d(MaxX, MaxY, MinZ), FVector3d(MinX, MaxY, MinZ),
-			FVector3f::UnitZ(), MaterialIndex, BlockDimensions.X, BlockDimensions.Y, UVWorldUnits);
+			FVector3f::UnitZ(), MaterialIndex);
 	}
 	if (BlockSpacing.Z <= ConeSpacingTolerance && CellExists3D(X, Y, Z + 1))
 	{
-		AppendMeshQuad(Mesh,
+		AppendClippedDestructionCutFace(Mesh,
 			FVector3d(MinX, MaxY, MaxZ), FVector3d(MaxX, MaxY, MaxZ),
 			FVector3d(MaxX, MinY, MaxZ), FVector3d(MinX, MinY, MaxZ),
-			-FVector3f::UnitZ(), MaterialIndex, BlockDimensions.X, BlockDimensions.Y, UVWorldUnits);
+			-FVector3f::UnitZ(), MaterialIndex);
+	}
+}
+
+void AChunkedDestructibleConeStructure::AppendSurfaceFlashBoundaryFaces(
+	FDynamicMesh3& Mesh,
+	const TSet<FIntPoint>& FlashCells) const
+{
+	const double SealFraction = FMath::Clamp(SurfaceGapSealFraction, 0.0f, 1.0f);
+	const FVector VisualHalfSize = BlockDimensions * 0.5 +
+		BlockSpacing * (0.5 * SealFraction);
+	for (const FIntPoint Cell : FlashCells)
+	{
+		if (!Cells.IsValidIndex(ToCellIndex(Cell)))
+		{
+			continue;
+		}
+		int32 X;
+		int32 Y;
+		int32 Z;
+		if (!DecodeCell(Cell, X, Y, Z))
+		{
+			continue;
+		}
+		const FVector Center = GetCellLocalCenter(Cell);
+		const double MinX = Center.X - VisualHalfSize.X;
+		const double MaxX = Center.X + VisualHalfSize.X;
+		const double MinY = Center.Y - VisualHalfSize.Y;
+		const double MaxY = Center.Y + VisualHalfSize.Y;
+		const double MinZ = Center.Z - VisualHalfSize.Z;
+		const double MaxZ = Center.Z + VisualHalfSize.Z;
+		const int32 MaterialIndex = Cells[ToCellIndex(Cell)].MaterialIndex;
+		auto IsSelectedNeighbor = [&](int32 NeighborX, int32 NeighborY, int32 NeighborZ)
+		{
+			const FIntPoint Neighbor = EncodeCell(NeighborX, NeighborY, NeighborZ);
+			return Neighbor != FIntPoint::NoneValue && FlashCells.Contains(Neighbor);
+		};
+
+		if (!IsSelectedNeighbor(X - 1, Y, Z))
+		{
+			AppendClippedDestructionCutFace(Mesh,
+				FVector3d(MinX, MaxY, MinZ), FVector3d(MinX, MaxY, MaxZ),
+				FVector3d(MinX, MinY, MaxZ), FVector3d(MinX, MinY, MinZ),
+				-FVector3f::UnitX(), MaterialIndex);
+		}
+		if (!IsSelectedNeighbor(X + 1, Y, Z))
+		{
+			AppendClippedDestructionCutFace(Mesh,
+				FVector3d(MaxX, MinY, MinZ), FVector3d(MaxX, MinY, MaxZ),
+				FVector3d(MaxX, MaxY, MaxZ), FVector3d(MaxX, MaxY, MinZ),
+				FVector3f::UnitX(), MaterialIndex);
+		}
+		if (!IsSelectedNeighbor(X, Y - 1, Z))
+		{
+			AppendClippedDestructionCutFace(Mesh,
+				FVector3d(MinX, MinY, MinZ), FVector3d(MinX, MinY, MaxZ),
+				FVector3d(MaxX, MinY, MaxZ), FVector3d(MaxX, MinY, MinZ),
+				-FVector3f::UnitY(), MaterialIndex);
+		}
+		if (!IsSelectedNeighbor(X, Y + 1, Z))
+		{
+			AppendClippedDestructionCutFace(Mesh,
+				FVector3d(MaxX, MaxY, MinZ), FVector3d(MaxX, MaxY, MaxZ),
+				FVector3d(MinX, MaxY, MaxZ), FVector3d(MinX, MaxY, MinZ),
+				FVector3f::UnitY(), MaterialIndex);
+		}
+		if (!IsSelectedNeighbor(X, Y, Z - 1))
+		{
+			AppendClippedDestructionCutFace(Mesh,
+				FVector3d(MinX, MinY, MinZ), FVector3d(MaxX, MinY, MinZ),
+				FVector3d(MaxX, MaxY, MinZ), FVector3d(MinX, MaxY, MinZ),
+				-FVector3f::UnitZ(), MaterialIndex);
+		}
+		if (!IsSelectedNeighbor(X, Y, Z + 1))
+		{
+			AppendClippedDestructionCutFace(Mesh,
+				FVector3d(MinX, MaxY, MaxZ), FVector3d(MaxX, MaxY, MaxZ),
+				FVector3d(MaxX, MinY, MaxZ), FVector3d(MinX, MinY, MaxZ),
+				FVector3f::UnitZ(), MaterialIndex);
+		}
 	}
 }
 
@@ -1259,10 +2590,216 @@ void AChunkedDestructibleConeStructure::BuildChunkSimpleCollision(
 
 FTransform AChunkedDestructibleConeStructure::GetCellFlashTransform(FIntPoint Cell) const
 {
-	return FTransform(
-		FQuat::Identity,
-		GetCellLocalCenter(Cell),
-		BlockDimensions / 100.0 * FMath::Max(FlashScale, 0.01f));
+	int32 X;
+	int32 Y;
+	int32 Z;
+	if (!DecodeCell(Cell, X, Y, Z))
+	{
+		return FTransform(FQuat::Identity, FVector::ZeroVector, FVector::ZeroVector);
+	}
+
+	// The regular floor flashes a complete backing cube. Cone cells can be very anisotropic
+	// (700 x 100 x 100 in the placed structure) and only a curved sliver of that cube is rendered.
+	// Find a compact cube wholly inside the actual cone/ring/spiral solid instead, so the emissive
+	// frame cannot extend beyond a circular edge even when FlashScale is greater than one.
+	const FVector CellCenter = GetPhysicalCellLocalCenter(X, Y, Z);
+	const FVector CellHalfSize = BlockDimensions * 0.5;
+	const float ReferenceSize = FMath::Max(
+		FMath::Min3(
+			static_cast<float>(BlockDimensions.X),
+			static_cast<float>(BlockDimensions.Y),
+			static_cast<float>(BlockDimensions.Z)),
+		1.0f);
+	const float DesiredEdge = ReferenceSize * 0.5f *
+		FMath::Clamp(FlashScale, 0.01f, 1.0f);
+	static constexpr float CandidateFractions[] = { -0.8f, -0.4f, 0.0f, 0.4f, 0.8f };
+	static constexpr float ProbeFractions[] = { -1.0f, 0.0f, 1.0f };
+
+	auto IsCubeInsideRenderedSolid = [this](const FVector& Center, float HalfEdge)
+	{
+		for (const float ZFraction : ProbeFractions)
+		{
+			for (const float YFraction : ProbeFractions)
+			{
+				for (const float XFraction : ProbeFractions)
+				{
+					if (!IsPointInsideRenderedStructure(FVector3d(
+						Center + FVector(XFraction, YFraction, ZFraction) * HalfEdge)))
+					{
+						return false;
+					}
+				}
+			}
+		}
+		return true;
+	};
+
+	for (int32 SizeAttempt = 0; SizeAttempt < 4; ++SizeAttempt)
+	{
+		const float Edge = DesiredEdge * FMath::Pow(0.5f, SizeAttempt);
+		const float HalfEdge = Edge * 0.5f;
+		FVector BestCenter = CellCenter;
+		double BestDistanceSquared = TNumericLimits<double>::Max();
+		bool bFoundCandidate = false;
+		for (const float ZFraction : CandidateFractions)
+		{
+			for (const float YFraction : CandidateFractions)
+			{
+				for (const float XFraction : CandidateFractions)
+				{
+					const FVector Candidate = CellCenter + FVector(
+						CellHalfSize.X * XFraction,
+						CellHalfSize.Y * YFraction,
+						CellHalfSize.Z * ZFraction);
+					if (!IsCubeInsideRenderedSolid(Candidate, HalfEdge))
+					{
+						continue;
+					}
+					const double DistanceSquared = FVector::DistSquared(Candidate, CellCenter);
+					if (DistanceSquared < BestDistanceSquared)
+					{
+						BestCenter = Candidate;
+						BestDistanceSquared = DistanceSquared;
+						bFoundCandidate = true;
+					}
+				}
+			}
+		}
+		if (bFoundCandidate)
+		{
+			return FTransform(
+				FQuat::Identity,
+				BestCenter,
+				FVector(Edge / 100.0f));
+		}
+	}
+
+	// A zero-sized instance is preferable to a visible cuboid outside an exceptionally thin solid.
+	return FTransform(FQuat::Identity, CellCenter, FVector::ZeroVector);
+}
+
+void AChunkedDestructibleConeStructure::SpawnCellFlash(FIntPoint Cell, double CurrentTime)
+{
+	if (FlashDuration <= 0.0f || !GetWorld() ||
+		!Cells.IsValidIndex(ToCellIndex(Cell)) || ChunkCount.X <= 0)
+	{
+		return;
+	}
+
+	// Cone platforms are curved solids clipped into rectangular logical cells. Reusing the floor's
+	// cube ISM makes every occupied Z layer appear as a separate white box. Build one combined flash
+	// from the same exact cone/ring/helix triangles as the visible structure. Cells processed in the
+	// same destruction batch share a component, so a thick spiral flashes as one continuous shape.
+	const int32 SafeChunkSide = GetEffectiveConeChunkSideLength();
+	const bool bContinueCurrentBatch = CurrentSurfaceFlashComponent.IsValid() &&
+		FMath::IsNearlyEqual(CurrentSurfaceFlashTime, CurrentTime, UE_DOUBLE_SMALL_NUMBER);
+	UDynamicMeshComponent* SurfaceFlash = bContinueCurrentBatch
+		? CurrentSurfaceFlashComponent.Get()
+		: nullptr;
+	if (!SurfaceFlash)
+	{
+		SurfaceFlash = NewObject<UDynamicMeshComponent>(this);
+		AddInstanceComponent(SurfaceFlash);
+		SurfaceFlash->SetupAttachment(GetRootComponent());
+		SurfaceFlash->SetMobility(EComponentMobility::Movable);
+		SurfaceFlash->SetRelativeTransform(FTransform::Identity);
+		SurfaceFlash->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		SurfaceFlash->SetGenerateOverlapEvents(false);
+		SurfaceFlash->SetCastShadow(false);
+		SurfaceFlash->SetCanEverAffectNavigation(false);
+		SurfaceFlash->ComponentTags.Add(TEXT("ConeSurfaceFlash"));
+		SurfaceFlash->SetNumMaterials(2);
+		SurfaceFlash->SetMaterial(0, FlashMaterialInstance);
+		SurfaceFlash->SetMaterial(1, FlashMaterialInstance);
+		SurfaceFlash->RegisterComponent();
+
+		ActiveSurfaceFlashComponents.RemoveAll(
+			[](const TWeakObjectPtr<UDynamicMeshComponent>& Component)
+			{
+				return !Component.IsValid();
+			});
+		const TWeakObjectPtr<UDynamicMeshComponent> WeakFlash(SurfaceFlash);
+		ActiveSurfaceFlashComponents.Add(WeakFlash);
+		CurrentSurfaceFlashComponent = WeakFlash;
+		CurrentSurfaceFlashCells.Reset();
+		CurrentSurfaceFlashTime = CurrentTime;
+		FTimerDelegate CleanupDelegate = FTimerDelegate::CreateWeakLambda(
+			this,
+			[this, WeakFlash]()
+			{
+				if (UDynamicMeshComponent* Component = WeakFlash.Get())
+				{
+					RemoveInstanceComponent(Component);
+					Component->DestroyComponent();
+				}
+				ActiveSurfaceFlashComponents.Remove(WeakFlash);
+				if (CurrentSurfaceFlashComponent == WeakFlash)
+				{
+					CurrentSurfaceFlashComponent.Reset();
+					CurrentSurfaceFlashCells.Reset();
+					CurrentSurfaceFlashTime = -TNumericLimits<double>::Max();
+				}
+			});
+		FTimerHandle CleanupHandle;
+		GetWorld()->GetTimerManager().SetTimer(
+			CleanupHandle,
+			MoveTemp(CleanupDelegate),
+			FMath::Max(FlashDuration, KINDA_SMALL_NUMBER),
+			false);
+	}
+	CurrentSurfaceFlashCells.Add(Cell);
+
+	FDynamicMesh3 SurfaceFlashMesh;
+	SurfaceFlashMesh.EnableVertexNormals(FVector3f::UnitZ());
+	SurfaceFlashMesh.EnableAttributes();
+	SurfaceFlashMesh.Attributes()->SetNumUVLayers(1);
+	SurfaceFlashMesh.Attributes()->EnableMaterialID();
+	SurfaceFlashCellFilter = CurrentSurfaceFlashCells;
+	TSet<int32> FlashChunkIndices;
+	bool bNeedsConeSurface = false;
+	bool bNeedsPlatformSurface = false;
+	for (const FIntPoint FlashCell : CurrentSurfaceFlashCells)
+	{
+		if (Cells.IsValidIndex(ToCellIndex(FlashCell)) &&
+			Cells[ToCellIndex(FlashCell)].MaterialIndex == 1)
+		{
+			bNeedsPlatformSurface = true;
+		}
+		else
+		{
+			bNeedsConeSurface = true;
+		}
+		const int32 ChunkIndex = FlashCell.X / SafeChunkSide +
+			(FlashCell.Y / SafeChunkSide) * ChunkCount.X;
+		if (ChunkIndex >= 0 && ChunkIndex < ChunkCount.X * ChunkCount.Y)
+		{
+			FlashChunkIndices.Add(ChunkIndex);
+		}
+	}
+	for (const int32 ChunkIndex : FlashChunkIndices)
+	{
+		if (bNeedsConeSurface)
+		{
+			AppendConeSurfaces(SurfaceFlashMesh, ChunkIndex);
+		}
+		if (bNeedsPlatformSurface)
+		{
+			AppendPlatformSurfaces(SurfaceFlashMesh, ChunkIndex);
+		}
+	}
+	AppendSurfaceFlashBoundaryFaces(SurfaceFlashMesh, CurrentSurfaceFlashCells);
+	SurfaceFlashCellFilter.Reset();
+	if (SurfaceFlashMesh.TriangleCount() <= 0)
+	{
+		return;
+	}
+
+	UDynamicMesh* DynamicMesh = NewObject<UDynamicMesh>(SurfaceFlash);
+	DynamicMesh->SetMesh(MoveTemp(SurfaceFlashMesh));
+	SurfaceFlash->SetDynamicMesh(DynamicMesh);
+	SurfaceFlash->NotifyMeshUpdated();
+	SurfaceFlash->SetVisibility(true, true);
+	SurfaceFlash->MarkRenderStateDirty();
 }
 
 bool AChunkedDestructibleConeStructure::ResolveExistingCellFromHit(
@@ -1506,7 +3043,7 @@ void AChunkedDestructibleConeStructure::SpawnDebrisForCell(FIntPoint Cell)
 	{
 		return;
 	}
-	const FVector LocalCenter = GetPhysicalCellLocalCenter(X, Y, Z);
+	const FVector LocalCenter = GetCellFlashTransform(Cell).GetLocation();
 	const bool bPlatformCell = IsPlatformCell(X, Y, Z);
 	UMaterialInterface* DebrisMaterial = ResolveStructureMaterial(bPlatformCell);
 	const float MinimumScale = FMath::Clamp(
@@ -1520,11 +3057,24 @@ void AChunkedDestructibleConeStructure::SpawnDebrisForCell(FIntPoint Cell)
 	for (int32 PieceIndex = 0; PieceIndex < SpawnCount; ++PieceIndex)
 	{
 		const float FragmentScale = FMath::FRandRange(MinimumScale, MaximumScale);
-		const FVector FragmentSize = BlockDimensions * FragmentScale;
+		const float ReferenceSize = FMath::Max(
+			FMath::Min3(
+				static_cast<float>(BlockDimensions.X),
+				static_cast<float>(BlockDimensions.Y),
+				static_cast<float>(BlockDimensions.Z)),
+			1.0f);
+		const float FragmentEdge = FMath::Min(
+			ReferenceSize * FragmentScale,
+			FMath::Clamp(MaxDebrisPieceSize, 2.0f, 100.0f));
+		const FVector FragmentSize = FVector(
+			FragmentEdge * FMath::FRandRange(0.75f, 1.0f),
+			FragmentEdge * FMath::FRandRange(0.75f, 1.0f),
+			FragmentEdge * FMath::FRandRange(0.75f, 1.0f));
+		const float OffsetRadius = ReferenceSize * 0.12f;
 		const FVector LocalOffset(
-			FMath::FRandRange(-BlockDimensions.X, BlockDimensions.X) * 0.2f,
-			FMath::FRandRange(-BlockDimensions.Y, BlockDimensions.Y) * 0.2f,
-			FMath::FRandRange(-BlockDimensions.Z, BlockDimensions.Z) * 0.2f);
+			FMath::FRandRange(-OffsetRadius, OffsetRadius),
+			FMath::FRandRange(-OffsetRadius, OffsetRadius),
+			FMath::FRandRange(-OffsetRadius, OffsetRadius));
 		const FVector FragmentWorldLocation = GetActorTransform().TransformPosition(LocalCenter + LocalOffset);
 		const FQuat FragmentWorldRotation = GetActorQuat() * FQuat(FRotator(
 			FMath::FRandRange(-25.0f, 25.0f),

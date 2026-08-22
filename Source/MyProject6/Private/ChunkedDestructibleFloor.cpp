@@ -627,6 +627,7 @@ void AChunkedDestructibleFloor::ConfigureDestroyTickSound(
 
 void AChunkedDestructibleFloor::ClearRuntimeEffects()
 {
+	ClearAdditionalRuntimeEffects();
 	QueuedDestructions.Reset();
 	PendingCellIndices.Reset();
 	DirtyChunkIndices.Reset();

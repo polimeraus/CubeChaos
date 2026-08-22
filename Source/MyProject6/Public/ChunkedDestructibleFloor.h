@@ -512,6 +512,7 @@ protected:
 		bool bTopFace) const;
 	virtual void ConfigureChunkComponent(UDynamicMeshComponent* Component) const;
 	void RefreshFlashMaterial();
+	virtual void ClearAdditionalRuntimeEffects() {}
 
 	int32 ToCellIndex(FIntPoint Cell) const;
 	FIntPoint FromCellIndex(int32 CellIndex) const;
@@ -533,7 +534,7 @@ protected:
 	void ProcessQueuedDestructions(double CurrentTime);
 	virtual void MarkCellChunksDirty(FIntPoint Cell);
 	void FlushDirtyChunks();
-	void SpawnCellFlash(FIntPoint Cell, double CurrentTime);
+	virtual void SpawnCellFlash(FIntPoint Cell, double CurrentTime);
 	void UpdateFlashes(double CurrentTime);
 	void ExpireFlash(uint64 FlashId);
 	void RebuildFlashInstances();
