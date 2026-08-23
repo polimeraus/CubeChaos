@@ -6,8 +6,11 @@
 #include "Components/StaticMeshComponent.h"
 #include "DynamicMesh/DynamicMesh3.h"
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
+#include "EngineUtils.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInterface.h"
 #include "PhysicsEngine/AggregateGeom.h"
@@ -152,10 +155,12 @@ void AChunkedDestructibleConeStructure::BeginPlay()
 	Super::BeginPlay();
 	OnCellDestroyed.RemoveDynamic(this, &AChunkedDestructibleConeStructure::HandleConeCellDestroyed);
 	OnCellDestroyed.AddDynamic(this, &AChunkedDestructibleConeStructure::HandleConeCellDestroyed);
+	StartCharacterSpeedBoostMonitoring();
 }
 
 void AChunkedDestructibleConeStructure::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	StopCharacterSpeedBoostMonitoring();
 	ClearDebris();
 	Super::EndPlay(EndPlayReason);
 }
@@ -215,6 +220,27 @@ void AChunkedDestructibleConeStructure::SetPlatformStyle(
 {
 	PlatformStyle = NewStyle;
 	GenerateFloor(bPreserveCellState);
+}
+
+void AChunkedDestructibleConeStructure::SetPlatformSpeedBoost(
+	bool bEnabled,
+	float NewSpeedMultiplier)
+{
+	bBoostCharacterWalkSpeed = bEnabled;
+	CharacterWalkSpeedMultiplier = FMath::Clamp(NewSpeedMultiplier, 1.0f, 20.0f);
+	if (!HasActorBegunPlay())
+	{
+		return;
+	}
+	if (bBoostCharacterWalkSpeed)
+	{
+		StartCharacterSpeedBoostMonitoring();
+		RefreshCharacterSpeedBoosts();
+	}
+	else
+	{
+		StopCharacterSpeedBoostMonitoring();
+	}
 }
 
 void AChunkedDestructibleConeStructure::ConfigureArchedDoors(
@@ -3173,6 +3199,156 @@ void AChunkedDestructibleConeStructure::MarkCellChunksDirty(FIntPoint Cell)
 			}
 		}
 	}
+}
+
+bool AChunkedDestructibleConeStructure::IsCharacterStandingOnPlatform(
+	const ACharacter* Character) const
+{
+	if (!Character || !bGeneratePlatforms)
+	{
+		return false;
+	}
+	const UCharacterMovementComponent* Movement = Character->GetCharacterMovement();
+	if (!Movement || !Movement->IsMovingOnGround() || !Movement->CurrentFloor.IsWalkableFloor())
+	{
+		return false;
+	}
+	const FHitResult& FloorHit = Movement->CurrentFloor.HitResult;
+	const UPrimitiveComponent* FloorComponent = FloorHit.GetComponent();
+	if (FloorHit.GetActor() != this && (!FloorComponent || FloorComponent->GetOwner() != this))
+	{
+		return false;
+	}
+
+	FIntPoint FloorCell;
+	if (!ResolveExistingCellFromHit(FloorHit, FloorCell))
+	{
+		return false;
+	}
+	int32 X;
+	int32 Y;
+	int32 Z;
+	return DecodeCell(FloorCell, X, Y, Z) && IsPlatformCell(X, Y, Z);
+}
+
+void AChunkedDestructibleConeStructure::StartCharacterSpeedBoostMonitoring()
+{
+	if (!bBoostCharacterWalkSpeed || !GetWorld())
+	{
+		return;
+	}
+	CharacterWalkSpeedMultiplier = FMath::Clamp(CharacterWalkSpeedMultiplier, 1.0f, 20.0f);
+	if (!GetWorld()->GetTimerManager().IsTimerActive(CharacterSpeedBoostTimerHandle))
+	{
+		GetWorld()->GetTimerManager().SetTimer(
+			CharacterSpeedBoostTimerHandle,
+			this,
+			&AChunkedDestructibleConeStructure::RefreshCharacterSpeedBoosts,
+			0.05f,
+			true);
+	}
+	RefreshCharacterSpeedBoosts();
+}
+
+void AChunkedDestructibleConeStructure::RefreshCharacterSpeedBoosts()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	if (!bBoostCharacterWalkSpeed)
+	{
+		StopCharacterSpeedBoostMonitoring();
+		return;
+	}
+
+	const float SafeMultiplier = FMath::Clamp(CharacterWalkSpeedMultiplier, 1.0f, 20.0f);
+	TSet<TWeakObjectPtr<ACharacter>> CharactersOnPlatforms;
+	for (TActorIterator<ACharacter> CharacterIt(World); CharacterIt; ++CharacterIt)
+	{
+		ACharacter* Character = *CharacterIt;
+		if (!IsCharacterStandingOnPlatform(Character))
+		{
+			continue;
+		}
+		UCharacterMovementComponent* Movement = Character->GetCharacterMovement();
+		if (!Movement)
+		{
+			continue;
+		}
+
+		const TWeakObjectPtr<ACharacter> WeakCharacter(Character);
+		CharactersOnPlatforms.Add(WeakCharacter);
+		float* BaseSpeed = CharacterBaseWalkSpeeds.Find(WeakCharacter);
+		float* AppliedSpeed = CharacterAppliedWalkSpeeds.Find(WeakCharacter);
+		if (!BaseSpeed)
+		{
+			BaseSpeed = &CharacterBaseWalkSpeeds.Add(WeakCharacter, Movement->MaxWalkSpeed);
+		}
+		else if (AppliedSpeed &&
+			!FMath::IsNearlyEqual(Movement->MaxWalkSpeed, *AppliedSpeed, 0.1f))
+		{
+			// Respect sprinting or any other system that changes the character's speed while boosted.
+			*BaseSpeed = Movement->MaxWalkSpeed;
+		}
+
+		const float NewAppliedSpeed = FMath::Max(*BaseSpeed * SafeMultiplier, 0.0f);
+		Movement->MaxWalkSpeed = NewAppliedSpeed;
+		CharacterAppliedWalkSpeeds.Add(WeakCharacter, NewAppliedSpeed);
+	}
+
+	TArray<TWeakObjectPtr<ACharacter>> CharactersToRestore;
+	for (const TPair<TWeakObjectPtr<ACharacter>, float>& Pair : CharacterBaseWalkSpeeds)
+	{
+		if (!Pair.Key.IsValid() || !CharactersOnPlatforms.Contains(Pair.Key))
+		{
+			CharactersToRestore.Add(Pair.Key);
+		}
+	}
+	for (const TWeakObjectPtr<ACharacter> Character : CharactersToRestore)
+	{
+		RestoreCharacterWalkSpeed(Character);
+	}
+}
+
+void AChunkedDestructibleConeStructure::RestoreCharacterWalkSpeed(
+	TWeakObjectPtr<ACharacter> Character)
+{
+	const float* BaseSpeed = CharacterBaseWalkSpeeds.Find(Character);
+	const float* AppliedSpeed = CharacterAppliedWalkSpeeds.Find(Character);
+	if (BaseSpeed)
+	{
+		if (ACharacter* CharacterPtr = Character.Get())
+		{
+			if (UCharacterMovementComponent* Movement = CharacterPtr->GetCharacterMovement())
+			{
+				if (!AppliedSpeed ||
+					FMath::IsNearlyEqual(Movement->MaxWalkSpeed, *AppliedSpeed, 0.1f))
+				{
+					Movement->MaxWalkSpeed = *BaseSpeed;
+				}
+			}
+		}
+	}
+	CharacterBaseWalkSpeeds.Remove(Character);
+	CharacterAppliedWalkSpeeds.Remove(Character);
+}
+
+void AChunkedDestructibleConeStructure::StopCharacterSpeedBoostMonitoring()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(CharacterSpeedBoostTimerHandle);
+	}
+	TArray<TWeakObjectPtr<ACharacter>> CharactersToRestore;
+	CharacterBaseWalkSpeeds.GenerateKeyArray(CharactersToRestore);
+	for (const TWeakObjectPtr<ACharacter> Character : CharactersToRestore)
+	{
+		RestoreCharacterWalkSpeed(Character);
+	}
+	CharacterBaseWalkSpeeds.Reset();
+	CharacterAppliedWalkSpeeds.Reset();
 }
 
 int32 AChunkedDestructibleConeStructure::GetEffectiveConeChunkSideLength() const

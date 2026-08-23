@@ -9,6 +9,7 @@
 class UMaterialInterface;
 class UStaticMesh;
 class UStaticMeshComponent;
+class ACharacter;
 
 /** Selects the secondary structure wrapped around the cone. */
 UENUM(BlueprintType)
@@ -88,6 +89,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Destructible Cone Structure|Platforms")
 	float GetPlatformRingWidth() const { return PlatformOverhangBlocks; }
+
+	/** Enables or disables the platform walk-speed multiplier at runtime. */
+	UFUNCTION(BlueprintCallable, Category = "Destructible Cone Structure|Platforms|Movement")
+	void SetPlatformSpeedBoost(bool bEnabled, float NewSpeedMultiplier = 2.0f);
 
 	/** Configures the repeated arched openings and rebuilds the structure. */
 	UFUNCTION(BlueprintCallable, Category = "Destructible Cone Structure|Doors")
@@ -205,6 +210,14 @@ protected:
 	/** Narrows the platform width as it rises; a rising spiral reaches zero width at its end. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Platforms", meta = (DisplayName = "Taper Platform Width To Zero", EditCondition = "bGeneratePlatforms"))
 	bool bTaperPlatformsUpward = true;
+
+	/** Multiplies the walk speed of any Character while it stands on a generated ring or spiral. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Platforms|Movement", meta = (DisplayName = "Boost Character Walk Speed"))
+	bool bBoostCharacterWalkSpeed = false;
+
+	/** Applied to the Character's existing Max Walk Speed only while it is on a platform. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Platforms|Movement", meta = (DisplayName = "Walk Speed Multiplier", EditCondition = "bBoostCharacterWalkSpeed", ClampMin = "1.0", ClampMax = "20.0", UIMin = "1.0", UIMax = "10.0"))
+	float CharacterWalkSpeedMultiplier = 2.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Platforms", meta = (EditCondition = "bGeneratePlatforms", ClampMin = "1", ClampMax = "16"))
 	int32 PlatformThicknessBlocks = 1;
@@ -345,6 +358,9 @@ private:
 	TSet<FIntPoint> CurrentSurfaceFlashCells;
 	double CurrentSurfaceFlashTime = -TNumericLimits<double>::Max();
 	mutable TSet<FIntPoint> SurfaceFlashCellFilter;
+	FTimerHandle CharacterSpeedBoostTimerHandle;
+	TMap<TWeakObjectPtr<ACharacter>, float> CharacterBaseWalkSpeeds;
+	TMap<TWeakObjectPtr<ACharacter>, float> CharacterAppliedWalkSpeeds;
 
 	bool DecodeCell(FIntPoint Cell, int32& OutX, int32& OutY, int32& OutZ) const;
 	FIntPoint EncodeCell(int32 X, int32 Y, int32 Z) const;
@@ -416,6 +432,11 @@ private:
 		UE::Geometry::FDynamicMesh3& Mesh,
 		const TSet<FIntPoint>& FlashCells) const;
 	bool ShouldAppendPlanarCutFace(int32 X, int32 Y, int32 Z) const;
+	bool IsCharacterStandingOnPlatform(const ACharacter* Character) const;
+	void StartCharacterSpeedBoostMonitoring();
+	void RefreshCharacterSpeedBoosts();
+	void StopCharacterSpeedBoostMonitoring();
+	void RestoreCharacterWalkSpeed(TWeakObjectPtr<ACharacter> Character);
 	int32 GetEffectiveConeChunkSideLength() const;
 	int32 GetEffectiveCircularSegments() const;
 	int32 GetEffectiveDebrisLimit() const;
