@@ -132,6 +132,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Cone", meta = (ClampMin = "0.5", ClampMax = "16.0"))
 	float ShellThicknessBlocks = 1.0f;
 
+	/** Fills the lowest block layer to close the cone with a destructible base. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Cone", meta = (DisplayName = "Generate Cone Base"))
+	bool bGenerateConeBase = true;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Blocks", meta = (ClampMin = "1.0", Units = "cm"))
 	FVector BlockDimensions = FVector(100.0, 100.0, 100.0);
 
@@ -197,6 +201,10 @@ protected:
 	/** Radial width outside the cone wall, shared by rings and the spiral. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Platforms", meta = (DisplayName = "Outside Width (Blocks)", EditCondition = "bGeneratePlatforms", ClampMin = "0.0", ClampMax = "32.0", UIMin = "0.0", UIMax = "16.0"))
 	float PlatformOverhangBlocks = 2.0f;
+
+	/** Narrows the platform width as it rises; a rising spiral reaches zero width at its end. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Platforms", meta = (DisplayName = "Taper Platform Width To Zero", EditCondition = "bGeneratePlatforms"))
+	bool bTaperPlatformsUpward = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Platforms", meta = (EditCondition = "bGeneratePlatforms", ClampMin = "1", ClampMax = "16"))
 	int32 PlatformThicknessBlocks = 1;
@@ -343,12 +351,15 @@ private:
 	FVector GetPhysicalCellLocalCenter(int32 X, int32 Y, int32 Z) const;
 	bool CellExists3D(int32 X, int32 Y, int32 Z) const;
 	bool IsConeShellCell(int32 X, int32 Y, int32 Z) const;
+	bool IsConeBaseCell(int32 X, int32 Y, int32 Z) const;
 	bool IsPlatformCell(int32 X, int32 Y, int32 Z) const;
 	bool IsCircularPlatformCell(int32 X, int32 Y, int32 Z) const;
 	bool IsSpiralPlatformCell(int32 X, int32 Y, int32 Z) const;
 	bool IsEntranceCell(int32 X, int32 Y, int32 Z) const;
 	float GetConeOuterRadiusAtHeight(float LocalZ) const;
 	float GetConeInnerRadiusAtHeight(float LocalZ) const;
+	float GetPlatformWidthScaleAtHeight(float LocalZ) const;
+	float GetPlatformOuterRadiusAtHeight(float LocalZ) const;
 	float GetSpiralThickness() const;
 	float GetSpiralBottomHeight(bool bEnd) const;
 	void GetCellRadialRange(int32 X, int32 Y, float& OutMinimumRadius, float& OutMaximumRadius) const;

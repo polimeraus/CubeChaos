@@ -7,6 +7,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SphereComponent.h"
+#include "EngineUtils.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/DamageType.h"
@@ -35,10 +36,17 @@ AChasingNPC::AChasingNPC()
 	ContactSensor->SetCollisionResponseToAllChannels(ECR_Ignore);
 	ContactSensor->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	ContactSensor->SetGenerateOverlapEvents(true);
+	ContactSensor->SetCanEverAffectNavigation(false);
 
 	GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, -96.0f));
 	GetMesh()->SetRelativeRotation(FRotator(0.0f, -90.0f, 0.0f));
 	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	GetMesh()->SetGenerateOverlapEvents(false);
+	GetMesh()->SetCanEverAffectNavigation(false);
+	// Off-screen replacement waves should not keep evaluating and refreshing every skeleton.
+	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::OnlyTickPoseWhenRendered;
+	GetMesh()->bEnableUpdateRateOptimizations = true;
+	GetMesh()->bUpdateOverlapsOnAnimationFinalize = false;
 
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = false;
@@ -367,10 +375,31 @@ void AChasingNPC::Die(const bool bShouldSpawnReplacements)
 void AChasingNPC::SpawnReplacements()
 {
 	UWorld* World = GetWorld();
-	const int32 SafeReplacementCount = FMath::Clamp(ReplacementCount, 0, 8);
-	if (!bSpawnReplacementsOnDeath || !World || SafeReplacementCount == 0)
+	const int32 RequestedReplacementCount = FMath::Clamp(ReplacementCount, 0, 8);
+	if (!bSpawnReplacementsOnDeath || !World || RequestedReplacementCount == 0)
 	{
 		return;
+	}
+
+	int32 SafeReplacementCount = RequestedReplacementCount;
+	const int32 SafePopulationLimit = FMath::Clamp(MaxActiveNPCCount, 0, 512);
+	if (SafePopulationLimit > 0)
+	{
+		int32 LivingNPCCount = 0;
+		for (TActorIterator<AChasingNPC> It(World); It; ++It)
+		{
+			if (IsValid(*It) && !It->IsDead())
+			{
+				++LivingNPCCount;
+			}
+		}
+		SafeReplacementCount = FMath::Min(
+			RequestedReplacementCount,
+			FMath::Max(SafePopulationLimit - LivingNPCCount, 0));
+		if (SafeReplacementCount == 0)
+		{
+			return;
+		}
 	}
 
 	FActorSpawnParameters SpawnParameters;

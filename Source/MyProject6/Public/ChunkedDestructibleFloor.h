@@ -430,11 +430,16 @@ protected:
 		int32 CellIndex = INDEX_NONE;
 		double ExecuteTime = 0.0;
 		bool bRadial = false;
+
+		bool operator<(const FQueuedCellDestruction& Other) const
+		{
+			return ExecuteTime < Other.ExecuteTime ||
+				(ExecuteTime == Other.ExecuteTime && CellIndex < Other.CellIndex);
+		}
 	};
 
 	struct FActiveFlash
 	{
-		uint64 FlashId = 0;
 		FTransform Transform = FTransform::Identity;
 		double ExpireTime = 0.0;
 	};
@@ -451,7 +456,7 @@ protected:
 	TSet<int32> DirtyChunkIndices;
 	TArray<FActiveFlash> ActiveFlashes;
 	TArray<double> RecentDestroySoundTimes;
-	uint64 NextFlashId = 1;
+	FTimerHandle FlashCleanupTimerHandle;
 
 	FIntPoint CellCount = FIntPoint::ZeroValue;
 	FIntPoint ChunkCount = FIntPoint::ZeroValue;
@@ -535,8 +540,7 @@ protected:
 	virtual void MarkCellChunksDirty(FIntPoint Cell);
 	void FlushDirtyChunks();
 	virtual void SpawnCellFlash(FIntPoint Cell, double CurrentTime);
-	void UpdateFlashes(double CurrentTime);
-	void ExpireFlash(uint64 FlashId);
+	void UpdateFlashes();
 	void RebuildFlashInstances();
 	void PlayDestroySound(FVector WorldLocation, double CurrentTime);
 	void SyncSpiralSettingsFromLegacyFields();

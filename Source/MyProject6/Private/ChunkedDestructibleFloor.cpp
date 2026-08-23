@@ -28,6 +28,7 @@ namespace
 	constexpr float SpacingTolerance = 0.01f;
 	constexpr double SpiralSurfaceLift = 0.20;
 	constexpr double SpiralPolygonTolerance = 0.001;
+	constexpr float FlashCleanupInterval = 1.0f / 30.0f;
 	const FName ChunkComponentTag(TEXT("ChunkedDestructibleFloorChunk"));
 
 	struct FSharedSpiralTriangle
@@ -384,7 +385,6 @@ void AChunkedDestructibleFloor::Tick(float DeltaSeconds)
 
 	const double CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
 	ProcessQueuedDestructions(CurrentTime);
-	UpdateFlashes(CurrentTime);
 }
 
 bool AChunkedDestructibleFloor::CalculateLayout()
@@ -633,6 +633,10 @@ void AChunkedDestructibleFloor::ClearRuntimeEffects()
 	DirtyChunkIndices.Reset();
 	ActiveFlashes.Reset();
 	RecentDestroySoundTimes.Reset();
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(FlashCleanupTimerHandle);
+	}
 	if (FlashInstances)
 	{
 		FlashInstances->ClearInstances();
@@ -1745,10 +1749,11 @@ bool AChunkedDestructibleFloor::QueueCellDestruction(int32 CellIndex, float Dela
 	}
 
 	const double CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
-	FQueuedCellDestruction& Queued = QueuedDestructions.AddDefaulted_GetRef();
+	FQueuedCellDestruction Queued;
 	Queued.CellIndex = CellIndex;
 	Queued.ExecuteTime = CurrentTime + FMath::Max(Delay, 0.0f);
 	Queued.bRadial = bRadial;
+	QueuedDestructions.HeapPush(MoveTemp(Queued));
 	PendingCellIndices.Add(CellIndex);
 	SetActorTickEnabled(true);
 	return true;
@@ -1756,15 +1761,11 @@ bool AChunkedDestructibleFloor::QueueCellDestruction(int32 CellIndex, float Dela
 
 void AChunkedDestructibleFloor::ProcessQueuedDestructions(double CurrentTime)
 {
-	for (int32 QueueIndex = QueuedDestructions.Num() - 1; QueueIndex >= 0; --QueueIndex)
+	bool bDestroyedAnyCell = false;
+	while (!QueuedDestructions.IsEmpty() && QueuedDestructions[0].ExecuteTime <= CurrentTime)
 	{
-		const FQueuedCellDestruction Queued = QueuedDestructions[QueueIndex];
-		if (Queued.ExecuteTime > CurrentTime)
-		{
-			continue;
-		}
-
-		QueuedDestructions.RemoveAtSwap(QueueIndex, 1, EAllowShrinking::No);
+		FQueuedCellDestruction Queued;
+		QueuedDestructions.HeapPop(Queued, EAllowShrinking::No);
 		if (!PendingCellIndices.Remove(Queued.CellIndex) || !Cells.IsValidIndex(Queued.CellIndex))
 		{
 			continue;
@@ -1784,9 +1785,13 @@ void AChunkedDestructibleFloor::ProcessQueuedDestructions(double CurrentTime)
 		SpawnCellFlash(Cell, CurrentTime);
 		PlayDestroySound(WorldCenter, CurrentTime);
 		OnCellDestroyed.Broadcast(Cell, WorldCenter, Queued.bRadial);
+		bDestroyedAnyCell = true;
 	}
 
-	FlushDirtyChunks();
+	if (bDestroyedAnyCell)
+	{
+		FlushDirtyChunks();
+	}
 	if (QueuedDestructions.IsEmpty())
 	{
 		SetActorTickEnabled(false);
@@ -1894,28 +1899,24 @@ void AChunkedDestructibleFloor::SpawnCellFlash(FIntPoint Cell, double CurrentTim
 	if (InstanceIndex != INDEX_NONE)
 	{
 		FActiveFlash& Flash = ActiveFlashes.AddDefaulted_GetRef();
-		Flash.FlashId = NextFlashId++;
 		Flash.Transform = InstanceTransform;
 		Flash.ExpireTime = CurrentTime + FlashDuration;
 		FlashInstances->SetVisibility(true);
 
-		// Use a world timer as the authoritative expiry path. This remains reliable even for
-		// placed actors that inherited a disabled tick flag from an older saved class version.
+		// One low-frequency cleanup timer batches all expirations. A timer per cell caused mass
+		// destruction to rebuild the complete ISM repeatedly in the same frame.
 		if (UWorld* World = GetWorld())
 		{
-			const uint64 FlashId = Flash.FlashId;
-			FTimerDelegate ExpireDelegate = FTimerDelegate::CreateWeakLambda(
-				this,
-				[this, FlashId]()
-				{
-					ExpireFlash(FlashId);
-				});
-			FTimerHandle ExpireTimerHandle;
-			World->GetTimerManager().SetTimer(
-				ExpireTimerHandle,
-				MoveTemp(ExpireDelegate),
-				FMath::Max(FlashDuration, KINDA_SMALL_NUMBER),
-				false);
+			if (!World->GetTimerManager().IsTimerActive(FlashCleanupTimerHandle))
+			{
+				World->GetTimerManager().SetTimer(
+					FlashCleanupTimerHandle,
+					this,
+					&AChunkedDestructibleFloor::UpdateFlashes,
+					FlashCleanupInterval,
+					true,
+					FlashCleanupInterval);
+			}
 		}
 	}
 }
@@ -1926,8 +1927,9 @@ FTransform AChunkedDestructibleFloor::GetCellFlashTransform(FIntPoint Cell) cons
 	return FTransform(FQuat::Identity, GetCellLocalCenter(Cell), Scale);
 }
 
-void AChunkedDestructibleFloor::UpdateFlashes(double CurrentTime)
+void AChunkedDestructibleFloor::UpdateFlashes()
 {
+	const double CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
 	const int32 RemovedCount = ActiveFlashes.RemoveAllSwap(
 		[CurrentTime](const FActiveFlash& Flash)
 		{
@@ -1938,19 +1940,9 @@ void AChunkedDestructibleFloor::UpdateFlashes(double CurrentTime)
 	{
 		RebuildFlashInstances();
 	}
-}
-
-void AChunkedDestructibleFloor::ExpireFlash(uint64 FlashId)
-{
-	const int32 RemovedCount = ActiveFlashes.RemoveAllSwap(
-		[FlashId](const FActiveFlash& Flash)
-		{
-			return Flash.FlashId == FlashId;
-		},
-		EAllowShrinking::No);
-	if (RemovedCount > 0)
+	if (ActiveFlashes.IsEmpty())
 	{
-		RebuildFlashInstances();
+		GetWorldTimerManager().ClearTimer(FlashCleanupTimerHandle);
 	}
 }
 
@@ -1979,10 +1971,13 @@ void AChunkedDestructibleFloor::RebuildFlashInstances()
 			TEXT("/Engine/BasicShapes/Cube.Cube"));
 		FlashInstances->SetStaticMesh(FlashCubeMesh);
 	}
+	TArray<FTransform> InstanceTransforms;
+	InstanceTransforms.Reserve(ActiveFlashes.Num());
 	for (const FActiveFlash& Flash : ActiveFlashes)
 	{
-		FlashInstances->AddInstance(Flash.Transform);
+		InstanceTransforms.Add(Flash.Transform);
 	}
+	FlashInstances->AddInstances(InstanceTransforms, false, false, false);
 	FlashInstances->SetVisibility(true, true);
 	FlashInstances->MarkRenderStateDirty();
 }

@@ -13,6 +13,9 @@
 AChasingAIController::AChasingAIController()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	// Navigation normally drives the pawn without an AIController tick. Enable ticking only
+	// while the straight-line, no-NavMesh fallback actually needs per-frame movement input.
+	PrimaryActorTick.bStartWithTickEnabled = false;
 	// Direct movement fallback must feed input every frame; intermittent input caused crawling.
 	PrimaryActorTick.TickInterval = 0.0f;
 	bAttachToPawn = true;
@@ -40,6 +43,7 @@ void AChasingAIController::OnUnPossess()
 	GetWorldTimerManager().ClearTimer(RepathTimerHandle);
 	PlayerTarget.Reset();
 	bUseDirectMovementFallback = false;
+	SetActorTickEnabled(false);
 
 	Super::OnUnPossess();
 }
@@ -53,12 +57,17 @@ void AChasingAIController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void AChasingAIController::RefreshChasePath()
 {
 	APawn* ControlledPawn = GetPawn();
-	APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(this, 0);
+	APawn* PlayerPawn = PlayerTarget.Get();
+	if (!PlayerPawn)
+	{
+		PlayerPawn = UGameplayStatics::GetPlayerPawn(this, 0);
+	}
 	if (!ControlledPawn || !PlayerPawn || ControlledPawn == PlayerPawn)
 	{
 		StopMovement();
 		PlayerTarget.Reset();
 		bUseDirectMovementFallback = false;
+		SetActorTickEnabled(false);
 		return;
 	}
 
@@ -81,6 +90,7 @@ void AChasingAIController::RefreshChasePath()
 		true);
 
 	bUseDirectMovementFallback = RequestResult == EPathFollowingRequestResult::Failed;
+	SetActorTickEnabled(bUseDirectMovementFallback);
 }
 
 void AChasingAIController::Tick(const float DeltaSeconds)

@@ -941,9 +941,17 @@ void AChunkedDestructibleHouse::HandleHouseCellDestroyed(
 	}
 }
 
+int32 AChunkedDestructibleHouse::GetEffectiveDebrisLimit() const
+{
+	return FMath::Min(
+		FMath::Clamp(MaxActiveDebrisPieces, 0, 1024),
+		FMath::Clamp(MaxRuntimeDebrisPieces, 0, 1024));
+}
+
 void AChunkedDestructibleHouse::SpawnDebrisForCell(FIntPoint Cell, FVector WorldLocation)
 {
-	if (!DebrisCubeMesh || MaxActiveDebrisPieces <= 0 || !GetWorld())
+	const int32 EffectiveDebrisLimit = GetEffectiveDebrisLimit();
+	if (!DebrisCubeMesh || EffectiveDebrisLimit <= 0 || !GetWorld())
 	{
 		return;
 	}
@@ -952,7 +960,7 @@ void AChunkedDestructibleHouse::SpawnDebrisForCell(FIntPoint Cell, FVector World
 		{
 			return !Component.IsValid();
 		});
-	if (ActiveDebrisComponents.Num() >= MaxActiveDebrisPieces)
+	if (ActiveDebrisComponents.Num() >= EffectiveDebrisLimit)
 	{
 		return;
 	}
@@ -972,7 +980,7 @@ void AChunkedDestructibleHouse::SpawnDebrisForCell(FIntPoint Cell, FVector World
 		static_cast<float>(FMath::Max(DebrisScaleRange.X, DebrisScaleRange.Y)), MinScale, 1.0f);
 	const int32 SpawnCount = FMath::Min(
 		FMath::Clamp(DebrisPiecesPerCell, 1, 8),
-		MaxActiveDebrisPieces - ActiveDebrisComponents.Num());
+		EffectiveDebrisLimit - ActiveDebrisComponents.Num());
 
 	for (int32 PieceIndex = 0; PieceIndex < SpawnCount; ++PieceIndex)
 	{
@@ -996,7 +1004,12 @@ void AChunkedDestructibleHouse::SpawnDebrisForCell(FIntPoint Cell, FVector World
 		{
 			Debris->SetMaterial(0, DebrisMaterial);
 		}
+		Debris->SetCastShadow(false);
+		Debris->SetGenerateOverlapEvents(false);
+		Debris->SetCanEverAffectNavigation(false);
 		Debris->SetCollisionProfileName(TEXT("PhysicsActor"));
+		Debris->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+		Debris->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 		Debris->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		Debris->SetWorldTransform(FTransform(
 			FragmentWorldRotation,
@@ -1027,6 +1040,25 @@ void AChunkedDestructibleHouse::SpawnDebrisForCell(FIntPoint Cell, FVector World
 
 		ActiveDebrisComponents.Add(Debris);
 		const TWeakObjectPtr<UStaticMeshComponent> WeakDebris(Debris);
+		const float SafeDebrisLifetime = FMath::Max(DebrisLifetime, 0.1f);
+		const float SafePhysicsDuration = FMath::Clamp(
+			DebrisPhysicsDuration, 0.05f, SafeDebrisLifetime);
+		if (SafePhysicsDuration < SafeDebrisLifetime)
+		{
+			FTimerDelegate SleepDelegate = FTimerDelegate::CreateWeakLambda(
+				this,
+				[WeakDebris]()
+				{
+					if (UStaticMeshComponent* Component = WeakDebris.Get())
+					{
+						Component->SetSimulatePhysics(false);
+						Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+					}
+				});
+			FTimerHandle SleepHandle;
+			GetWorld()->GetTimerManager().SetTimer(
+				SleepHandle, MoveTemp(SleepDelegate), SafePhysicsDuration, false);
+		}
 		FTimerDelegate CleanupDelegate = FTimerDelegate::CreateWeakLambda(
 			this,
 			[this, WeakDebris]()
@@ -1042,7 +1074,7 @@ void AChunkedDestructibleHouse::SpawnDebrisForCell(FIntPoint Cell, FVector World
 		GetWorld()->GetTimerManager().SetTimer(
 			CleanupHandle,
 			MoveTemp(CleanupDelegate),
-			FMath::Max(DebrisLifetime, 0.1f),
+			SafeDebrisLifetime,
 			false);
 	}
 }

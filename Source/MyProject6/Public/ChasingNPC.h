@@ -146,6 +146,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Replacement", meta = (ClampMin = "100.0", Units = "cm"))
 	float ReplacementSpawnRadius = 160.0f;
 
+	/**
+	 * Hard population budget for all chasing NPCs in this world. Zero removes the limit.
+	 * This prevents the default two-for-one replacement rule from growing without bound.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Replacement", meta = (ClampMin = "0", ClampMax = "512"))
+	int32 MaxActiveNPCCount = 32;
+
 private:
 	UFUNCTION()
 	void OnContactBegin(

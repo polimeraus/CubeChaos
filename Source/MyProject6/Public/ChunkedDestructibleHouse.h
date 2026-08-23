@@ -175,6 +175,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible House|Debris", meta = (ClampMin = "0.1", Units = "s"))
 	float DebrisLifetime = 3.0f;
 
+	/** Debris becomes visual-only after its initial bounce, avoiding long-running Chaos bodies. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible House|Debris", meta = (ClampMin = "0.05", Units = "s"))
+	float DebrisPhysicsDuration = 0.75f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible House|Debris", meta = (ClampMin = "0.0"))
 	float DebrisImpulse = 650.0f;
 
@@ -186,6 +190,10 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible House|Debris", meta = (ClampMin = "0", ClampMax = "1024"))
 	int32 MaxActiveDebrisPieces = 128;
+
+	/** Runtime safety budget applied even when an older placed actor saved a larger active limit. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible House|Debris", meta = (ClampMin = "0", ClampMax = "1024"))
+	int32 MaxRuntimeDebrisPieces = 48;
 
 	virtual bool CalculateLayout() override;
 	virtual bool ShouldCellExistInGeneratedShape(FIntPoint Cell) const override;
@@ -240,6 +248,7 @@ private:
 	UFUNCTION()
 	void HandleHouseCellDestroyed(FIntPoint Cell, FVector WorldLocation, bool bRadialDestruction);
 
+	int32 GetEffectiveDebrisLimit() const;
 	void SpawnDebrisForCell(FIntPoint Cell, FVector WorldLocation);
 	void ScheduleStructuralIntegrityCheck();
 	void ClearDebris();

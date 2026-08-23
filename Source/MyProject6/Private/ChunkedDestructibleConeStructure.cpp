@@ -283,8 +283,6 @@ bool AChunkedDestructibleConeStructure::DestroyConeCellFromHit(const FHitResult&
 			const float StartBottom = GetSpiralBottomHeight(false);
 			const float EndBottom = GetSpiralBottomHeight(true);
 			const float Thickness = GetSpiralThickness();
-			const float InnerOverlap = SpiralWallOverlapBlocks * CachedRadialBlockUnit;
-			const float OuterOverhang = PlatformOverhangBlocks * CachedRadialBlockUnit;
 			float BaseProgressAngle = FMath::Fmod(
 				Direction * (ImpactAngle - StartAngle), UE_TWO_PI);
 			if (BaseProgressAngle < 0.0f)
@@ -310,8 +308,11 @@ bool AChunkedDestructibleConeStructure::DestroyConeCellFromHit(const FHitResult&
 				const float SpiralBottom = FMath::Lerp(StartBottom, EndBottom, Alpha);
 				const float SpiralTop = SpiralBottom + Thickness;
 				const float ConeRadius = GetConeOuterRadiusAtHeight(SpiralTop);
-				const float InnerRadius = FMath::Max(ConeRadius - InnerOverlap, 0.0f);
-				const float OuterRadius = ConeRadius + OuterOverhang;
+				const float WidthScale = GetPlatformWidthScaleAtHeight(SpiralTop);
+				const float InnerRadius = FMath::Max(
+					ConeRadius - SpiralWallOverlapBlocks * CachedRadialBlockUnit * WidthScale,
+					0.0f);
+				const float OuterRadius = GetPlatformOuterRadiusAtHeight(SpiralTop);
 				const float RadialDistance = ImpactRadius < InnerRadius
 					? InnerRadius - ImpactRadius
 					: (ImpactRadius > OuterRadius ? ImpactRadius - OuterRadius : 0.0f);
@@ -473,6 +474,39 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 			GetOuterRadius(LocalZ) - ShellThicknessBlocks * NewRadialBlockUnit,
 			0.0f);
 	};
+	auto GetPlatformWidthScale = [&](float LocalZ)
+	{
+		if (!bTaperPlatformsUpward)
+		{
+			return 1.0f;
+		}
+		if (PlatformStyle == EConeStructurePlatformStyle::RisingSpiral)
+		{
+			const float SpiralThickness = BlockDimensions.Z * PlatformThicknessBlocks +
+				BlockSpacing.Z * FMath::Max(PlatformThicknessBlocks - 1, 0);
+			const float MaximumSpiralBottom = FMath::Max(
+				TotalConeHeight - SpiralThickness, 0.0f);
+			const float StartTop = FMath::Clamp(
+				LowestPlatformHeightBlocks * PitchZ, 0.0f, MaximumSpiralBottom) +
+				SpiralThickness;
+			const float EndTop = FMath::Clamp(
+				SpiralEndHeightBlocks * PitchZ, 0.0f, MaximumSpiralBottom) +
+				SpiralThickness;
+			if (!FMath::IsNearlyEqual(StartTop, EndTop))
+			{
+				const float SpiralAlpha = FMath::Clamp(
+					(LocalZ - StartTop) / (EndTop - StartTop), 0.0f, 1.0f);
+				return 1.0f - SpiralAlpha;
+			}
+		}
+		return GetOuterRadius(LocalZ) /
+			FMath::Max(GetOuterRadius(0.0f), MinimumConeDimension);
+	};
+	auto GetPlatformOuterRadius = [&](float LocalZ)
+	{
+		return GetOuterRadius(LocalZ) +
+			PlatformOverhangBlocks * NewRadialBlockUnit * GetPlatformWidthScale(LocalZ);
+	};
 	auto GetRadialRange = [&](int32 X, int32 Y, float& OutMinimumRadius, float& OutMaximumRadius)
 	{
 		const FVector Center = GetPhysicalCenter(X, Y, 0);
@@ -496,6 +530,17 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 		const float MinimumInnerRadius = FMath::Min(GetInnerRadius(BottomZ), GetInnerRadius(TopZ));
 		return MinimumRadius <= MaximumOuterRadius + ConeSpacingTolerance &&
 			MaximumCellRadius >= MinimumInnerRadius - ConeSpacingTolerance;
+	};
+	auto IsConeBaseBackingCell = [&](int32 X, int32 Y, int32 Z)
+	{
+		if (!bGenerateConeBase || Z != 0)
+		{
+			return false;
+		}
+		float MinimumRadius;
+		float MaximumCellRadius;
+		GetRadialRange(X, Y, MinimumRadius, MaximumCellRadius);
+		return MinimumRadius <= GetOuterRadius(0.0f) + ConeSpacingTolerance;
 	};
 	auto IsPlatformBackingCell = [&](int32 X, int32 Y, int32 Z)
 	{
@@ -523,8 +568,7 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 				}
 				const float PlatformLocalZ = BlockDimensions.Z * 0.5f + BottomZ * PitchZ;
 				const float InnerRadius = GetInnerRadius(PlatformLocalZ);
-				const float OuterRadius = GetOuterRadius(PlatformLocalZ) +
-					PlatformOverhangBlocks * NewRadialBlockUnit;
+				const float OuterRadius = GetPlatformOuterRadius(PlatformLocalZ);
 				float MinimumRadius;
 				float MaximumCellRadius;
 				GetRadialRange(X, Y, MinimumRadius, MaximumCellRadius);
@@ -553,8 +597,6 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 		const float TotalSpiralAngle = UE_TWO_PI * PlatformSpiralTurns;
 		const float StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
 		const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
-		const float RadialOverhang = PlatformOverhangBlocks * NewRadialBlockUnit;
-		const float WallOverlap = SpiralWallOverlapBlocks * NewRadialBlockUnit;
 		auto EndCapIntersectsCell = [&](bool bEnd)
 		{
 			const float Alpha = bEnd ? 1.0f : 0.0f;
@@ -564,8 +606,11 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 			const double CosAngle = FMath::Cos(CapAngle);
 			const double SinAngle = FMath::Sin(CapAngle);
 			const float ConeRadius = GetOuterRadius(Top);
-			const float InnerRadius = FMath::Max(ConeRadius - WallOverlap, 0.0f);
-			const float OuterRadius = ConeRadius + RadialOverhang;
+			const float InnerRadius = FMath::Max(
+				ConeRadius - SpiralWallOverlapBlocks * NewRadialBlockUnit *
+					GetPlatformWidthScale(Top),
+				0.0f);
+			const float OuterRadius = GetPlatformOuterRadius(Top);
 			const FVector3d InnerBottom(CosAngle * InnerRadius, SinAngle * InnerRadius, Bottom);
 			const FVector3d OuterBottom(CosAngle * OuterRadius, SinAngle * OuterRadius, Bottom);
 			const FVector3d OuterTop(CosAngle * OuterRadius, SinAngle * OuterRadius, Top);
@@ -613,8 +658,10 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 			const float ReferenceZ = SpiralBottom + SpiralThickness;
 			const float ConeRadius = GetOuterRadius(ReferenceZ);
 			const float InnerRadius = FMath::Max(
-				ConeRadius - SpiralWallOverlapBlocks * NewRadialBlockUnit, 0.0f);
-			const float OuterRadius = ConeRadius + PlatformOverhangBlocks * NewRadialBlockUnit;
+				ConeRadius - SpiralWallOverlapBlocks * NewRadialBlockUnit *
+					GetPlatformWidthScale(ReferenceZ),
+				0.0f);
+			const float OuterRadius = GetPlatformOuterRadius(ReferenceZ);
 			if (MinimumRadius <= OuterRadius + ConeSpacingTolerance &&
 				MaximumCellRadius >= InnerRadius - ConeSpacingTolerance)
 			{
@@ -636,7 +683,8 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 		{
 			for (int32 X = 0; X < NewGridDiameterBlocks; ++X)
 			{
-				if (IsConeCell(X, Y, Z) || IsPlatformBackingCell(X, Y, Z))
+				if (IsConeCell(X, Y, Z) || IsConeBaseBackingCell(X, Y, Z) ||
+					IsPlatformBackingCell(X, Y, Z))
 				{
 					LayerCells.Emplace(X, Y);
 				}
@@ -820,6 +868,34 @@ float AChunkedDestructibleConeStructure::GetConeInnerRadiusAtHeight(float LocalZ
 		0.0f);
 }
 
+float AChunkedDestructibleConeStructure::GetPlatformWidthScaleAtHeight(float LocalZ) const
+{
+	if (!bTaperPlatformsUpward)
+	{
+		return 1.0f;
+	}
+	if (PlatformStyle == EConeStructurePlatformStyle::RisingSpiral)
+	{
+		const float StartTop = GetSpiralBottomHeight(false) + GetSpiralThickness();
+		const float EndTop = GetSpiralBottomHeight(true) + GetSpiralThickness();
+		if (!FMath::IsNearlyEqual(StartTop, EndTop))
+		{
+			const float SpiralAlpha = FMath::Clamp(
+				(LocalZ - StartTop) / (EndTop - StartTop), 0.0f, 1.0f);
+			return 1.0f - SpiralAlpha;
+		}
+	}
+	return GetConeOuterRadiusAtHeight(LocalZ) /
+		FMath::Max(GetConeOuterRadiusAtHeight(0.0f), MinimumConeDimension);
+}
+
+float AChunkedDestructibleConeStructure::GetPlatformOuterRadiusAtHeight(float LocalZ) const
+{
+	return GetConeOuterRadiusAtHeight(LocalZ) +
+		PlatformOverhangBlocks * CachedRadialBlockUnit *
+		GetPlatformWidthScaleAtHeight(LocalZ);
+}
+
 void AChunkedDestructibleConeStructure::GetCellRadialRange(
 	int32 X,
 	int32 Y,
@@ -853,6 +929,18 @@ bool AChunkedDestructibleConeStructure::IsConeShellCell(int32 X, int32 Y, int32 
 		MaximumRadius >= InnerRadius - ConeSpacingTolerance;
 }
 
+bool AChunkedDestructibleConeStructure::IsConeBaseCell(int32 X, int32 Y, int32 Z) const
+{
+	if (!bGenerateConeBase || Z != 0)
+	{
+		return false;
+	}
+	float MinimumRadius;
+	float MaximumRadius;
+	GetCellRadialRange(X, Y, MinimumRadius, MaximumRadius);
+	return MinimumRadius <= GetConeOuterRadiusAtHeight(0.0f) + ConeSpacingTolerance;
+}
+
 bool AChunkedDestructibleConeStructure::IsPlatformCell(int32 X, int32 Y, int32 Z) const
 {
 	if (!bGeneratePlatforms)
@@ -884,9 +972,8 @@ bool AChunkedDestructibleConeStructure::IsCircularPlatformCell(int32 X, int32 Y,
 		}
 		const float PlatformLocalZ = BlockDimensions.Z * 0.5f +
 			BottomZ * (BlockDimensions.Z + BlockSpacing.Z);
-		const float ConeOuterRadius = GetConeOuterRadiusAtHeight(PlatformLocalZ);
 		const float InnerRadius = GetConeInnerRadiusAtHeight(PlatformLocalZ);
-		const float OuterRadius = ConeOuterRadius + PlatformOverhangBlocks * CachedRadialBlockUnit;
+		const float OuterRadius = GetPlatformOuterRadiusAtHeight(PlatformLocalZ);
 		float MinimumRadius;
 		float MaximumRadius;
 		GetCellRadialRange(X, Y, MinimumRadius, MaximumRadius);
@@ -931,8 +1018,6 @@ bool AChunkedDestructibleConeStructure::IsSpiralPlatformCell(int32 X, int32 Y, i
 	const float TotalSpiralAngle = UE_TWO_PI * PlatformSpiralTurns;
 	const float StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
 	const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
-	const float RadialOverhang = PlatformOverhangBlocks * CachedRadialBlockUnit;
-	const float WallOverlap = SpiralWallOverlapBlocks * CachedRadialBlockUnit;
 	auto EndCapIntersectsCell = [&](bool bEnd)
 	{
 		const float Alpha = bEnd ? 1.0f : 0.0f;
@@ -942,8 +1027,11 @@ bool AChunkedDestructibleConeStructure::IsSpiralPlatformCell(int32 X, int32 Y, i
 		const double CosAngle = FMath::Cos(CapAngle);
 		const double SinAngle = FMath::Sin(CapAngle);
 		const float ConeRadius = GetConeOuterRadiusAtHeight(Top);
-		const float InnerRadius = FMath::Max(ConeRadius - WallOverlap, 0.0f);
-		const float OuterRadius = ConeRadius + RadialOverhang;
+		const float InnerRadius = FMath::Max(
+			ConeRadius - SpiralWallOverlapBlocks * CachedRadialBlockUnit *
+				GetPlatformWidthScaleAtHeight(Top),
+			0.0f);
+		const float OuterRadius = GetPlatformOuterRadiusAtHeight(Top);
 		const FVector3d InnerBottom(CosAngle * InnerRadius, SinAngle * InnerRadius, Bottom);
 		const FVector3d OuterBottom(CosAngle * OuterRadius, SinAngle * OuterRadius, Bottom);
 		const FVector3d OuterTop(CosAngle * OuterRadius, SinAngle * OuterRadius, Top);
@@ -990,8 +1078,10 @@ bool AChunkedDestructibleConeStructure::IsSpiralPlatformCell(int32 X, int32 Y, i
 		}
 		const float ConeRadius = GetConeOuterRadiusAtHeight(SpiralBottom + SpiralThickness);
 		const float InnerRadius = FMath::Max(
-			ConeRadius - SpiralWallOverlapBlocks * CachedRadialBlockUnit, 0.0f);
-		const float OuterRadius = ConeRadius + PlatformOverhangBlocks * CachedRadialBlockUnit;
+			ConeRadius - SpiralWallOverlapBlocks * CachedRadialBlockUnit *
+				GetPlatformWidthScaleAtHeight(SpiralBottom + SpiralThickness),
+			0.0f);
+		const float OuterRadius = GetPlatformOuterRadiusAtHeight(SpiralBottom + SpiralThickness);
 		if (MinimumRadius <= OuterRadius + ConeSpacingTolerance &&
 			MaximumRadius >= InnerRadius - ConeSpacingTolerance)
 		{
@@ -1069,8 +1159,13 @@ bool AChunkedDestructibleConeStructure::ShouldCellExistInGeneratedShape(FIntPoin
 	{
 		return false;
 	}
-	const bool bBelongsToStructure = IsConeShellCell(X, Y, Z) || IsPlatformCell(X, Y, Z);
-	return bBelongsToStructure && !IsEntranceCell(X, Y, Z);
+	const bool bShellCell = IsConeShellCell(X, Y, Z);
+	const bool bBaseCell = IsConeBaseCell(X, Y, Z);
+	const bool bPlatformCell = IsPlatformCell(X, Y, Z);
+	const bool bBelongsToStructure = bShellCell || bBaseCell || bPlatformCell;
+	const bool bEntranceRemovesCell = IsEntranceCell(X, Y, Z) &&
+		(bShellCell || bPlatformCell);
+	return bBelongsToStructure && !bEntranceRemovesCell;
 }
 
 int32 AChunkedDestructibleConeStructure::EvaluatePatternMaterial(FIntPoint Cell) const
@@ -1340,7 +1435,8 @@ void AChunkedDestructibleConeStructure::AppendConeSurfaces(
 			AppendClippedSurfaceTriangle(Mesh, ChunkIndex, Z,
 				OuterBottomA, OuterTopB, OuterTopA, OuterNormal, 0);
 
-			if (InnerBottomRadius > KINDA_SMALL_NUMBER || InnerTopRadius > KINDA_SMALL_NUMBER)
+			if ((!bGenerateConeBase || Z > 0) &&
+				(InnerBottomRadius > KINDA_SMALL_NUMBER || InnerTopRadius > KINDA_SMALL_NUMBER))
 			{
 				const FVector3d InnerBottomA(FMath::Cos(AngleA) * InnerBottomRadius, FMath::Sin(AngleA) * InnerBottomRadius, BottomZ);
 				const FVector3d InnerBottomB(FMath::Cos(AngleB) * InnerBottomRadius, FMath::Sin(AngleB) * InnerBottomRadius, BottomZ);
@@ -1355,7 +1451,14 @@ void AChunkedDestructibleConeStructure::AppendConeSurfaces(
 	}
 
 	AppendAnnularSurface(Mesh, ChunkIndex, 0, 0.0f,
-		GetConeInnerRadiusAtHeight(0.0f), GetConeOuterRadiusAtHeight(0.0f), false, 0);
+		bGenerateConeBase ? 0.0f : GetConeInnerRadiusAtHeight(0.0f),
+		GetConeOuterRadiusAtHeight(0.0f), false, 0);
+	if (bGenerateConeBase)
+	{
+		const float BaseTopZ = FMath::Min(BlockDimensions.Z + VerticalSeal, TotalHeight);
+		AppendAnnularSurface(Mesh, ChunkIndex, 0, BaseTopZ,
+			0.0f, GetConeInnerRadiusAtHeight(BaseTopZ), true, 0);
+	}
 	AppendAnnularSurface(Mesh, ChunkIndex, GridHeightBlocks - 1, TotalHeight,
 		GetConeInnerRadiusAtHeight(TotalHeight), GetConeOuterRadiusAtHeight(TotalHeight), true, 0);
 }
@@ -1401,8 +1504,7 @@ void AChunkedDestructibleConeStructure::AppendPlatformSurfaces(
 		}
 		const float PlatformReferenceZ = BlockDimensions.Z * 0.5f + PlatformBottomZ * PitchZ;
 		const float InnerRadius = GetConeInnerRadiusAtHeight(PlatformReferenceZ);
-		const float OuterRadius = GetConeOuterRadiusAtHeight(PlatformReferenceZ) +
-			PlatformOverhangBlocks * CachedRadialBlockUnit;
+		const float OuterRadius = GetPlatformOuterRadiusAtHeight(PlatformReferenceZ);
 
 		for (int32 Z = FMath::Max(PlatformBottomZ, MinLogicalZ);
 			Z <= FMath::Min(PlatformTopZ, MaxLogicalZ - 1); ++Z)
@@ -1477,9 +1579,6 @@ void AChunkedDestructibleConeStructure::AppendSpiralSurfaces(
 	const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
 	const int32 SegmentCount = FMath::Clamp(
 		FMath::CeilToInt(PlatformSpiralTurns * SpiralSegmentsPerTurn), 1, 8192);
-	const float RadialOverhang = PlatformOverhangBlocks * CachedRadialBlockUnit;
-	const float WallOverlap = SpiralWallOverlapBlocks * CachedRadialBlockUnit;
-
 	auto MakeSection = [&](int32 SectionIndex,
 		FVector3d& OutInnerBottom,
 		FVector3d& OutOuterBottom,
@@ -1491,8 +1590,11 @@ void AChunkedDestructibleConeStructure::AppendSpiralSurfaces(
 		const float BottomZ = FMath::Lerp(StartBottom, EndBottom, Alpha);
 		const float TopZ = BottomZ + Thickness;
 		const float ConeRadius = GetConeOuterRadiusAtHeight(TopZ);
-		const float InnerRadius = FMath::Max(ConeRadius - WallOverlap, 0.0f);
-		const float OuterRadius = ConeRadius + RadialOverhang;
+		const float InnerRadius = FMath::Max(
+			ConeRadius - SpiralWallOverlapBlocks * CachedRadialBlockUnit *
+				GetPlatformWidthScaleAtHeight(TopZ),
+			0.0f);
+		const float OuterRadius = GetPlatformOuterRadiusAtHeight(TopZ);
 		const double CosAngle = FMath::Cos(Angle);
 		const double SinAngle = FMath::Sin(Angle);
 		OutInnerBottom = FVector3d(CosAngle * InnerRadius, SinAngle * InnerRadius, BottomZ);
@@ -1615,6 +1717,16 @@ bool AChunkedDestructibleConeStructure::IsPointInsideRenderedStructure(
 	};
 
 	const int32 CircularSegmentCount = GetEffectiveCircularSegments();
+	if (bGenerateConeBase && IsInsideRenderedLayer(0))
+	{
+		const double SafeZ = FMath::Clamp(LocalPoint.Z, 0.0, TotalHeight);
+		const double BaseOuterRadius = GetFacetedRadius(
+			GetConeOuterRadiusAtHeight(SafeZ), Angle, CircularSegmentCount);
+		if (Radius <= BaseOuterRadius + BoundaryTolerance)
+		{
+			return true;
+		}
+	}
 	if (LocalPoint.Z >= -BoundaryTolerance &&
 		LocalPoint.Z <= TotalHeight + BoundaryTolerance)
 	{
@@ -1670,8 +1782,7 @@ bool AChunkedDestructibleConeStructure::IsPointInsideRenderedStructure(
 			const double InnerRadius = GetFacetedRadius(
 				GetConeInnerRadiusAtHeight(ReferenceZ), Angle, CircularSegmentCount);
 			const double OuterRadius = GetFacetedRadius(
-				GetConeOuterRadiusAtHeight(ReferenceZ) +
-					PlatformOverhangBlocks * CachedRadialBlockUnit,
+				GetPlatformOuterRadiusAtHeight(ReferenceZ),
 				Angle,
 				CircularSegmentCount);
 			if (Radius >= InnerRadius - BoundaryTolerance &&
@@ -1755,17 +1866,17 @@ bool AChunkedDestructibleConeStructure::IsPointInsideRenderedStructure(
 
 		const double AngleA = StartAngle + Direction * ProgressA;
 		const double AngleB = StartAngle + Direction * ProgressB;
-		const double OuterRadiusA = GetConeOuterRadiusAtHeight(BottomA + Thickness) +
-			PlatformOverhangBlocks * CachedRadialBlockUnit;
-		const double OuterRadiusB = GetConeOuterRadiusAtHeight(BottomB + Thickness) +
-			PlatformOverhangBlocks * CachedRadialBlockUnit;
+		const double OuterRadiusA = GetPlatformOuterRadiusAtHeight(BottomA + Thickness);
+		const double OuterRadiusB = GetPlatformOuterRadiusAtHeight(BottomB + Thickness);
 		const double InnerRadiusA = FMath::Max(
 			GetConeOuterRadiusAtHeight(BottomA + Thickness) -
-				SpiralWallOverlapBlocks * CachedRadialBlockUnit,
+				SpiralWallOverlapBlocks * CachedRadialBlockUnit *
+					GetPlatformWidthScaleAtHeight(BottomA + Thickness),
 			0.0f);
 		const double InnerRadiusB = FMath::Max(
 			GetConeOuterRadiusAtHeight(BottomB + Thickness) -
-				SpiralWallOverlapBlocks * CachedRadialBlockUnit,
+				SpiralWallOverlapBlocks * CachedRadialBlockUnit *
+					GetPlatformWidthScaleAtHeight(BottomB + Thickness),
 			0.0f);
 		const double OuterRadius = IntersectPolarEdgeRadius(
 			OuterRadiusA, AngleA, OuterRadiusB, AngleB, Angle);
@@ -2188,8 +2299,7 @@ void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
 			}
 			const float ReferenceZ = BlockDimensions.Z * 0.5f + BottomLayer * PitchZ;
 			const float InnerRadius = GetConeInnerRadiusAtHeight(ReferenceZ);
-			const float OuterRadius = GetConeOuterRadiusAtHeight(ReferenceZ) +
-				PlatformOverhangBlocks * CachedRadialBlockUnit;
+			const float OuterRadius = GetPlatformOuterRadiusAtHeight(ReferenceZ);
 			for (int32 SegmentIndex = 0; SegmentIndex < SegmentCount; ++SegmentIndex)
 			{
 				const double AngleA = UE_TWO_PI * SegmentIndex / SegmentCount;
@@ -2218,8 +2328,6 @@ void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
 	const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
 	const int32 SegmentCount = FMath::Clamp(
 		FMath::CeilToInt(PlatformSpiralTurns * SpiralSegmentsPerTurn), 1, 8192);
-	const float RadialOverhang = PlatformOverhangBlocks * CachedRadialBlockUnit;
-	const float WallOverlap = SpiralWallOverlapBlocks * CachedRadialBlockUnit;
 	auto MakeSection = [&](int32 SectionIndex, FVector3d& InnerBottom, FVector3d& OuterBottom,
 		FVector3d& InnerTop, FVector3d& OuterTop)
 	{
@@ -2228,8 +2336,11 @@ void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
 		const float BottomZ = FMath::Lerp(StartBottom, EndBottom, Alpha);
 		const float TopZ = BottomZ + Thickness;
 		const float ConeOuterRadius = GetConeOuterRadiusAtHeight(TopZ);
-		const float InnerRadius = FMath::Max(ConeOuterRadius - WallOverlap, 0.0f);
-		const float OuterRadius = ConeOuterRadius + RadialOverhang;
+		const float InnerRadius = FMath::Max(
+			ConeOuterRadius - SpiralWallOverlapBlocks * CachedRadialBlockUnit *
+				GetPlatformWidthScaleAtHeight(TopZ),
+			0.0f);
+		const float OuterRadius = GetPlatformOuterRadiusAtHeight(TopZ);
 		InnerBottom = FVector3d(FMath::Cos(Angle) * InnerRadius, FMath::Sin(Angle) * InnerRadius, BottomZ);
 		OuterBottom = FVector3d(FMath::Cos(Angle) * OuterRadius, FMath::Sin(Angle) * OuterRadius, BottomZ);
 		InnerTop = FVector3d(FMath::Cos(Angle) * InnerRadius, FMath::Sin(Angle) * InnerRadius, TopZ);

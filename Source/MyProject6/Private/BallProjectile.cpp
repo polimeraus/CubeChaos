@@ -26,11 +26,16 @@ ABallProjectile::ABallProjectile()
 	CollisionComponent->InitSphereRadius(12.0f);
 	CollisionComponent->SetCollisionProfileName(TEXT("Projectile"));
 	CollisionComponent->SetNotifyRigidBodyCollision(true);
+	CollisionComponent->SetGenerateOverlapEvents(false);
+	CollisionComponent->SetCanEverAffectNavigation(false);
 	RootComponent = CollisionComponent;
 
 	MeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MeshComponent"));
 	MeshComponent->SetupAttachment(CollisionComponent);
 	MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	MeshComponent->SetGenerateOverlapEvents(false);
+	MeshComponent->SetCanEverAffectNavigation(false);
+	MeshComponent->SetCastShadow(false);
 	MeshComponent->SetRelativeScale3D(FVector(0.24f));
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
