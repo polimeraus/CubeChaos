@@ -513,6 +513,7 @@ private:
 	TMap<TWeakObjectPtr<ACharacter>, float> CharacterAppliedWalkSpeeds;
 	TSet<int32> DestroyedSpiralSegmentIndices;
 	TSet<int32> DestroyedSpiralTriangleSliceIndices;
+	bool bSpiralCollisionReadyForAsyncUpdates = false;
 	double ConeAnimationStartTime = 0.0;
 	bool bConeAnimationPlaying = false;
 	bool bConeAnimationGeometryDirty = false;
@@ -541,6 +542,7 @@ private:
 		int32& OutSegmentIndex,
 		int32* OutTriangleSliceIndex = nullptr) const;
 	bool DestroySpiralSegmentFromHit(const FHitResult& Hit);
+	void RebuildSpiralSegmentChunks(int32 SegmentIndex);
 	bool IsSpiralSegmentDestroyed(int32 SegmentIndex) const;
 	bool IsSpiralTriangleSliceDestroyed(int32 SegmentIndex, int32 TriangleSliceIndex) const;
 	void GetCellRadialRange(int32 X, int32 Y, float& OutMinimumRadius, float& OutMaximumRadius) const;

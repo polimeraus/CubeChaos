@@ -153,14 +153,18 @@ AChunkedDestructibleConeStructure::AChunkedDestructibleConeStructure()
 
 void AChunkedDestructibleConeStructure::OnConstruction(const FTransform& Transform)
 {
+	bSpiralCollisionReadyForAsyncUpdates = false;
 	Super::OnConstruction(Transform);
+	bSpiralCollisionReadyForAsyncUpdates = true;
 	OnCellDestroyed.RemoveDynamic(this, &AChunkedDestructibleConeStructure::HandleConeCellDestroyed);
 	OnCellDestroyed.AddDynamic(this, &AChunkedDestructibleConeStructure::HandleConeCellDestroyed);
 }
 
 void AChunkedDestructibleConeStructure::BeginPlay()
 {
+	bSpiralCollisionReadyForAsyncUpdates = false;
 	Super::BeginPlay();
+	bSpiralCollisionReadyForAsyncUpdates = true;
 	OnCellDestroyed.RemoveDynamic(this, &AChunkedDestructibleConeStructure::HandleConeCellDestroyed);
 	OnCellDestroyed.AddDynamic(this, &AChunkedDestructibleConeStructure::HandleConeCellDestroyed);
 	StartCharacterSpeedBoostMonitoring();
@@ -1331,10 +1335,125 @@ bool AChunkedDestructibleConeStructure::DestroySpiralSegmentFromHit(const FHitRe
 	{
 		DestroyedSpiralSegmentIndices.Add(SegmentIndex);
 	}
-	RebuildAllChunks();
+	RebuildSpiralSegmentChunks(SegmentIndex);
 	const FVector WorldImpact = Hit.ImpactPoint.ContainsNaN() ? Hit.Location : Hit.ImpactPoint;
 	PlayDestroySound(WorldImpact, GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0);
 	return true;
+}
+
+void AChunkedDestructibleConeStructure::RebuildSpiralSegmentChunks(int32 SegmentIndex)
+{
+	const int32 SegmentCount = GetSpiralSegmentCount();
+	if (SegmentIndex < 0 || SegmentIndex >= SegmentCount || ChunkCount.X <= 0)
+	{
+		RebuildAllChunks();
+		return;
+	}
+
+	const float StartBottom = GetSpiralBottomHeight(false);
+	const float EndBottom = GetSpiralBottomHeight(true);
+	const float Thickness = GetSpiralThickness();
+	const float TotalAngle = UE_TWO_PI * PlatformSpiralTurns;
+	const float StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
+	const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
+	TArray<FVector3d, TInlineAllocator<8>> SegmentVertices;
+	SegmentVertices.Reserve(8);
+	auto AddSectionVertices = [&](int32 SectionIndex)
+	{
+		const float Alpha = static_cast<float>(SectionIndex) / SegmentCount;
+		const double Angle = StartAngle + Direction * TotalAngle * Alpha;
+		const float BottomZ = FMath::Lerp(StartBottom, EndBottom, Alpha);
+		const float TopZ = BottomZ + Thickness;
+		const float InnerRadius = FMath::Max(
+			GetConeOuterRadiusAtHeight(TopZ) -
+				SpiralWallOverlapBlocks * CachedRadialBlockUnit *
+					GetPlatformWidthScaleAtHeight(TopZ),
+			0.0f);
+		const float OuterRadius = GetPlatformOuterRadiusAtHeight(TopZ);
+		const double CosAngle = FMath::Cos(Angle);
+		const double SinAngle = FMath::Sin(Angle);
+		SegmentVertices.Add(FVector3d(CosAngle * InnerRadius, SinAngle * InnerRadius, BottomZ));
+		SegmentVertices.Add(FVector3d(CosAngle * OuterRadius, SinAngle * OuterRadius, BottomZ));
+		SegmentVertices.Add(FVector3d(CosAngle * InnerRadius, SinAngle * InnerRadius, TopZ));
+		SegmentVertices.Add(FVector3d(CosAngle * OuterRadius, SinAngle * OuterRadius, TopZ));
+	};
+	AddSectionVertices(SegmentIndex);
+	AddSectionVertices(SegmentIndex + 1);
+
+	FVector3d BoundsMinimum(TNumericLimits<double>::Max());
+	FVector3d BoundsMaximum(TNumericLimits<double>::Lowest());
+	for (const FVector3d& Vertex : SegmentVertices)
+	{
+		BoundsMinimum.X = FMath::Min(BoundsMinimum.X, Vertex.X);
+		BoundsMinimum.Y = FMath::Min(BoundsMinimum.Y, Vertex.Y);
+		BoundsMinimum.Z = FMath::Min(BoundsMinimum.Z, Vertex.Z);
+		BoundsMaximum.X = FMath::Max(BoundsMaximum.X, Vertex.X);
+		BoundsMaximum.Y = FMath::Max(BoundsMaximum.Y, Vertex.Y);
+		BoundsMaximum.Z = FMath::Max(BoundsMaximum.Z, Vertex.Z);
+	}
+
+	const double PitchX = FMath::Max(
+		static_cast<double>(BlockDimensions.X + BlockSpacing.X), 1.0);
+	const double PitchY = FMath::Max(
+		static_cast<double>(BlockDimensions.Y + BlockSpacing.Y), 1.0);
+	const double PitchZ = FMath::Max(
+		static_cast<double>(BlockDimensions.Z + BlockSpacing.Z), 1.0);
+	const int32 MinimumX = FMath::Clamp(
+		FMath::FloorToInt((BoundsMinimum.X - ConeGridLocalMin.X) / PitchX) - 1,
+		0,
+		GridDiameterBlocks - 1);
+	const int32 MaximumX = FMath::Clamp(
+		FMath::FloorToInt((BoundsMaximum.X - ConeGridLocalMin.X) / PitchX) + 1,
+		0,
+		GridDiameterBlocks - 1);
+	const int32 MinimumY = FMath::Clamp(
+		FMath::FloorToInt((BoundsMinimum.Y - ConeGridLocalMin.Y) / PitchY) - 1,
+		0,
+		GridDiameterBlocks - 1);
+	const int32 MaximumY = FMath::Clamp(
+		FMath::FloorToInt((BoundsMaximum.Y - ConeGridLocalMin.Y) / PitchY) + 1,
+		0,
+		GridDiameterBlocks - 1);
+	const int32 MinimumZ = FMath::Clamp(
+		FMath::FloorToInt(BoundsMinimum.Z / PitchZ) - 1,
+		0,
+		GridHeightBlocks - 1);
+	const int32 MaximumZ = FMath::Clamp(
+		FMath::FloorToInt(BoundsMaximum.Z / PitchZ) + 1,
+		0,
+		GridHeightBlocks - 1);
+	const int32 SafeChunkSide = GetEffectiveConeChunkSideLength();
+	TSet<int32> AffectedChunkIndices;
+	for (int32 Z = MinimumZ; Z <= MaximumZ; ++Z)
+	{
+		for (int32 Y = MinimumY; Y <= MaximumY; ++Y)
+		{
+			for (int32 X = MinimumX; X <= MaximumX; ++X)
+			{
+				const FIntPoint Cell = EncodeCell(X, Y, Z);
+				if (Cell == FIntPoint::NoneValue)
+				{
+					continue;
+				}
+				const int32 ChunkIndex = Cell.X / SafeChunkSide +
+					(Cell.Y / SafeChunkSide) * ChunkCount.X;
+				if (ChunkIndex >= 0 && ChunkIndex < ChunkCount.X * ChunkCount.Y)
+				{
+					AffectedChunkIndices.Add(ChunkIndex);
+				}
+			}
+		}
+	}
+
+	if (AffectedChunkIndices.IsEmpty())
+	{
+		RebuildAllChunks();
+		return;
+	}
+	for (const int32 ChunkIndex : AffectedChunkIndices)
+	{
+		RebuildChunk(ChunkIndex);
+	}
 }
 
 bool AChunkedDestructibleConeStructure::IsSpiralPlatformCell(int32 X, int32 Y, int32 Z) const
@@ -1600,7 +1719,8 @@ void AChunkedDestructibleConeStructure::ConfigureChunkComponent(
 		SpiralDestructionMode != EConeStructureSpiralDestructionMode::ExistingCellDestruction;
 	// The first projectile can arrive before an asynchronous complex-collision cook has replaced
 	// the editor/PIE backing collision. Segment mode needs its exact mesh collision immediately.
-	Component->bUseAsyncCooking = bUseAsyncConeCollisionCooking && !bNeedsSegmentCollision;
+	Component->bUseAsyncCooking = bUseAsyncConeCollisionCooking &&
+		(!bNeedsSegmentCollision || bSpiralCollisionReadyForAsyncUpdates);
 
 	UMaterialInterface* ResolvedConeMaterial = ResolveStructureMaterial(false);
 	UMaterialInterface* ResolvedPlatformMaterial = ResolveStructureMaterial(true);
