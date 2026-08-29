@@ -194,6 +194,7 @@ void AChunkedDestructibleConeStructure::ClearAdditionalRuntimeEffects()
 	CurrentSurfaceFlashTime = -TNumericLimits<double>::Max();
 	SurfaceFlashCellFilter.Reset();
 	DestroyedSpiralSegmentIndices.Reset();
+	DestroyedSpiralTriangleSliceIndices.Reset();
 }
 
 #if WITH_EDITOR
@@ -378,7 +379,7 @@ bool AChunkedDestructibleConeStructure::DestroyConeCellFromHit(const FHitResult&
 {
 	const bool bUseSpiralSegmentDestruction = bGeneratePlatforms &&
 		PlatformStyle == EConeStructurePlatformStyle::RisingSpiral &&
-		SpiralDestructionMode == EConeStructureSpiralDestructionMode::OneSegmentPerHit;
+		SpiralDestructionMode != EConeStructureSpiralDestructionMode::ExistingCellDestruction;
 	if (bUseSpiralSegmentDestruction)
 	{
 		// This mode is exclusive: never fall through to backing-cell destruction when the first
@@ -1143,11 +1144,24 @@ bool AChunkedDestructibleConeStructure::IsSpiralSegmentDestroyed(int32 SegmentIn
 	return DestroyedSpiralSegmentIndices.Contains(SegmentIndex);
 }
 
+bool AChunkedDestructibleConeStructure::IsSpiralTriangleSliceDestroyed(
+	int32 SegmentIndex,
+	int32 TriangleSliceIndex) const
+{
+	return IsSpiralSegmentDestroyed(SegmentIndex) ||
+		DestroyedSpiralTriangleSliceIndices.Contains(SegmentIndex * 2 + TriangleSliceIndex);
+}
+
 bool AChunkedDestructibleConeStructure::ResolveSpiralSegmentFromHit(
 	const FHitResult& Hit,
-	int32& OutSegmentIndex) const
+	int32& OutSegmentIndex,
+	int32* OutTriangleSliceIndex) const
 {
 	OutSegmentIndex = INDEX_NONE;
+	if (OutTriangleSliceIndex)
+	{
+		*OutTriangleSliceIndex = INDEX_NONE;
+	}
 	if (!bGeneratePlatforms || PlatformStyle != EConeStructurePlatformStyle::RisingSpiral ||
 		(PlatformOverhangBlocks <= KINDA_SMALL_NUMBER &&
 			SpiralWallOverlapBlocks <= KINDA_SMALL_NUMBER))
@@ -1261,10 +1275,30 @@ bool AChunkedDestructibleConeStructure::ResolveSpiralSegmentFromHit(
 				FMath::Max(ImpactRadius, MinimumRadius);
 			const float DistanceSquared = FMath::Square(RadialDistance) +
 				FMath::Square(VerticalDistance) + FMath::Square(AngularDistance);
+			const float RadialAlpha = FMath::Clamp(
+				(ImpactRadius - MinimumRadius) /
+					FMath::Max(MaximumRadius - MinimumRadius, KINDA_SMALL_NUMBER),
+				0.0f,
+				1.0f);
+			int32 TriangleSliceIndex = RadialAlpha >= SegmentAlpha ? 0 : 1;
+			if (SpiralDestructionMode ==
+					EConeStructureSpiralDestructionMode::OneTrianglePerHit &&
+				IsSpiralTriangleSliceDestroyed(SegmentIndex, TriangleSliceIndex))
+			{
+				TriangleSliceIndex = 1 - TriangleSliceIndex;
+				if (IsSpiralTriangleSliceDestroyed(SegmentIndex, TriangleSliceIndex))
+				{
+					continue;
+				}
+			}
 			if (DistanceSquared < ClosestDistanceSquared)
 			{
 				ClosestDistanceSquared = DistanceSquared;
 				OutSegmentIndex = SegmentIndex;
+				if (OutTriangleSliceIndex)
+				{
+					*OutTriangleSliceIndex = TriangleSliceIndex;
+				}
 			}
 		}
 	}
@@ -1279,12 +1313,24 @@ bool AChunkedDestructibleConeStructure::ResolveSpiralSegmentFromHit(
 bool AChunkedDestructibleConeStructure::DestroySpiralSegmentFromHit(const FHitResult& Hit)
 {
 	int32 SegmentIndex = INDEX_NONE;
-	if (!ResolveSpiralSegmentFromHit(Hit, SegmentIndex))
+	int32 TriangleSliceIndex = INDEX_NONE;
+	if (!ResolveSpiralSegmentFromHit(Hit, SegmentIndex, &TriangleSliceIndex))
 	{
 		return false;
 	}
 
-	DestroyedSpiralSegmentIndices.Add(SegmentIndex);
+	if (SpiralDestructionMode == EConeStructureSpiralDestructionMode::OneTrianglePerHit)
+	{
+		if (TriangleSliceIndex == INDEX_NONE)
+		{
+			return false;
+		}
+		DestroyedSpiralTriangleSliceIndices.Add(SegmentIndex * 2 + TriangleSliceIndex);
+	}
+	else
+	{
+		DestroyedSpiralSegmentIndices.Add(SegmentIndex);
+	}
 	RebuildAllChunks();
 	const FVector WorldImpact = Hit.ImpactPoint.ContainsNaN() ? Hit.Location : Hit.ImpactPoint;
 	PlayDestroySound(WorldImpact, GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0);
@@ -1551,7 +1597,7 @@ void AChunkedDestructibleConeStructure::ConfigureChunkComponent(
 	}
 	const bool bNeedsSegmentCollision = bGeneratePlatforms &&
 		PlatformStyle == EConeStructurePlatformStyle::RisingSpiral &&
-		SpiralDestructionMode == EConeStructureSpiralDestructionMode::OneSegmentPerHit;
+		SpiralDestructionMode != EConeStructureSpiralDestructionMode::ExistingCellDestruction;
 	// The first projectile can arrive before an asynchronous complex-collision cook has replaced
 	// the editor/PIE backing collision. Segment mode needs its exact mesh collision immediately.
 	Component->bUseAsyncCooking = bUseAsyncConeCollisionCooking && !bNeedsSegmentCollision;
@@ -2216,10 +2262,17 @@ void AChunkedDestructibleConeStructure::AppendSpiralSurfaces(
 				static_cast<float>(UnitNormal.Z)),
 			1);
 	};
+	auto IsTriangleSlicePresent = [this, SegmentCount](int32 SegmentIndex, int32 TriangleSliceIndex)
+	{
+		return SegmentIndex >= 0 && SegmentIndex < SegmentCount &&
+			!IsSpiralTriangleSliceDestroyed(SegmentIndex, TriangleSliceIndex);
+	};
 
 	for (int32 SegmentIndex = 0; SegmentIndex < SegmentCount; ++SegmentIndex)
 	{
-		if (IsSpiralSegmentDestroyed(SegmentIndex))
+		const bool bOuterTrianglePresent = IsTriangleSlicePresent(SegmentIndex, 0);
+		const bool bInnerTrianglePresent = IsTriangleSlicePresent(SegmentIndex, 1);
+		if (!bOuterTrianglePresent && !bInnerTrianglePresent)
 		{
 			continue;
 		}
@@ -2244,27 +2297,67 @@ void AChunkedDestructibleConeStructure::AppendSpiralSurfaces(
 			Direction * -FMath::Sin(MidAngle),
 			Direction * FMath::Cos(MidAngle),
 			0.0);
+		const FVector3d OuterTriangleCenter =
+			(InnerTopA + OuterTopA + OuterTopB) / 3.0;
+		const FVector3d InnerTriangleCenter =
+			(InnerTopA + OuterTopB + InnerTopB) / 3.0;
+		const FVector3d DiagonalNormal =
+			(InnerTriangleCenter - OuterTriangleCenter).GetSafeNormal();
 
-		AppendOrientedTriangle(InnerTopA, OuterTopA, OuterTopB, FVector3d::UnitZ());
-		AppendOrientedTriangle(InnerTopA, OuterTopB, InnerTopB, FVector3d::UnitZ());
-		AppendOrientedTriangle(InnerBottomA, OuterBottomB, OuterBottomA, -FVector3d::UnitZ());
-		AppendOrientedTriangle(InnerBottomA, InnerBottomB, OuterBottomB, -FVector3d::UnitZ());
-		AppendOrientedTriangle(OuterBottomA, OuterTopB, OuterTopA, OutwardNormal);
-		AppendOrientedTriangle(OuterBottomA, OuterBottomB, OuterTopB, OutwardNormal);
-		AppendOrientedTriangle(InnerBottomA, InnerTopA, InnerTopB, -OutwardNormal);
-		AppendOrientedTriangle(InnerBottomA, InnerTopB, InnerBottomB, -OutwardNormal);
-
-		// Every surviving slice remains a closed 3D solid. When an adjacent slice has been
-		// destroyed, cap the newly exposed radial cross-section instead of leaving an open shell.
-		if (SegmentIndex == 0 || IsSpiralSegmentDestroyed(SegmentIndex - 1))
+		if (bOuterTrianglePresent)
 		{
-			AppendOrientedTriangle(InnerBottomA, OuterBottomA, OuterTopA, -TangentNormal);
-			AppendOrientedTriangle(InnerBottomA, OuterTopA, InnerTopA, -TangentNormal);
+			AppendOrientedTriangle(
+				InnerTopA, OuterTopA, OuterTopB, FVector3d::UnitZ());
+			AppendOrientedTriangle(
+				InnerBottomA, OuterBottomB, OuterBottomA, -FVector3d::UnitZ());
+			AppendOrientedTriangle(
+				OuterBottomA, OuterTopB, OuterTopA, OutwardNormal);
+			AppendOrientedTriangle(
+				OuterBottomA, OuterBottomB, OuterTopB, OutwardNormal);
+
+			// The outer triangle owns the complete radial face at the start of the segment.
+			if (!IsTriangleSlicePresent(SegmentIndex - 1, 1))
+			{
+				AppendOrientedTriangle(
+					InnerBottomA, OuterBottomA, OuterTopA, -TangentNormal);
+				AppendOrientedTriangle(
+					InnerBottomA, OuterTopA, InnerTopA, -TangentNormal);
+			}
+			if (!bInnerTrianglePresent)
+			{
+				AppendOrientedTriangle(
+					InnerBottomA, InnerTopA, OuterTopB, DiagonalNormal);
+				AppendOrientedTriangle(
+					InnerBottomA, OuterTopB, OuterBottomB, DiagonalNormal);
+			}
 		}
-		if (SegmentIndex + 1 == SegmentCount || IsSpiralSegmentDestroyed(SegmentIndex + 1))
+
+		if (bInnerTrianglePresent)
 		{
-			AppendOrientedTriangle(InnerBottomB, OuterTopB, OuterBottomB, TangentNormal);
-			AppendOrientedTriangle(InnerBottomB, InnerTopB, OuterTopB, TangentNormal);
+			AppendOrientedTriangle(
+				InnerTopA, OuterTopB, InnerTopB, FVector3d::UnitZ());
+			AppendOrientedTriangle(
+				InnerBottomA, InnerBottomB, OuterBottomB, -FVector3d::UnitZ());
+			AppendOrientedTriangle(
+				InnerBottomA, InnerTopA, InnerTopB, -OutwardNormal);
+			AppendOrientedTriangle(
+				InnerBottomA, InnerTopB, InnerBottomB, -OutwardNormal);
+
+			// The inner triangle owns the complete radial face at the end of the segment.
+			if (!IsTriangleSlicePresent(SegmentIndex + 1, 0))
+			{
+				AppendOrientedTriangle(
+					InnerBottomB, OuterTopB, OuterBottomB, TangentNormal);
+				AppendOrientedTriangle(
+					InnerBottomB, InnerTopB, OuterTopB, TangentNormal);
+			}
+			if (!bOuterTrianglePresent)
+			{
+				AppendOrientedTriangle(
+					InnerBottomA, InnerTopA, OuterTopB, -DiagonalNormal);
+				AppendOrientedTriangle(
+					InnerBottomA, OuterTopB, OuterBottomB, -DiagonalNormal);
+			}
 		}
 	}
 }
@@ -2444,10 +2537,6 @@ bool AChunkedDestructibleConeStructure::IsPointInsideRenderedStructure(
 			FMath::FloorToInt(ProgressAngle / FMath::Max(SegmentProgress, UE_DOUBLE_SMALL_NUMBER)),
 			0,
 			SpiralSegmentCount - 1);
-		if (IsSpiralSegmentDestroyed(SegmentIndex))
-		{
-			continue;
-		}
 		const double ProgressA = SegmentIndex * SegmentProgress;
 		const double ProgressB = (SegmentIndex + 1) * SegmentProgress;
 		const double AlphaA = ProgressA / TotalSpiralAngle;
@@ -2484,10 +2573,29 @@ bool AChunkedDestructibleConeStructure::IsPointInsideRenderedStructure(
 			OuterRadiusA, AngleA, OuterRadiusB, AngleB, Angle);
 		const double InnerRadius = IntersectPolarEdgeRadius(
 			InnerRadiusA, AngleA, InnerRadiusB, AngleB, Angle);
-		if (Radius >= InnerRadius - BoundaryTolerance &&
-			Radius <= OuterRadius + BoundaryTolerance)
+		const double MinimumRadius = FMath::Min(InnerRadius, OuterRadius);
+		const double MaximumRadius = FMath::Max(InnerRadius, OuterRadius);
+		if (Radius >= MinimumRadius - BoundaryTolerance &&
+			Radius <= MaximumRadius + BoundaryTolerance)
 		{
-			return true;
+			const double RadialAlpha = FMath::Clamp(
+				(Radius - MinimumRadius) /
+					FMath::Max(MaximumRadius - MinimumRadius, UE_DOUBLE_SMALL_NUMBER),
+				0.0,
+				1.0);
+			const double SliceTolerance = BoundaryTolerance /
+				FMath::Max(MaximumRadius - MinimumRadius, 1.0);
+			const bool bInsideOuterTriangle =
+				RadialAlpha + SliceTolerance >= SegmentAlpha;
+			const bool bInsideInnerTriangle =
+				RadialAlpha - SliceTolerance <= SegmentAlpha;
+			if ((bInsideOuterTriangle &&
+					!IsSpiralTriangleSliceDestroyed(SegmentIndex, 0)) ||
+				(bInsideInnerTriangle &&
+					!IsSpiralTriangleSliceDestroyed(SegmentIndex, 1)))
+			{
+				return true;
+			}
 		}
 	}
 	return false;
@@ -2949,11 +3057,6 @@ void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
 	};
 	for (int32 SegmentIndex = 0; SegmentIndex < SegmentCount; ++SegmentIndex)
 	{
-		if (IsSpiralSegmentDestroyed(SegmentIndex))
-		{
-			continue;
-		}
-
 		FVector3d InnerBottomA;
 		FVector3d OuterBottomA;
 		FVector3d InnerTopA;
@@ -2964,11 +3067,22 @@ void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
 		FVector3d OuterTopB;
 		MakeSection(SegmentIndex, InnerBottomA, OuterBottomA, InnerTopA, OuterTopA);
 		MakeSection(SegmentIndex + 1, InnerBottomB, OuterBottomB, InnerTopB, OuterTopB);
-		TArray<FVector3d, TInlineAllocator<8>> Vertices = {
-			InnerBottomA, OuterBottomA, InnerTopA, OuterTopA,
-			InnerBottomB, OuterBottomB, InnerTopB, OuterTopB
-		};
-		AppendElementIntersection(Vertices);
+		if (!IsSpiralTriangleSliceDestroyed(SegmentIndex, 0))
+		{
+			TArray<FVector3d, TInlineAllocator<8>> OuterTriangleVertices = {
+				InnerBottomA, OuterBottomA, OuterBottomB,
+				InnerTopA, OuterTopA, OuterTopB
+			};
+			AppendElementIntersection(OuterTriangleVertices);
+		}
+		if (!IsSpiralTriangleSliceDestroyed(SegmentIndex, 1))
+		{
+			TArray<FVector3d, TInlineAllocator<8>> InnerTriangleVertices = {
+				InnerBottomA, OuterBottomB, InnerBottomB,
+				InnerTopA, OuterTopB, InnerTopB
+			};
+			AppendElementIntersection(InnerTriangleVertices);
+		}
 	}
 }
 
@@ -4427,7 +4541,7 @@ bool AChunkedDestructibleConeStructure::CanUseSmoothCollisionForChunk(int32 Chun
 {
 	const bool bNeedsSegmentCollision = bGeneratePlatforms &&
 		PlatformStyle == EConeStructurePlatformStyle::RisingSpiral &&
-		SpiralDestructionMode == EConeStructureSpiralDestructionMode::OneSegmentPerHit;
+		SpiralDestructionMode != EConeStructureSpiralDestructionMode::ExistingCellDestruction;
 	if ((!bUseSmoothComplexCollision && !bNeedsSegmentCollision) ||
 		!ChunkComponents.IsValidIndex(ChunkIndex) ||
 		!ChunkComponents[ChunkIndex] || !ChunkComponents[ChunkIndex]->GetDynamicMesh())

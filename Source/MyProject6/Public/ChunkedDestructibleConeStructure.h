@@ -25,7 +25,8 @@ UENUM(BlueprintType)
 enum class EConeStructureSpiralDestructionMode : uint8
 {
 	ExistingCellDestruction UMETA(DisplayName = "Existing Cell Destruction"),
-	OneSegmentPerHit UMETA(DisplayName = "One Triangle Slice Per Hit")
+	OneSegmentPerHit UMETA(DisplayName = "One Rectangle Slice Per Hit"),
+	OneTrianglePerHit UMETA(DisplayName = "One Triangle Slice Per Hit")
 };
 
 /** Selects the material animation played across the cone shell. */
@@ -266,7 +267,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Platforms|Spiral", meta = (EditCondition = "bGeneratePlatforms && PlatformStyle == EConeStructurePlatformStyle::RisingSpiral", EditConditionHides, ClampMin = "16", ClampMax = "256"))
 	int32 SpiralSegmentsPerTurn = 64;
 
-	/** Chooses between the existing backing-cell destruction and removing one hit spiral slice. */
+	/** Chooses backing-cell, rectangular-slice, or individual triangular-slice destruction. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Platforms|Spiral", meta = (DisplayName = "Spiral Destruction Mode", EditCondition = "bGeneratePlatforms && PlatformStyle == EConeStructurePlatformStyle::RisingSpiral", EditConditionHides))
 	EConeStructureSpiralDestructionMode SpiralDestructionMode =
 		EConeStructureSpiralDestructionMode::ExistingCellDestruction;
@@ -511,6 +512,7 @@ private:
 	TMap<TWeakObjectPtr<ACharacter>, float> CharacterBaseWalkSpeeds;
 	TMap<TWeakObjectPtr<ACharacter>, float> CharacterAppliedWalkSpeeds;
 	TSet<int32> DestroyedSpiralSegmentIndices;
+	TSet<int32> DestroyedSpiralTriangleSliceIndices;
 	double ConeAnimationStartTime = 0.0;
 	bool bConeAnimationPlaying = false;
 	bool bConeAnimationGeometryDirty = false;
@@ -534,9 +536,13 @@ private:
 	float GetSpiralThickness() const;
 	float GetSpiralBottomHeight(bool bEnd) const;
 	int32 GetSpiralSegmentCount() const;
-	bool ResolveSpiralSegmentFromHit(const FHitResult& Hit, int32& OutSegmentIndex) const;
+	bool ResolveSpiralSegmentFromHit(
+		const FHitResult& Hit,
+		int32& OutSegmentIndex,
+		int32* OutTriangleSliceIndex = nullptr) const;
 	bool DestroySpiralSegmentFromHit(const FHitResult& Hit);
 	bool IsSpiralSegmentDestroyed(int32 SegmentIndex) const;
+	bool IsSpiralTriangleSliceDestroyed(int32 SegmentIndex, int32 TriangleSliceIndex) const;
 	void GetCellRadialRange(int32 X, int32 Y, float& OutMinimumRadius, float& OutMaximumRadius) const;
 	void AppendClippedSurfaceTriangle(
 		UE::Geometry::FDynamicMesh3& Mesh,
