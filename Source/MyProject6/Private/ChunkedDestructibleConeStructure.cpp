@@ -386,9 +386,12 @@ bool AChunkedDestructibleConeStructure::DestroyConeCellFromHit(const FHitResult&
 		SpiralDestructionMode != EConeStructureSpiralDestructionMode::ExistingCellDestruction;
 	if (bUseSpiralSegmentDestruction)
 	{
-		// This mode is exclusive: never fall through to backing-cell destruction when the first
-		// collision sample lands on a coarse cell boundary or while collision is being initialized.
-		return DestroySpiralSegmentFromHit(Hit);
+		// Segment modes apply only when the impact is actually on the spiral volume. Cone-shell and
+		// base hits must continue through the normal backing-cell path below.
+		if (DestroySpiralSegmentFromHit(Hit))
+		{
+			return true;
+		}
 	}
 
 	FIntPoint Cell;
@@ -1309,6 +1312,28 @@ bool AChunkedDestructibleConeStructure::ResolveSpiralSegmentFromHit(
 
 	if (OutSegmentIndex == INDEX_NONE)
 	{
+		return false;
+	}
+
+	// The nearest-segment search also produces a candidate for points on the cone body. Reject
+	// candidates that are not touching the spiral; otherwise a shell hit can delete an unrelated
+	// spiral slice several layers away. Real collision impacts lie on the generated spiral surface,
+	// so only a small tolerance is needed for sweep/contact and floating-point error.
+	const float MinimumBlockDimension = FMath::Max(
+		FMath::Min3(
+			static_cast<float>(BlockDimensions.X),
+			static_cast<float>(BlockDimensions.Y),
+			static_cast<float>(BlockDimensions.Z)),
+		MinimumConeDimension);
+	const float HitAcceptanceTolerance = FMath::Clamp(
+		MinimumBlockDimension * 0.02f, 0.5f, 5.0f);
+	if (ClosestDistanceSquared > FMath::Square(HitAcceptanceTolerance))
+	{
+		OutSegmentIndex = INDEX_NONE;
+		if (OutTriangleSliceIndex)
+		{
+			*OutTriangleSliceIndex = INDEX_NONE;
+		}
 		return false;
 	}
 	return true;
