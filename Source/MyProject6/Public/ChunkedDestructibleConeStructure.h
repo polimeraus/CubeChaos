@@ -39,6 +39,23 @@ enum class EConeStructureAnimationType : uint8
 	RisingSpiralGlow UMETA(DisplayName = "Rising Candy Cane Spiral Glow")
 };
 
+/** Selects the non-destructible ornament placed above the cone tip. */
+UENUM(BlueprintType)
+enum class EConeStructureApexStyle : uint8
+{
+	CurrentApex UMETA(DisplayName = "Current Cone Apex"),
+	CandySpire UMETA(DisplayName = "Reference Candy Spire")
+};
+
+/** Balances destruction-flash fidelity against projectile-hit cost. */
+UENUM(BlueprintType)
+enum class EConeStructureDestructionFlashStyle : uint8
+{
+	None UMETA(DisplayName = "None (Fastest)"),
+	FastCompact UMETA(DisplayName = "Fast Compact Flash"),
+	DetailedSurface UMETA(DisplayName = "Detailed Curved Surface")
+};
+
 /** Read-only measurements for the generated hollow cone and its circular platforms. */
 USTRUCT(BlueprintType)
 struct FChunkedDestructibleConeStructureMetrics
@@ -107,6 +124,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Destructible Cone Structure|Platforms")
 	void SetPlatformStyle(EConeStructurePlatformStyle NewStyle, bool bPreserveCellState = false);
 
+	/** Changes the optional ornament above the tip without rebuilding destructible chunks. */
+	UFUNCTION(BlueprintCallable, Category = "Destructible Cone Structure|Apex")
+	void SetApexStyle(EConeStructureApexStyle NewStyle);
+
 	UFUNCTION(BlueprintPure, Category = "Destructible Cone Structure|Platforms")
 	float GetPlatformRingWidth() const { return PlatformOverhangBlocks; }
 
@@ -149,6 +170,10 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
+	/** Lightweight ornament component; deliberately excluded from per-hit chunk rebuilds. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Destructible Cone Structure|Components")
+	TObjectPtr<UDynamicMeshComponent> ApexDecorationComponent;
+
 	/** Overall height of the tapered shell. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Cone", meta = (ClampMin = "4", ClampMax = "256"))
 	int32 ConeHeightBlocks = 24;
@@ -168,6 +193,19 @@ protected:
 	/** Fills the lowest block layer to close the cone with a destructible base. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Cone", meta = (DisplayName = "Generate Cone Base"))
 	bool bGenerateConeBase = true;
+
+	/** Dropdown: keep the existing point or add the reference-inspired candy finial. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (DisplayName = "Apex Style"))
+	EConeStructureApexStyle ApexStyle = EConeStructureApexStyle::CurrentApex;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (EditCondition = "ApexStyle == EConeStructureApexStyle::CandySpire", EditConditionHides, ClampMin = "1.0", ClampMax = "12.0"))
+	float CandySpireHeightBlocks = 4.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (EditCondition = "ApexStyle == EConeStructureApexStyle::CandySpire", EditConditionHides, ClampMin = "0.25", ClampMax = "6.0"))
+	float CandySpireRadiusBlocks = 1.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (EditCondition = "ApexStyle == EConeStructureApexStyle::CandySpire", EditConditionHides))
+	TObjectPtr<UMaterialInterface> CandySpireMaterial;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Blocks", meta = (ClampMin = "1.0", Units = "cm"))
 	FVector BlockDimensions = FVector(100.0, 100.0, 100.0);
@@ -209,6 +247,19 @@ protected:
 	/** Per-chunk safety cap; larger meshes automatically use reliable simple-cell collision. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible Cone Structure|Geometry", meta = (ClampMin = "10000", ClampMax = "240000"))
 	int32 MaxSmoothCollisionTrianglesPerChunk = 180000;
+
+	/** True spatial chunk size. Smaller values reduce a hit hitch but create more components. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible Cone Structure|Performance", meta = (ClampMin = "4", ClampMax = "16"))
+	int32 SpatialChunkSideLength = 8;
+
+	/** Fast Compact avoids rebuilding a curved flash mesh on every projectile impact. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Performance", meta = (DisplayName = "Destruction Flash Style"))
+	EConeStructureDestructionFlashStyle DestructionFlashStyle =
+		EConeStructureDestructionFlashStyle::FastCompact;
+
+	/** Limits each hit to one short-lived Chaos fragment and a smaller active debris budget. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Performance")
+	bool bUseLightweightDebris = true;
 
 	/** Hollow cones use compact shell cells, so they can safely exceed the floor's smaller default cap. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible Cone Structure|Generation", meta = (ClampMin = "250000", ClampMax = "2000000"))
@@ -485,6 +536,7 @@ private:
 	float CachedRadialBlockUnit = 100.0f;
 	TArray<TArray<FIntPoint>> PhysicalCellsByLayer;
 	TArray<TMap<int32, int32>> PhysicalCellSlotsByLayer;
+	FIntVector SpatialChunkCount = FIntVector::ZeroValue;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMesh> DebrisCubeMesh;
@@ -518,6 +570,13 @@ private:
 	bool bConeAnimationPlaying = false;
 	bool bConeAnimationGeometryDirty = false;
 	TArray<int32> ConeAnimationRowAssignments;
+
+	int32 GetSpatialChunkIndex(int32 X, int32 Y, int32 Z) const;
+	bool GetSpatialChunkBounds(
+		int32 ChunkIndex,
+		FIntVector& OutMinimum,
+		FIntVector& OutMaximum) const;
+	void RebuildApexDecoration();
 
 	bool DecodeCell(FIntPoint Cell, int32& OutX, int32& OutY, int32& OutZ) const;
 	FIntPoint EncodeCell(int32 X, int32 Y, int32 Z) const;

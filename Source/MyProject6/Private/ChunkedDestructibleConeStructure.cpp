@@ -136,12 +136,23 @@ AChunkedDestructibleConeStructure::AChunkedDestructibleConeStructure()
 	FloorPattern = EChunkedFloorPattern::Solid;
 	ChunkSideLength = 64;
 	bDestructibleByDefault = true;
+	SpatialChunkSideLength = 8;
+	DestructionFlashStyle = EConeStructureDestructionFlashStyle::FastCompact;
+
+	ApexDecorationComponent = CreateDefaultSubobject<UDynamicMeshComponent>(TEXT("ConeApexDecoration"));
+	ApexDecorationComponent->SetupAttachment(FloorRoot);
+	ApexDecorationComponent->SetMobility(EComponentMobility::Movable);
+	ApexDecorationComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	ApexDecorationComponent->SetGenerateOverlapEvents(false);
+	ApexDecorationComponent->SetCastShadow(true);
+	ApexDecorationComponent->SetCanEverAffectNavigation(false);
 	GlowWaveMaterial = FlashMaterial;
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> CrispSpiralMaterialFinder(
 		TEXT("/Game/LevelPrototyping/Materials/M_FlatCol.M_FlatCol"));
 	if (CrispSpiralMaterialFinder.Succeeded())
 	{
 		CrispSpiralMaterial = CrispSpiralMaterialFinder.Object;
+		CandySpireMaterial = CrispSpiralMaterialFinder.Object;
 	}
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeFinder(TEXT("/Engine/BasicShapes/Cube.Cube"));
@@ -155,6 +166,7 @@ void AChunkedDestructibleConeStructure::OnConstruction(const FTransform& Transfo
 {
 	bSpiralCollisionReadyForAsyncUpdates = false;
 	Super::OnConstruction(Transform);
+	RebuildApexDecoration();
 	bSpiralCollisionReadyForAsyncUpdates = true;
 	OnCellDestroyed.RemoveDynamic(this, &AChunkedDestructibleConeStructure::HandleConeCellDestroyed);
 	OnCellDestroyed.AddDynamic(this, &AChunkedDestructibleConeStructure::HandleConeCellDestroyed);
@@ -164,6 +176,7 @@ void AChunkedDestructibleConeStructure::BeginPlay()
 {
 	bSpiralCollisionReadyForAsyncUpdates = false;
 	Super::BeginPlay();
+	RebuildApexDecoration();
 	bSpiralCollisionReadyForAsyncUpdates = true;
 	OnCellDestroyed.RemoveDynamic(this, &AChunkedDestructibleConeStructure::HandleConeCellDestroyed);
 	OnCellDestroyed.AddDynamic(this, &AChunkedDestructibleConeStructure::HandleConeCellDestroyed);
@@ -239,6 +252,101 @@ void AChunkedDestructibleConeStructure::SetPlatformStyle(
 {
 	PlatformStyle = NewStyle;
 	GenerateFloor(bPreserveCellState);
+}
+
+void AChunkedDestructibleConeStructure::SetApexStyle(EConeStructureApexStyle NewStyle)
+{
+	ApexStyle = NewStyle;
+	RebuildApexDecoration();
+}
+
+void AChunkedDestructibleConeStructure::RebuildApexDecoration()
+{
+	if (!ApexDecorationComponent || !ApexDecorationComponent->GetDynamicMesh())
+	{
+		return;
+	}
+
+	FDynamicMesh3 Mesh;
+	Mesh.EnableVertexNormals(FVector3f::UnitZ());
+	Mesh.EnableAttributes();
+	Mesh.Attributes()->SetNumUVLayers(1);
+	Mesh.Attributes()->EnableMaterialID();
+	if (ApexStyle == EConeStructureApexStyle::CandySpire && GridHeightBlocks > 0)
+	{
+		const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
+		const double BaseZ = BlockDimensions.Z * GridHeightBlocks +
+			BlockSpacing.Z * FMath::Max(GridHeightBlocks - 1, 0);
+		const double Height = FMath::Max(CandySpireHeightBlocks * PitchZ, 1.0f);
+		const double Radius = FMath::Max(CandySpireRadiusBlocks * CachedRadialBlockUnit, 1.0f);
+		const int32 Segments = 48;
+		const TArray<FVector2D> Profile = {
+			FVector2D(0.62, 0.00), FVector2D(1.12, 0.035),
+			FVector2D(1.16, 0.095), FVector2D(0.68, 0.13),
+			FVector2D(0.60, 0.19), FVector2D(0.88, 0.27),
+			FVector2D(1.00, 0.38), FVector2D(0.83, 0.49),
+			FVector2D(0.57, 0.56), FVector2D(0.68, 0.64),
+			FVector2D(0.76, 0.72), FVector2D(0.55, 0.82),
+			FVector2D(0.31, 0.90), FVector2D(0.18, 0.96),
+			FVector2D(0.0, 1.0)
+		};
+
+		auto PositionAt = [&](int32 ProfileIndex, int32 SegmentIndex)
+		{
+			const double Angle = UE_TWO_PI * SegmentIndex / Segments;
+			double RingRadius = Radius * Profile[ProfileIndex].X;
+			if (ProfileIndex <= 2)
+			{
+				// A subtle twelve-lobed collar echoes the ridged candy-tower crown in the reference.
+				RingRadius *= 1.0 + 0.055 * FMath::Max(FMath::Cos(12.0 * Angle), 0.0);
+			}
+			return FVector3d(
+				FMath::Cos(Angle) * RingRadius,
+				FMath::Sin(Angle) * RingRadius,
+				BaseZ + Height * Profile[ProfileIndex].Y);
+		};
+		auto AppendOriented = [&](FVector3d A, FVector3d B, FVector3d C)
+		{
+			FVector3d Normal = FVector3d::CrossProduct(B - A, C - A).GetSafeNormal();
+			const FVector3d Center = (A + B + C) / 3.0;
+			if (FVector3d::DotProduct(Normal, FVector3d(Center.X, Center.Y, 0.0)) < 0.0)
+			{
+				Swap(B, C);
+				Normal = -Normal;
+			}
+			const float UVScale = FMath::Max(UVWorldUnits, 1.0f);
+			AppendMeshTriangle(
+				Mesh, A, B, C, FVector3f(Normal), 0,
+				FVector2f(A.X / UVScale, A.Z / UVScale),
+				FVector2f(B.X / UVScale, B.Z / UVScale),
+				FVector2f(C.X / UVScale, C.Z / UVScale));
+		};
+		for (int32 ProfileIndex = 0; ProfileIndex + 1 < Profile.Num(); ++ProfileIndex)
+		{
+			for (int32 SegmentIndex = 0; SegmentIndex < Segments; ++SegmentIndex)
+			{
+				const int32 NextSegment = (SegmentIndex + 1) % Segments;
+				const FVector3d A = PositionAt(ProfileIndex, SegmentIndex);
+				const FVector3d B = PositionAt(ProfileIndex, NextSegment);
+				const FVector3d C = PositionAt(ProfileIndex + 1, NextSegment);
+				const FVector3d D = PositionAt(ProfileIndex + 1, SegmentIndex);
+				AppendOriented(A, B, C);
+				AppendOriented(A, C, D);
+			}
+		}
+	}
+
+	ApexDecorationComponent->GetDynamicMesh()->SetMesh(MoveTemp(Mesh));
+	ApexDecorationComponent->SetNumMaterials(1);
+	ApexDecorationComponent->SetMaterial(
+		0,
+		CandySpireMaterial ? CandySpireMaterial.Get() : ResolveStructureMaterial(false));
+	ApexDecorationComponent->NotifyMeshUpdated();
+	ApexDecorationComponent->SetVisibility(
+		ApexStyle == EConeStructureApexStyle::CandySpire &&
+		ApexDecorationComponent->GetDynamicMesh()->GetTriangleCount() > 0,
+		true);
+	ApexDecorationComponent->MarkRenderStateDirty();
 }
 
 void AChunkedDestructibleConeStructure::SetPlatformSpeedBoost(
@@ -864,9 +972,13 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 
 	CellCount = FIntPoint(MaximumLayerCellCount, GridHeightBlocks);
 	const int32 SafeChunkSide = GetEffectiveConeChunkSideLength();
+	SpatialChunkCount = FIntVector(
+		FMath::DivideAndRoundUp(GridDiameterBlocks, SafeChunkSide),
+		FMath::DivideAndRoundUp(GridDiameterBlocks, SafeChunkSide),
+		FMath::DivideAndRoundUp(GridHeightBlocks, SafeChunkSide));
 	ChunkCount = FIntPoint(
-		FMath::DivideAndRoundUp(CellCount.X, SafeChunkSide),
-		FMath::DivideAndRoundUp(CellCount.Y, SafeChunkSide));
+		SpatialChunkCount.X * SpatialChunkCount.Y,
+		SpatialChunkCount.Z);
 
 	EffectiveCellDimensions = BlockDimensions;
 	CellDimensions = BlockDimensions;
@@ -896,6 +1008,49 @@ FChunkedDestructibleConeStructureMetrics AChunkedDestructibleConeStructure::GetC
 		BottomOuterRadius - ShellThicknessBlocks * CachedRadialBlockUnit, 0.0f);
 	Metrics.BottomInteriorDiameter = BottomInnerRadius * 2.0f;
 	return Metrics;
+}
+
+int32 AChunkedDestructibleConeStructure::GetSpatialChunkIndex(
+	int32 X,
+	int32 Y,
+	int32 Z) const
+{
+	if (X < 0 || Y < 0 || Z < 0 ||
+		X >= GridDiameterBlocks || Y >= GridDiameterBlocks || Z >= GridHeightBlocks ||
+		SpatialChunkCount.X <= 0 || SpatialChunkCount.Y <= 0 || ChunkCount.X <= 0)
+	{
+		return INDEX_NONE;
+	}
+	const int32 Side = GetEffectiveConeChunkSideLength();
+	const int32 ChunkX = X / Side;
+	const int32 ChunkY = Y / Side;
+	const int32 ChunkZ = Z / Side;
+	return ChunkX + ChunkY * SpatialChunkCount.X + ChunkZ * ChunkCount.X;
+}
+
+bool AChunkedDestructibleConeStructure::GetSpatialChunkBounds(
+	int32 ChunkIndex,
+	FIntVector& OutMinimum,
+	FIntVector& OutMaximum) const
+{
+	OutMinimum = FIntVector::ZeroValue;
+	OutMaximum = FIntVector::ZeroValue;
+	if (ChunkIndex < 0 || ChunkIndex >= ChunkCount.X * ChunkCount.Y ||
+		ChunkCount.X <= 0 || SpatialChunkCount.X <= 0 || SpatialChunkCount.Y <= 0)
+	{
+		return false;
+	}
+	const int32 Side = GetEffectiveConeChunkSideLength();
+	const int32 ChunkZ = ChunkIndex / ChunkCount.X;
+	const int32 PlanarChunk = ChunkIndex % ChunkCount.X;
+	const int32 ChunkX = PlanarChunk % SpatialChunkCount.X;
+	const int32 ChunkY = PlanarChunk / SpatialChunkCount.X;
+	OutMinimum = FIntVector(ChunkX * Side, ChunkY * Side, ChunkZ * Side);
+	OutMaximum = FIntVector(
+		FMath::Min(OutMinimum.X + Side, GridDiameterBlocks),
+		FMath::Min(OutMinimum.Y + Side, GridDiameterBlocks),
+		FMath::Min(OutMinimum.Z + Side, GridHeightBlocks));
+	return true;
 }
 
 bool AChunkedDestructibleConeStructure::DecodeCell(
@@ -1447,7 +1602,6 @@ void AChunkedDestructibleConeStructure::RebuildSpiralSegmentChunks(int32 Segment
 		FMath::FloorToInt(BoundsMaximum.Z / PitchZ) + 1,
 		0,
 		GridHeightBlocks - 1);
-	const int32 SafeChunkSide = GetEffectiveConeChunkSideLength();
 	TSet<int32> AffectedChunkIndices;
 	for (int32 Z = MinimumZ; Z <= MaximumZ; ++Z)
 	{
@@ -1455,13 +1609,11 @@ void AChunkedDestructibleConeStructure::RebuildSpiralSegmentChunks(int32 Segment
 		{
 			for (int32 X = MinimumX; X <= MaximumX; ++X)
 			{
-				const FIntPoint Cell = EncodeCell(X, Y, Z);
-				if (Cell == FIntPoint::NoneValue)
+				if (EncodeCell(X, Y, Z) == FIntPoint::NoneValue)
 				{
 					continue;
 				}
-				const int32 ChunkIndex = Cell.X / SafeChunkSide +
-					(Cell.Y / SafeChunkSide) * ChunkCount.X;
+				const int32 ChunkIndex = GetSpatialChunkIndex(X, Y, Z);
 				if (ChunkIndex >= 0 && ChunkIndex < ChunkCount.X * ChunkCount.Y)
 				{
 					AffectedChunkIndices.Add(ChunkIndex);
@@ -1797,7 +1949,6 @@ void AChunkedDestructibleConeStructure::AppendClippedSurfaceTriangle(
 	const int32 MaximumY = FMath::Clamp(
 		FMath::FloorToInt((TriangleMax.Y - ConeGridLocalMin.Y) / PitchY) + 1,
 		0, GridDiameterBlocks - 1);
-	const int32 SafeChunkSide = GetEffectiveConeChunkSideLength();
 	const float SafeUVScale = FMath::Max(UVWorldUnits, 1.0f);
 	const double SealFraction = FMath::Clamp(SurfaceGapSealFraction, 0.0f, 1.0f);
 	const double VisualHalfX = BlockDimensions.X * 0.5 + BlockSpacing.X * 0.5 * SealFraction;
@@ -1812,7 +1963,7 @@ void AChunkedDestructibleConeStructure::AppendClippedSurfaceTriangle(
 			const bool bBuildingSurfaceFlash = !SurfaceFlashCellFilter.IsEmpty();
 			const bool bSelectedFlashCell = bBuildingSurfaceFlash && SurfaceFlashCellFilter.Contains(Cell);
 			if (Cell == FIntPoint::NoneValue ||
-				Cell.X / SafeChunkSide + (Cell.Y / SafeChunkSide) * ChunkCount.X != ChunkIndex ||
+				(ChunkIndex != INDEX_NONE && GetSpatialChunkIndex(X, Y, LogicalZ) != ChunkIndex) ||
 				!Cells.IsValidIndex(ToCellIndex(Cell)) ||
 				(bBuildingSurfaceFlash && !bSelectedFlashCell) ||
 				(!Cells[ToCellIndex(Cell)].bExists && !bSelectedFlashCell))
@@ -1914,10 +2065,14 @@ void AChunkedDestructibleConeStructure::AppendAnnularSurface(
 	{
 		return;
 	}
-	const int32 SafeChunkSide = GetEffectiveConeChunkSideLength();
-	const int32 ChunkY = ChunkIndex / ChunkCount.X;
-	const int32 MinLogicalZ = ChunkY * SafeChunkSide;
-	const int32 MaxLogicalZ = FMath::Min(MinLogicalZ + SafeChunkSide, GridHeightBlocks);
+	FIntVector ChunkMinimum;
+	FIntVector ChunkMaximum;
+	if (!GetSpatialChunkBounds(ChunkIndex, ChunkMinimum, ChunkMaximum))
+	{
+		return;
+	}
+	const int32 MinLogicalZ = ChunkMinimum.Z;
+	const int32 MaxLogicalZ = ChunkMaximum.Z;
 	if (LogicalZ < MinLogicalZ || LogicalZ >= MaxLogicalZ)
 	{
 		return;
@@ -1948,10 +2103,14 @@ void AChunkedDestructibleConeStructure::AppendConeSurfaces(
 		return;
 	}
 	const int32 SegmentCount = GetEffectiveCircularSegments();
-	const int32 SafeChunkSide = GetEffectiveConeChunkSideLength();
-	const int32 ChunkY = ChunkIndex / ChunkCount.X;
-	const int32 MinLogicalZ = ChunkY * SafeChunkSide;
-	const int32 MaxLogicalZ = FMath::Min(MinLogicalZ + SafeChunkSide, GridHeightBlocks);
+	FIntVector ChunkMinimum;
+	FIntVector ChunkMaximum;
+	if (!GetSpatialChunkBounds(ChunkIndex, ChunkMinimum, ChunkMaximum))
+	{
+		return;
+	}
+	const int32 MinLogicalZ = ChunkMinimum.Z;
+	const int32 MaxLogicalZ = ChunkMaximum.Z;
 	const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
 	const float TotalHeight = BlockDimensions.Z * GridHeightBlocks +
 		BlockSpacing.Z * FMath::Max(GridHeightBlocks - 1, 0);
@@ -2024,7 +2183,6 @@ void AChunkedDestructibleConeStructure::AppendConeGlowBandSurfaces(
 		return;
 	}
 	const int32 SegmentCount = GetEffectiveCircularSegments();
-	const int32 SafeChunkSide = GetEffectiveConeChunkSideLength();
 	const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
 	const float TotalHeight = BlockDimensions.Z * GridHeightBlocks +
 		BlockSpacing.Z * FMath::Max(GridHeightBlocks - 1, 0);
@@ -2049,56 +2207,47 @@ void AChunkedDestructibleConeStructure::AppendConeGlowBandSurfaces(
 		0,
 		GridHeightBlocks - 1);
 
-	for (int32 ChunkIndex = 0; ChunkIndex < ChunkCount.X * ChunkCount.Y; ++ChunkIndex)
+	for (int32 Z = MinimumBandLayer; Z <= MaximumBandLayer; ++Z)
 	{
-		const int32 ChunkY = ChunkIndex / ChunkCount.X;
-		const int32 MinimumChunkLayer = ChunkY * SafeChunkSide;
-		const int32 MaximumChunkLayer = FMath::Min(
-			MinimumChunkLayer + SafeChunkSide, GridHeightBlocks) - 1;
-		const int32 MinimumLayer = FMath::Max(MinimumBandLayer, MinimumChunkLayer);
-		const int32 MaximumLayer = FMath::Min(MaximumBandLayer, MaximumChunkLayer);
-		for (int32 Z = MinimumLayer; Z <= MaximumLayer; ++Z)
+		const float LayerBottom = FMath::Max(Z * PitchZ - VerticalSeal, 0.0f);
+		const float LayerTop = FMath::Min(
+			Z * PitchZ + BlockDimensions.Z + VerticalSeal, TotalHeight);
+		const float BottomZ = FMath::Max(LayerBottom, ClampedBandBottom);
+		const float TopZ = FMath::Min(LayerTop, ClampedBandTop);
+		if (TopZ <= BottomZ + ConeSpacingTolerance)
 		{
-			const float LayerBottom = FMath::Max(Z * PitchZ - VerticalSeal, 0.0f);
-			const float LayerTop = FMath::Min(
-				Z * PitchZ + BlockDimensions.Z + VerticalSeal, TotalHeight);
-			const float BottomZ = FMath::Max(LayerBottom, ClampedBandBottom);
-			const float TopZ = FMath::Min(LayerTop, ClampedBandTop);
-			if (TopZ <= BottomZ + ConeSpacingTolerance)
-			{
-				continue;
-			}
+			continue;
+		}
 
-			const float BottomRadius = GetConeOuterRadiusAtHeight(BottomZ) + SurfaceOffset;
-			const float TopRadius = GetConeOuterRadiusAtHeight(TopZ) + SurfaceOffset;
-			for (int32 SegmentIndex = 0; SegmentIndex < SegmentCount; ++SegmentIndex)
-			{
-				const double AngleA = UE_TWO_PI * SegmentIndex / SegmentCount;
-				const double AngleB = UE_TWO_PI * (SegmentIndex + 1) / SegmentCount;
-				const double MidAngle = (AngleA + AngleB) * 0.5;
-				const FVector3f Normal = FVector3f(
-					FMath::Cos(MidAngle), FMath::Sin(MidAngle), -RadiusSlope).GetSafeNormal();
-				const FVector3d BottomA(
-					FMath::Cos(AngleA) * BottomRadius,
-					FMath::Sin(AngleA) * BottomRadius,
-					BottomZ);
-				const FVector3d BottomB(
-					FMath::Cos(AngleB) * BottomRadius,
-					FMath::Sin(AngleB) * BottomRadius,
-					BottomZ);
-				const FVector3d TopA(
-					FMath::Cos(AngleA) * TopRadius,
-					FMath::Sin(AngleA) * TopRadius,
-					TopZ);
-				const FVector3d TopB(
-					FMath::Cos(AngleB) * TopRadius,
-					FMath::Sin(AngleB) * TopRadius,
-					TopZ);
-				AppendClippedSurfaceTriangle(
-					Mesh, ChunkIndex, Z, BottomA, BottomB, TopB, Normal, 0);
-				AppendClippedSurfaceTriangle(
-					Mesh, ChunkIndex, Z, BottomA, TopB, TopA, Normal, 0);
-			}
+		const float BottomRadius = GetConeOuterRadiusAtHeight(BottomZ) + SurfaceOffset;
+		const float TopRadius = GetConeOuterRadiusAtHeight(TopZ) + SurfaceOffset;
+		for (int32 SegmentIndex = 0; SegmentIndex < SegmentCount; ++SegmentIndex)
+		{
+			const double AngleA = UE_TWO_PI * SegmentIndex / SegmentCount;
+			const double AngleB = UE_TWO_PI * (SegmentIndex + 1) / SegmentCount;
+			const double MidAngle = (AngleA + AngleB) * 0.5;
+			const FVector3f Normal = FVector3f(
+				FMath::Cos(MidAngle), FMath::Sin(MidAngle), -RadiusSlope).GetSafeNormal();
+			const FVector3d BottomA(
+				FMath::Cos(AngleA) * BottomRadius,
+				FMath::Sin(AngleA) * BottomRadius,
+				BottomZ);
+			const FVector3d BottomB(
+				FMath::Cos(AngleB) * BottomRadius,
+				FMath::Sin(AngleB) * BottomRadius,
+				BottomZ);
+			const FVector3d TopA(
+				FMath::Cos(AngleA) * TopRadius,
+				FMath::Sin(AngleA) * TopRadius,
+				TopZ);
+			const FVector3d TopB(
+				FMath::Cos(AngleB) * TopRadius,
+				FMath::Sin(AngleB) * TopRadius,
+				TopZ);
+			AppendClippedSurfaceTriangle(
+				Mesh, INDEX_NONE, Z, BottomA, BottomB, TopB, Normal, 0);
+			AppendClippedSurfaceTriangle(
+				Mesh, INDEX_NONE, Z, BottomA, TopB, TopA, Normal, 0);
 		}
 	}
 }
@@ -2265,10 +2414,14 @@ void AChunkedDestructibleConeStructure::AppendPlatformSurfaces(
 		return;
 	}
 	const int32 SegmentCount = GetEffectiveCircularSegments();
-	const int32 SafeChunkSide = GetEffectiveConeChunkSideLength();
-	const int32 ChunkY = ChunkIndex / ChunkCount.X;
-	const int32 MinLogicalZ = ChunkY * SafeChunkSide;
-	const int32 MaxLogicalZ = FMath::Min(MinLogicalZ + SafeChunkSide, GridHeightBlocks);
+	FIntVector ChunkMinimum;
+	FIntVector ChunkMaximum;
+	if (!GetSpatialChunkBounds(ChunkIndex, ChunkMinimum, ChunkMaximum))
+	{
+		return;
+	}
+	const int32 MinLogicalZ = ChunkMinimum.Z;
+	const int32 MaxLogicalZ = ChunkMaximum.Z;
 	const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
 	const float VerticalSeal = BlockSpacing.Z * 0.5f *
 		FMath::Clamp(SurfaceGapSealFraction, 0.0f, 1.0f);
@@ -3416,32 +3569,31 @@ void AChunkedDestructibleConeStructure::BuildChunkMesh(
 
 	// Only cell gaps, doorway reveals and newly exposed destruction cuts remain planar. The intact
 	// exterior is emitted above from exact circular and conical surfaces, eliminating voxel steps.
-	const int32 SafeChunkSide = GetEffectiveConeChunkSideLength();
-	const int32 ChunkX = ChunkIndex % ChunkCount.X;
-	const int32 ChunkY = ChunkIndex / ChunkCount.X;
-	const int32 MinEncodedX = ChunkX * SafeChunkSide;
-	const int32 MinZ = ChunkY * SafeChunkSide;
-	const int32 MaxEncodedX = FMath::Min(MinEncodedX + SafeChunkSide, CellCount.X);
-	const int32 MaxZ = FMath::Min(MinZ + SafeChunkSide, CellCount.Y);
-	for (int32 Z = MinZ; Z < MaxZ; ++Z)
+	FIntVector ChunkMinimum;
+	FIntVector ChunkMaximum;
+	if (!GetSpatialChunkBounds(ChunkIndex, ChunkMinimum, ChunkMaximum))
 	{
-		for (int32 EncodedX = MinEncodedX; EncodedX < MaxEncodedX; ++EncodedX)
+		return;
+	}
+	for (int32 Z = ChunkMinimum.Z; Z < ChunkMaximum.Z; ++Z)
+	{
+		for (int32 Y = ChunkMinimum.Y; Y < ChunkMaximum.Y; ++Y)
 		{
-			const FIntPoint Cell(EncodedX, Z);
-			const FFloorCellData& CellData = Cells[ToCellIndex(Cell)];
-			if (!CellData.bExists)
+			for (int32 X = ChunkMinimum.X; X < ChunkMaximum.X; ++X)
 			{
-				AppendDestroyedCellCutFaces(OutMesh, Cell);
-				continue;
-			}
-			int32 X;
-			int32 Y;
-			int32 DecodedZ;
-			if (!DecodeCell(Cell, X, Y, DecodedZ))
-			{
-				continue;
-			}
-			const FVector Center = GetCellLocalCenter(Cell);
+				const FIntPoint Cell = EncodeCell(X, Y, Z);
+				if (Cell == FIntPoint::NoneValue)
+				{
+					continue;
+				}
+				const FFloorCellData& CellData = Cells[ToCellIndex(Cell)];
+				if (!CellData.bExists)
+				{
+					AppendDestroyedCellCutFaces(OutMesh, Cell);
+					continue;
+				}
+				const int32 DecodedZ = Z;
+				const FVector Center = GetPhysicalCellLocalCenter(X, Y, Z);
 			const double MinX = Center.X - BlockDimensions.X * 0.5;
 			const double MaxX = Center.X + BlockDimensions.X * 0.5;
 			const double MinY = Center.Y - BlockDimensions.Y * 0.5;
@@ -3497,6 +3649,7 @@ void AChunkedDestructibleConeStructure::BuildChunkMesh(
 					FVector3d(MaxX, MaxY, MaxCellZ), FVector3d(MinX, MaxY, MaxCellZ),
 					FVector3f::UnitZ(), MaterialIndex, BlockDimensions.X, BlockDimensions.Y, UVWorldUnits);
 			}
+			}
 		}
 	}
 }
@@ -3510,13 +3663,12 @@ void AChunkedDestructibleConeStructure::BuildChunkSimpleCollision(
 	{
 		return;
 	}
-	const int32 SafeChunkSide = GetEffectiveConeChunkSideLength();
-	const int32 ChunkX = ChunkIndex % ChunkCount.X;
-	const int32 ChunkY = ChunkIndex / ChunkCount.X;
-	const int32 MinEncodedX = ChunkX * SafeChunkSide;
-	const int32 MinZ = ChunkY * SafeChunkSide;
-	const int32 MaxEncodedX = FMath::Min(MinEncodedX + SafeChunkSide, CellCount.X);
-	const int32 MaxZ = FMath::Min(MinZ + SafeChunkSide, CellCount.Y);
+	FIntVector ChunkMinimum;
+	FIntVector ChunkMaximum;
+	if (!GetSpatialChunkBounds(ChunkIndex, ChunkMinimum, ChunkMaximum))
+	{
+		return;
+	}
 	TSet<int32> OccupiedPhysicalCells;
 	TArray<FIntVector> SeedCells;
 	auto PhysicalKey = [this](int32 X, int32 Y, int32 Z)
@@ -3524,22 +3676,18 @@ void AChunkedDestructibleConeStructure::BuildChunkSimpleCollision(
 		return X + Y * GridDiameterBlocks +
 			Z * GridDiameterBlocks * GridDiameterBlocks;
 	};
-	for (int32 Z = MinZ; Z < MaxZ; ++Z)
+	for (int32 Z = ChunkMinimum.Z; Z < ChunkMaximum.Z; ++Z)
 	{
-		for (int32 EncodedX = MinEncodedX; EncodedX < MaxEncodedX; ++EncodedX)
+		for (int32 Y = ChunkMinimum.Y; Y < ChunkMaximum.Y; ++Y)
 		{
-			const FIntPoint Cell(EncodedX, Z);
-			if (!Cells[ToCellIndex(Cell)].bExists)
+			for (int32 X = ChunkMinimum.X; X < ChunkMaximum.X; ++X)
 			{
-				continue;
-			}
-			int32 X;
-			int32 Y;
-			int32 DecodedZ;
-			if (DecodeCell(Cell, X, Y, DecodedZ))
-			{
-				OccupiedPhysicalCells.Add(PhysicalKey(X, Y, DecodedZ));
-				SeedCells.Emplace(X, Y, DecodedZ);
+				if (!CellExists3D(X, Y, Z))
+				{
+					continue;
+				}
+				OccupiedPhysicalCells.Add(PhysicalKey(X, Y, Z));
+				SeedCells.Emplace(X, Y, Z);
 			}
 		}
 	}
@@ -3676,6 +3824,24 @@ FTransform AChunkedDestructibleConeStructure::GetCellFlashTransform(FIntPoint Ce
 	{
 		return FTransform(FQuat::Identity, FVector::ZeroVector, FVector::ZeroVector);
 	}
+	if (DestructionFlashStyle != EConeStructureDestructionFlashStyle::DetailedSurface)
+	{
+		const FVector Center = GetPhysicalCellLocalCenter(X, Y, Z);
+		if (DestructionFlashStyle == EConeStructureDestructionFlashStyle::None)
+		{
+			return FTransform(FQuat::Identity, Center, FVector::ZeroVector);
+		}
+		const float CompactEdge = FMath::Max(
+			FMath::Min3(
+				static_cast<float>(BlockDimensions.X),
+				static_cast<float>(BlockDimensions.Y),
+				static_cast<float>(BlockDimensions.Z)) * 0.34f,
+			1.0f);
+		return FTransform(
+			FQuat::Identity,
+			Center,
+			FVector(CompactEdge / 100.0f) * FMath::Clamp(FlashScale, 0.01f, 1.0f));
+	}
 
 	// The regular floor flashes a complete backing cube. Cone cells can be very anisotropic
 	// (700 x 100 x 100 in the placed structure) and only a curved sliver of that cube is rendered.
@@ -3759,6 +3925,15 @@ FTransform AChunkedDestructibleConeStructure::GetCellFlashTransform(FIntPoint Ce
 
 void AChunkedDestructibleConeStructure::SpawnCellFlash(FIntPoint Cell, double CurrentTime)
 {
+	if (DestructionFlashStyle == EConeStructureDestructionFlashStyle::None)
+	{
+		return;
+	}
+	if (DestructionFlashStyle == EConeStructureDestructionFlashStyle::FastCompact)
+	{
+		Super::SpawnCellFlash(Cell, CurrentTime);
+		return;
+	}
 	if (FlashDuration <= 0.0f || !GetWorld() ||
 		!Cells.IsValidIndex(ToCellIndex(Cell)) || ChunkCount.X <= 0)
 	{
@@ -3769,7 +3944,6 @@ void AChunkedDestructibleConeStructure::SpawnCellFlash(FIntPoint Cell, double Cu
 	// cube ISM makes every occupied Z layer appear as a separate white box. Build one combined flash
 	// from the same exact cone/ring/helix triangles as the visible structure. Cells processed in the
 	// same destruction batch share a component, so a thick spiral flashes as one continuous shape.
-	const int32 SafeChunkSide = GetEffectiveConeChunkSideLength();
 	const bool bContinueCurrentBatch = CurrentSurfaceFlashComponent.IsValid() &&
 		FMath::IsNearlyEqual(CurrentSurfaceFlashTime, CurrentTime, UE_DOUBLE_SMALL_NUMBER);
 	UDynamicMeshComponent* SurfaceFlash = bContinueCurrentBatch
@@ -3848,8 +4022,12 @@ void AChunkedDestructibleConeStructure::SpawnCellFlash(FIntPoint Cell, double Cu
 		{
 			bNeedsConeSurface = true;
 		}
-		const int32 ChunkIndex = FlashCell.X / SafeChunkSide +
-			(FlashCell.Y / SafeChunkSide) * ChunkCount.X;
+		int32 FlashX;
+		int32 FlashY;
+		int32 FlashZ;
+		const int32 ChunkIndex = DecodeCell(FlashCell, FlashX, FlashY, FlashZ)
+			? GetSpatialChunkIndex(FlashX, FlashY, FlashZ)
+			: INDEX_NONE;
 		if (ChunkIndex >= 0 && ChunkIndex < ChunkCount.X * ChunkCount.Y)
 		{
 			FlashChunkIndices.Add(ChunkIndex);
@@ -3993,18 +4171,16 @@ void AChunkedDestructibleConeStructure::MarkCellChunksDirty(FIntPoint Cell)
 	{
 		return;
 	}
-	const int32 SafeChunkSide = GetEffectiveConeChunkSideLength();
-	auto MarkEncodedCellChunk = [this, SafeChunkSide](FIntPoint EncodedCell)
+	auto MarkPhysicalCellChunk = [this](int32 CellX, int32 CellY, int32 CellZ)
 	{
-		if (EncodedCell == FIntPoint::NoneValue || ChunkCount.X <= 0)
+		const int32 ChunkIndex = GetSpatialChunkIndex(CellX, CellY, CellZ);
+		if (ChunkIndex == INDEX_NONE)
 		{
 			return;
 		}
-		const int32 ChunkX = EncodedCell.X / SafeChunkSide;
-		const int32 ChunkY = EncodedCell.Y / SafeChunkSide;
-		DirtyChunkIndices.Add(ChunkX + ChunkY * ChunkCount.X);
+		DirtyChunkIndices.Add(ChunkIndex);
 	};
-	MarkEncodedCellChunk(Cell);
+	MarkPhysicalCellChunk(X, Y, Z);
 
 	struct FNeighborDependency
 	{
@@ -4034,7 +4210,10 @@ void AChunkedDestructibleConeStructure::MarkCellChunksDirty(FIntPoint Cell)
 			const FFloorCellData& NeighborData = Cells[ToCellIndex(Neighbor)];
 			if (NeighborData.bBelongsToGeneratedShape && !NeighborData.bExists)
 			{
-				MarkEncodedCellChunk(Neighbor);
+				MarkPhysicalCellChunk(
+					X + Dependency.Offset.X,
+					Y + Dependency.Offset.Y,
+					Z + Dependency.Offset.Z);
 			}
 		}
 	}
@@ -4663,9 +4842,7 @@ void AChunkedDestructibleConeStructure::UpdateBottomToTopSineRows(
 
 int32 AChunkedDestructibleConeStructure::GetEffectiveConeChunkSideLength() const
 {
-	// A 128x128 logical chunk can push a highly tessellated cone past DynamicMesh's hard
-	// 250k-complex-collision limit. 64 keeps exact collision available for normal chunks.
-	return FMath::Clamp(ChunkSideLength, 4, 64);
+	return FMath::Clamp(SpatialChunkSideLength, 4, 16);
 }
 
 int32 AChunkedDestructibleConeStructure::GetEffectiveCircularSegments() const
@@ -4677,9 +4854,10 @@ int32 AChunkedDestructibleConeStructure::GetEffectiveCircularSegments() const
 
 int32 AChunkedDestructibleConeStructure::GetEffectiveDebrisLimit() const
 {
-	return FMath::Min(
+	const int32 ConfiguredLimit = FMath::Min(
 		FMath::Clamp(MaxActiveDebrisPieces, 0, 1024),
 		FMath::Clamp(MaxRuntimeDebrisPieces, 0, 1024));
+	return bUseLightweightDebris ? FMath::Min(ConfiguredLimit, 24) : ConfiguredLimit;
 }
 
 bool AChunkedDestructibleConeStructure::CanUseSmoothCollisionForChunk(int32 ChunkIndex) const
@@ -4755,8 +4933,11 @@ void AChunkedDestructibleConeStructure::SpawnDebrisForCell(FIntPoint Cell)
 		static_cast<float>(FMath::Min(DebrisScaleRange.X, DebrisScaleRange.Y)), 0.05f, 1.0f);
 	const float MaximumScale = FMath::Clamp(
 		static_cast<float>(FMath::Max(DebrisScaleRange.X, DebrisScaleRange.Y)), MinimumScale, 1.0f);
+	const int32 RequestedSpawnCount = bUseLightweightDebris
+		? 1
+		: FMath::Clamp(DebrisPiecesPerCell, 1, 8);
 	const int32 SpawnCount = FMath::Min(
-		FMath::Clamp(DebrisPiecesPerCell, 1, 8),
+		RequestedSpawnCount,
 		EffectiveDebrisLimit - ActiveDebrisComponents.Num());
 
 	for (int32 PieceIndex = 0; PieceIndex < SpawnCount; ++PieceIndex)
@@ -4828,8 +5009,11 @@ void AChunkedDestructibleConeStructure::SpawnDebrisForCell(FIntPoint Cell)
 		ActiveDebrisComponents.Add(Debris);
 		const TWeakObjectPtr<UStaticMeshComponent> WeakDebris(Debris);
 		const float SafeDebrisLifetime = FMath::Max(DebrisLifetime, 0.1f);
+		const float RequestedPhysicsDuration = bUseLightweightDebris
+			? FMath::Min(DebrisPhysicsDuration, 0.35f)
+			: DebrisPhysicsDuration;
 		const float SafePhysicsDuration = FMath::Clamp(
-			DebrisPhysicsDuration, 0.05f, SafeDebrisLifetime);
+			RequestedPhysicsDuration, 0.05f, SafeDebrisLifetime);
 		if (SafePhysicsDuration < SafeDebrisLifetime)
 		{
 			FTimerDelegate SleepDelegate = FTimerDelegate::CreateWeakLambda(
