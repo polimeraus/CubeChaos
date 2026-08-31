@@ -161,10 +161,25 @@ bool AChunkedDestructibleHouse::CalculateLayout()
 	}
 
 	CellCount = FIntPoint(static_cast<int32>(EncodedWidth), GridHeightBlocks);
-	const int32 SafeChunkSide = FMath::Clamp(ChunkSideLength, 4, 128);
-	ChunkCount = FIntPoint(
-		FMath::DivideAndRoundUp(CellCount.X, SafeChunkSide),
-		FMath::DivideAndRoundUp(CellCount.Y, SafeChunkSide));
+	if (UsesSpatialRuntimeChunks())
+	{
+		const int32 Side = GetEffectiveSpatialChunkSideLength();
+		SpatialChunkCount = FIntVector(
+			FMath::DivideAndRoundUp(GridWidthBlocks, Side),
+			FMath::DivideAndRoundUp(GridDepthBlocks, Side),
+			FMath::DivideAndRoundUp(GridHeightBlocks, Side));
+		ChunkCount = FIntPoint(
+			SpatialChunkCount.X * SpatialChunkCount.Y,
+			SpatialChunkCount.Z);
+	}
+	else
+	{
+		SpatialChunkCount = FIntVector::ZeroValue;
+		const int32 SafeChunkSide = FMath::Clamp(ChunkSideLength, 4, 128);
+		ChunkCount = FIntPoint(
+			FMath::DivideAndRoundUp(CellCount.X, SafeChunkSide),
+			FMath::DivideAndRoundUp(CellCount.Y, SafeChunkSide));
+	}
 
 	EffectiveCellDimensions = BlockDimensions;
 	CellDimensions = BlockDimensions;
@@ -218,6 +233,106 @@ FIntPoint AChunkedDestructibleHouse::EncodeCell(int32 X, int32 Y, int32 Z) const
 		return FIntPoint::NoneValue;
 	}
 	return FIntPoint(X + Y * GridWidthBlocks, Z);
+}
+
+bool AChunkedDestructibleHouse::UsesSpatialRuntimeChunks() const
+{
+	// The inherited spiral surface helper addresses the flattened 2D chunk layout directly.
+	// Keep that uncommon visual mode on its compatible path; solid/default houses use 3D chunks.
+	return bUseSpatialRuntimeChunks && FloorPattern != EChunkedFloorPattern::HypnoticSpiral;
+}
+
+int32 AChunkedDestructibleHouse::GetEffectiveSpatialChunkSideLength() const
+{
+	return FMath::Clamp(SpatialChunkSideLength, 4, 16);
+}
+
+int32 AChunkedDestructibleHouse::GetSpatialChunkIndex(int32 X, int32 Y, int32 Z) const
+{
+	if (!UsesSpatialRuntimeChunks() || X < 0 || Y < 0 || Z < 0 ||
+		X >= GridWidthBlocks || Y >= GridDepthBlocks || Z >= GridHeightBlocks ||
+		SpatialChunkCount.X <= 0 || SpatialChunkCount.Y <= 0 || ChunkCount.X <= 0)
+	{
+		return INDEX_NONE;
+	}
+
+	const int32 Side = GetEffectiveSpatialChunkSideLength();
+	const int32 ChunkX = X / Side;
+	const int32 ChunkY = Y / Side;
+	const int32 ChunkZ = Z / Side;
+	return ChunkX + ChunkY * SpatialChunkCount.X + ChunkZ * ChunkCount.X;
+}
+
+bool AChunkedDestructibleHouse::GetSpatialChunkBounds(
+	int32 ChunkIndex,
+	FIntVector& OutMinimum,
+	FIntVector& OutMaximum) const
+{
+	OutMinimum = FIntVector::ZeroValue;
+	OutMaximum = FIntVector::ZeroValue;
+	if (!UsesSpatialRuntimeChunks() || ChunkIndex < 0 ||
+		ChunkIndex >= ChunkCount.X * ChunkCount.Y || ChunkCount.X <= 0 ||
+		SpatialChunkCount.X <= 0 || SpatialChunkCount.Y <= 0)
+	{
+		return false;
+	}
+
+	const int32 Side = GetEffectiveSpatialChunkSideLength();
+	const int32 ChunkZ = ChunkIndex / ChunkCount.X;
+	const int32 PlanarChunk = ChunkIndex % ChunkCount.X;
+	const int32 ChunkX = PlanarChunk % SpatialChunkCount.X;
+	const int32 ChunkY = PlanarChunk / SpatialChunkCount.X;
+	OutMinimum = FIntVector(ChunkX * Side, ChunkY * Side, ChunkZ * Side);
+	OutMaximum = FIntVector(
+		FMath::Min(OutMinimum.X + Side, GridWidthBlocks),
+		FMath::Min(OutMinimum.Y + Side, GridDepthBlocks),
+		FMath::Min(OutMinimum.Z + Side, GridHeightBlocks));
+	return true;
+}
+
+void AChunkedDestructibleHouse::GatherChunkCells(
+	int32 ChunkIndex,
+	TArray<FIntPoint>& OutCells) const
+{
+	OutCells.Reset();
+	if (UsesSpatialRuntimeChunks())
+	{
+		FIntVector Minimum;
+		FIntVector Maximum;
+		if (!GetSpatialChunkBounds(ChunkIndex, Minimum, Maximum))
+		{
+			return;
+		}
+		OutCells.Reserve(
+			(Maximum.X - Minimum.X) * (Maximum.Y - Minimum.Y) * (Maximum.Z - Minimum.Z));
+		for (int32 Z = Minimum.Z; Z < Maximum.Z; ++Z)
+		{
+			for (int32 Y = Minimum.Y; Y < Maximum.Y; ++Y)
+			{
+				for (int32 X = Minimum.X; X < Maximum.X; ++X)
+				{
+					OutCells.Add(EncodeCell(X, Y, Z));
+				}
+			}
+		}
+		return;
+	}
+
+	const int32 SafeChunkSide = FMath::Clamp(ChunkSideLength, 4, 128);
+	const int32 ChunkX = ChunkIndex % ChunkCount.X;
+	const int32 ChunkY = ChunkIndex / ChunkCount.X;
+	const int32 MinEncodedX = ChunkX * SafeChunkSide;
+	const int32 MinZ = ChunkY * SafeChunkSide;
+	const int32 MaxEncodedX = FMath::Min(MinEncodedX + SafeChunkSide, CellCount.X);
+	const int32 MaxZ = FMath::Min(MinZ + SafeChunkSide, CellCount.Y);
+	OutCells.Reserve((MaxEncodedX - MinEncodedX) * (MaxZ - MinZ));
+	for (int32 Z = MinZ; Z < MaxZ; ++Z)
+	{
+		for (int32 EncodedX = MinEncodedX; EncodedX < MaxEncodedX; ++EncodedX)
+		{
+			OutCells.Emplace(EncodedX, Z);
+		}
+	}
 }
 
 FVector AChunkedDestructibleHouse::GetCellLocalCenter(FIntPoint Cell) const
@@ -553,107 +668,98 @@ void AChunkedDestructibleHouse::BuildChunkMesh(int32 ChunkIndex, FDynamicMesh3& 
 	OutMesh.Attributes()->SetNumUVLayers(1);
 	OutMesh.Attributes()->EnableMaterialID();
 
-	const int32 SafeChunkSide = FMath::Clamp(ChunkSideLength, 4, 128);
-	const int32 ChunkX = ChunkIndex % ChunkCount.X;
-	const int32 ChunkY = ChunkIndex / ChunkCount.X;
-	const int32 MinEncodedX = ChunkX * SafeChunkSide;
-	const int32 MinZ = ChunkY * SafeChunkSide;
-	const int32 MaxEncodedX = FMath::Min(MinEncodedX + SafeChunkSide, CellCount.X);
-	const int32 MaxZ = FMath::Min(MinZ + SafeChunkSide, CellCount.Y);
+	TArray<FIntPoint> ChunkCells;
+	GatherChunkCells(ChunkIndex, ChunkCells);
 
-	for (int32 Z = MinZ; Z < MaxZ; ++Z)
+	for (const FIntPoint Cell : ChunkCells)
 	{
-		for (int32 EncodedX = MinEncodedX; EncodedX < MaxEncodedX; ++EncodedX)
+		const FFloorCellData& CellData = Cells[ToCellIndex(Cell)];
+		if (!CellData.bExists)
 		{
-			const FIntPoint Cell(EncodedX, Z);
-			const FFloorCellData& CellData = Cells[ToCellIndex(Cell)];
-			if (!CellData.bExists)
+			continue;
+		}
+		int32 X;
+		int32 Y;
+		int32 DecodedZ;
+		if (!DecodeCell(Cell, X, Y, DecodedZ))
+		{
+			continue;
+		}
+		TArray<FVector2D> Polygon;
+		if (!GetCellPolygonXZ(Cell, Polygon))
+		{
+			continue;
+		}
+
+		const FVector Center = GetCellLocalCenter(Cell);
+		const double FrontY = Center.Y - BlockDimensions.Y * 0.5;
+		const double BackY = Center.Y + BlockDimensions.Y * 0.5;
+		if (BlockSpacing.Y > HouseSpacingTolerance || !CellExists3D(X, Y - 1, DecodedZ))
+		{
+			AppendPolygonFaceAtY(OutMesh, Polygon, FrontY, true, CellData.MaterialIndex);
+		}
+		if (BlockSpacing.Y > HouseSpacingTolerance || !CellExists3D(X, Y + 1, DecodedZ))
+		{
+			AppendPolygonFaceAtY(OutMesh, Polygon, BackY, false, CellData.MaterialIndex);
+		}
+
+		double CellMinX;
+		double CellMinZ;
+		double CellMaxX;
+		double CellMaxZ;
+		GetCellBoundsXZ(Cell, CellMinX, CellMinZ, CellMaxX, CellMaxZ);
+		for (int32 EdgeIndex = 0; EdgeIndex < Polygon.Num(); ++EdgeIndex)
+		{
+			const FVector2D& A = Polygon[EdgeIndex];
+			const FVector2D& B = Polygon[(EdgeIndex + 1) % Polygon.Num()];
+			const FVector2D Edge = B - A;
+			const float EdgeLength = static_cast<float>(Edge.Size());
+			if (EdgeLength <= KINDA_SMALL_NUMBER)
 			{
 				continue;
 			}
-			int32 X;
-			int32 Y;
-			int32 DecodedZ;
-			if (!DecodeCell(Cell, X, Y, DecodedZ))
+
+			bool bShared = false;
+			if (BlockSpacing.X <= HouseSpacingTolerance)
+			{
+				if (FMath::IsNearlyEqual(A.X, CellMinX, HousePolygonTolerance) &&
+					FMath::IsNearlyEqual(B.X, CellMinX, HousePolygonTolerance))
+				{
+					bShared = CellExists3D(X - 1, Y, DecodedZ);
+				}
+				else if (FMath::IsNearlyEqual(A.X, CellMaxX, HousePolygonTolerance) &&
+					FMath::IsNearlyEqual(B.X, CellMaxX, HousePolygonTolerance))
+				{
+					bShared = CellExists3D(X + 1, Y, DecodedZ);
+				}
+			}
+			if (!bShared && BlockSpacing.Z <= HouseSpacingTolerance)
+			{
+				if (FMath::IsNearlyEqual(A.Y, CellMinZ, HousePolygonTolerance) &&
+					FMath::IsNearlyEqual(B.Y, CellMinZ, HousePolygonTolerance))
+				{
+					bShared = CellExists3D(X, Y, DecodedZ - 1);
+				}
+				else if (FMath::IsNearlyEqual(A.Y, CellMaxZ, HousePolygonTolerance) &&
+					FMath::IsNearlyEqual(B.Y, CellMaxZ, HousePolygonTolerance))
+				{
+					bShared = CellExists3D(X, Y, DecodedZ + 1);
+				}
+			}
+			if (bShared)
 			{
 				continue;
 			}
-			TArray<FVector2D> Polygon;
-			if (!GetCellPolygonXZ(Cell, Polygon))
-			{
-				continue;
-			}
 
-			const FVector Center = GetCellLocalCenter(Cell);
-			const double FrontY = Center.Y - BlockDimensions.Y * 0.5;
-			const double BackY = Center.Y + BlockDimensions.Y * 0.5;
-			if (BlockSpacing.Y > HouseSpacingTolerance || !CellExists3D(X, Y - 1, DecodedZ))
-			{
-				AppendPolygonFaceAtY(OutMesh, Polygon, FrontY, true, CellData.MaterialIndex);
-			}
-			if (BlockSpacing.Y > HouseSpacingTolerance || !CellExists3D(X, Y + 1, DecodedZ))
-			{
-				AppendPolygonFaceAtY(OutMesh, Polygon, BackY, false, CellData.MaterialIndex);
-			}
-
-			double CellMinX;
-			double CellMinZ;
-			double CellMaxX;
-			double CellMaxZ;
-			GetCellBoundsXZ(Cell, CellMinX, CellMinZ, CellMaxX, CellMaxZ);
-			for (int32 EdgeIndex = 0; EdgeIndex < Polygon.Num(); ++EdgeIndex)
-			{
-				const FVector2D& A = Polygon[EdgeIndex];
-				const FVector2D& B = Polygon[(EdgeIndex + 1) % Polygon.Num()];
-				const FVector2D Edge = B - A;
-				const float EdgeLength = static_cast<float>(Edge.Size());
-				if (EdgeLength <= KINDA_SMALL_NUMBER)
-				{
-					continue;
-				}
-
-				bool bShared = false;
-				if (BlockSpacing.X <= HouseSpacingTolerance)
-				{
-					if (FMath::IsNearlyEqual(A.X, CellMinX, HousePolygonTolerance) &&
-						FMath::IsNearlyEqual(B.X, CellMinX, HousePolygonTolerance))
-					{
-						bShared = CellExists3D(X - 1, Y, DecodedZ);
-					}
-					else if (FMath::IsNearlyEqual(A.X, CellMaxX, HousePolygonTolerance) &&
-						FMath::IsNearlyEqual(B.X, CellMaxX, HousePolygonTolerance))
-					{
-						bShared = CellExists3D(X + 1, Y, DecodedZ);
-					}
-				}
-				if (!bShared && BlockSpacing.Z <= HouseSpacingTolerance)
-				{
-					if (FMath::IsNearlyEqual(A.Y, CellMinZ, HousePolygonTolerance) &&
-						FMath::IsNearlyEqual(B.Y, CellMinZ, HousePolygonTolerance))
-					{
-						bShared = CellExists3D(X, Y, DecodedZ - 1);
-					}
-					else if (FMath::IsNearlyEqual(A.Y, CellMaxZ, HousePolygonTolerance) &&
-						FMath::IsNearlyEqual(B.Y, CellMaxZ, HousePolygonTolerance))
-					{
-						bShared = CellExists3D(X, Y, DecodedZ + 1);
-					}
-				}
-				if (bShared)
-				{
-					continue;
-				}
-
-				const FVector2D Outward(Edge.Y, -Edge.X);
-				const FVector3f Normal = FVector3f(
-					static_cast<float>(Outward.X), 0.0f, static_cast<float>(Outward.Y)).GetSafeNormal();
-				AppendMeshQuad(
-					OutMesh,
-					FVector3d(A.X, FrontY, A.Y), FVector3d(A.X, BackY, A.Y),
-					FVector3d(B.X, BackY, B.Y), FVector3d(B.X, FrontY, B.Y),
-					Normal, CellData.MaterialIndex,
-					static_cast<float>(BlockDimensions.Y), EdgeLength, UVWorldUnits);
-			}
+			const FVector2D Outward(Edge.Y, -Edge.X);
+			const FVector3f Normal = FVector3f(
+				static_cast<float>(Outward.X), 0.0f, static_cast<float>(Outward.Y)).GetSafeNormal();
+			AppendMeshQuad(
+				OutMesh,
+				FVector3d(A.X, FrontY, A.Y), FVector3d(A.X, BackY, A.Y),
+				FVector3d(B.X, BackY, B.Y), FVector3d(B.X, FrontY, B.Y),
+				Normal, CellData.MaterialIndex,
+				static_cast<float>(BlockDimensions.Y), EdgeLength, UVWorldUnits);
 		}
 	}
 
@@ -734,50 +840,41 @@ void AChunkedDestructibleHouse::BuildChunkSimpleCollision(
 	{
 		return;
 	}
-	const int32 SafeChunkSide = FMath::Clamp(ChunkSideLength, 4, 128);
-	const int32 ChunkX = ChunkIndex % ChunkCount.X;
-	const int32 ChunkY = ChunkIndex / ChunkCount.X;
-	const int32 MinEncodedX = ChunkX * SafeChunkSide;
-	const int32 MinZ = ChunkY * SafeChunkSide;
-	const int32 MaxEncodedX = FMath::Min(MinEncodedX + SafeChunkSide, CellCount.X);
-	const int32 MaxZ = FMath::Min(MinZ + SafeChunkSide, CellCount.Y);
+	TArray<FIntPoint> ChunkCells;
+	GatherChunkCells(ChunkIndex, ChunkCells);
 
-	for (int32 Z = MinZ; Z < MaxZ; ++Z)
+	for (const FIntPoint Cell : ChunkCells)
 	{
-		for (int32 EncodedX = MinEncodedX; EncodedX < MaxEncodedX; ++EncodedX)
+		if (!Cells[ToCellIndex(Cell)].bExists)
 		{
-			const FIntPoint Cell(EncodedX, Z);
-			if (!Cells[ToCellIndex(Cell)].bExists)
-			{
-				continue;
-			}
-			TArray<FVector2D> Polygon;
-			if (!GetCellPolygonXZ(Cell, Polygon))
-			{
-				continue;
-			}
-			const FVector Center = GetCellLocalCenter(Cell);
-			if (IsCellPolygonFullRectangle(Cell, Polygon))
-			{
-				FKBoxElem& Box = OutCollision.BoxElems.Emplace_GetRef(
-					static_cast<float>(BlockDimensions.X),
-					static_cast<float>(BlockDimensions.Y),
-					static_cast<float>(BlockDimensions.Z));
-				Box.Center = Center;
-				continue;
-			}
-
-			const double FrontY = Center.Y - BlockDimensions.Y * 0.5;
-			const double BackY = Center.Y + BlockDimensions.Y * 0.5;
-			FKConvexElem& Convex = OutCollision.ConvexElems.Emplace_GetRef();
-			Convex.VertexData.Reserve(Polygon.Num() * 2);
-			for (const FVector2D& Point : Polygon)
-			{
-				Convex.VertexData.Add(FVector(Point.X, FrontY, Point.Y));
-				Convex.VertexData.Add(FVector(Point.X, BackY, Point.Y));
-			}
-			Convex.UpdateElemBox();
+			continue;
 		}
+		TArray<FVector2D> Polygon;
+		if (!GetCellPolygonXZ(Cell, Polygon))
+		{
+			continue;
+		}
+		const FVector Center = GetCellLocalCenter(Cell);
+		if (IsCellPolygonFullRectangle(Cell, Polygon))
+		{
+			FKBoxElem& Box = OutCollision.BoxElems.Emplace_GetRef(
+				static_cast<float>(BlockDimensions.X),
+				static_cast<float>(BlockDimensions.Y),
+				static_cast<float>(BlockDimensions.Z));
+			Box.Center = Center;
+			continue;
+		}
+
+		const double FrontY = Center.Y - BlockDimensions.Y * 0.5;
+		const double BackY = Center.Y + BlockDimensions.Y * 0.5;
+		FKConvexElem& Convex = OutCollision.ConvexElems.Emplace_GetRef();
+		Convex.VertexData.Reserve(Polygon.Num() * 2);
+		for (const FVector2D& Point : Polygon)
+		{
+			Convex.VertexData.Add(FVector(Point.X, FrontY, Point.Y));
+			Convex.VertexData.Add(FVector(Point.X, BackY, Point.Y));
+		}
+		Convex.UpdateElemBox();
 	}
 }
 
@@ -860,39 +957,78 @@ int32 AChunkedDestructibleHouse::SelectCellsInRadius(
 	EChunkedFloorBlastShape Shape,
 	TFunctionRef<void(int32, float)> CellFunction)
 {
-	if (Radius <= 0.0f || Cells.IsEmpty())
+	if (Radius <= 0.0f || Cells.IsEmpty() || GridWidthBlocks <= 0 ||
+		GridDepthBlocks <= 0 || GridHeightBlocks <= 0)
 	{
 		return 0;
 	}
 	const FVector LocalImpact = GetActorTransform().InverseTransformPosition(WorldLocation);
 	const FVector Scale = GetActorScale3D().GetAbs();
+	const FVector SafeScale(
+		FMath::Max(Scale.X, KINDA_SMALL_NUMBER),
+		FMath::Max(Scale.Y, KINDA_SMALL_NUMBER),
+		FMath::Max(Scale.Z, KINDA_SMALL_NUMBER));
+	const FVector LocalRadius(
+		Radius / SafeScale.X,
+		Radius / SafeScale.Y,
+		Radius / SafeScale.Z);
+	const FVector Pitch = BlockDimensions + BlockSpacing;
+	const int32 MinX = FMath::Clamp(FMath::FloorToInt(
+		(LocalImpact.X - LocalRadius.X - HouseGridLocalMin.X) / Pitch.X),
+		0, GridWidthBlocks - 1);
+	const int32 MaxX = FMath::Clamp(FMath::FloorToInt(
+		(LocalImpact.X + LocalRadius.X - HouseGridLocalMin.X) / Pitch.X),
+		0, GridWidthBlocks - 1);
+	const int32 MinY = FMath::Clamp(FMath::FloorToInt(
+		(LocalImpact.Y - LocalRadius.Y - HouseGridLocalMin.Y) / Pitch.Y),
+		0, GridDepthBlocks - 1);
+	const int32 MaxY = FMath::Clamp(FMath::FloorToInt(
+		(LocalImpact.Y + LocalRadius.Y - HouseGridLocalMin.Y) / Pitch.Y),
+		0, GridDepthBlocks - 1);
+	const int32 MinZ = FMath::Clamp(FMath::FloorToInt(
+		(LocalImpact.Z - LocalRadius.Z) / Pitch.Z),
+		0, GridHeightBlocks - 1);
+	const int32 MaxZ = FMath::Clamp(FMath::FloorToInt(
+		(LocalImpact.Z + LocalRadius.Z) / Pitch.Z),
+		0, GridHeightBlocks - 1);
 	int32 SelectedCount = 0;
-	for (int32 CellIndex = 0; CellIndex < Cells.Num(); ++CellIndex)
+	for (int32 Z = MinZ; Z <= MaxZ; ++Z)
 	{
-		if (!Cells[CellIndex].bExists)
+		for (int32 Y = MinY; Y <= MaxY; ++Y)
 		{
-			continue;
-		}
-		const FVector LocalDelta = GetCellLocalCenter(FromCellIndex(CellIndex)) - LocalImpact;
-		const FVector ScaledDelta(LocalDelta.X * Scale.X, LocalDelta.Y * Scale.Y, LocalDelta.Z * Scale.Z);
-		float Distance = 0.0f;
-		switch (Shape)
-		{
-		case EChunkedFloorBlastShape::Square:
-			Distance = FMath::Max3(FMath::Abs(ScaledDelta.X), FMath::Abs(ScaledDelta.Y), FMath::Abs(ScaledDelta.Z));
-			break;
-		case EChunkedFloorBlastShape::Diamond:
-			Distance = FMath::Abs(ScaledDelta.X) + FMath::Abs(ScaledDelta.Y) + FMath::Abs(ScaledDelta.Z);
-			break;
-		case EChunkedFloorBlastShape::Circle:
-		default:
-			Distance = ScaledDelta.Size();
-			break;
-		}
-		if (Distance <= Radius)
-		{
-			CellFunction(CellIndex, Distance);
-			++SelectedCount;
+			for (int32 X = MinX; X <= MaxX; ++X)
+			{
+				const FIntPoint Cell = EncodeCell(X, Y, Z);
+				const int32 CellIndex = ToCellIndex(Cell);
+				if (!Cells.IsValidIndex(CellIndex) || !Cells[CellIndex].bExists)
+				{
+					continue;
+				}
+				const FVector LocalDelta = GetCellLocalCenter(Cell) - LocalImpact;
+				const FVector ScaledDelta(
+					LocalDelta.X * Scale.X, LocalDelta.Y * Scale.Y, LocalDelta.Z * Scale.Z);
+				float Distance = 0.0f;
+				switch (Shape)
+				{
+				case EChunkedFloorBlastShape::Square:
+					Distance = FMath::Max3(
+						FMath::Abs(ScaledDelta.X), FMath::Abs(ScaledDelta.Y), FMath::Abs(ScaledDelta.Z));
+					break;
+				case EChunkedFloorBlastShape::Diamond:
+					Distance = FMath::Abs(ScaledDelta.X) + FMath::Abs(ScaledDelta.Y) +
+						FMath::Abs(ScaledDelta.Z);
+					break;
+				case EChunkedFloorBlastShape::Circle:
+				default:
+					Distance = ScaledDelta.Size();
+					break;
+				}
+				if (Distance <= Radius)
+				{
+					CellFunction(CellIndex, Distance);
+					++SelectedCount;
+				}
+			}
 		}
 	}
 	return SelectedCount;
@@ -912,17 +1048,34 @@ void AChunkedDestructibleHouse::MarkCellChunksDirty(FIntPoint Cell)
 		FIntVector(0, -1, 0), FIntVector(0, 1, 0),
 		FIntVector(0, 0, -1), FIntVector(0, 0, 1)
 	};
-	const int32 SafeChunkSide = FMath::Clamp(ChunkSideLength, 4, 128);
-	for (const FIntVector& Offset : Offsets)
+	if (UsesSpatialRuntimeChunks())
 	{
-		const FIntPoint TestCell = EncodeCell(X + Offset.X, Y + Offset.Y, Z + Offset.Z);
-		if (TestCell == FIntPoint::NoneValue)
+		for (const FIntVector& Offset : Offsets)
 		{
-			continue;
+			const int32 ChunkIndex = GetSpatialChunkIndex(
+				X + Offset.X,
+				Y + Offset.Y,
+				Z + Offset.Z);
+			if (ChunkIndex != INDEX_NONE)
+			{
+				DirtyChunkIndices.Add(ChunkIndex);
+			}
 		}
-		const int32 ChunkX = TestCell.X / SafeChunkSide;
-		const int32 ChunkY = TestCell.Y / SafeChunkSide;
-		DirtyChunkIndices.Add(ChunkX + ChunkY * ChunkCount.X);
+	}
+	else
+	{
+		const int32 SafeChunkSide = FMath::Clamp(ChunkSideLength, 4, 128);
+		for (const FIntVector& Offset : Offsets)
+		{
+			const FIntPoint TestCell = EncodeCell(X + Offset.X, Y + Offset.Y, Z + Offset.Z);
+			if (TestCell == FIntPoint::NoneValue)
+			{
+				continue;
+			}
+			const int32 ChunkX = TestCell.X / SafeChunkSide;
+			const int32 ChunkY = TestCell.Y / SafeChunkSide;
+			DirtyChunkIndices.Add(ChunkX + ChunkY * ChunkCount.X);
+		}
 	}
 }
 
@@ -943,9 +1096,10 @@ void AChunkedDestructibleHouse::HandleHouseCellDestroyed(
 
 int32 AChunkedDestructibleHouse::GetEffectiveDebrisLimit() const
 {
-	return FMath::Min(
+	const int32 ConfiguredLimit = FMath::Min(
 		FMath::Clamp(MaxActiveDebrisPieces, 0, 1024),
 		FMath::Clamp(MaxRuntimeDebrisPieces, 0, 1024));
+	return bUseLightweightDebris ? FMath::Min(ConfiguredLimit, 24) : ConfiguredLimit;
 }
 
 void AChunkedDestructibleHouse::SpawnDebrisForCell(FIntPoint Cell, FVector WorldLocation)
@@ -978,8 +1132,11 @@ void AChunkedDestructibleHouse::SpawnDebrisForCell(FIntPoint Cell, FVector World
 		static_cast<float>(FMath::Min(DebrisScaleRange.X, DebrisScaleRange.Y)), 0.05f, 1.0f);
 	const float MaxScale = FMath::Clamp(
 		static_cast<float>(FMath::Max(DebrisScaleRange.X, DebrisScaleRange.Y)), MinScale, 1.0f);
+	const int32 RequestedSpawnCount = bUseLightweightDebris
+		? 1
+		: FMath::Clamp(DebrisPiecesPerCell, 1, 8);
 	const int32 SpawnCount = FMath::Min(
-		FMath::Clamp(DebrisPiecesPerCell, 1, 8),
+		RequestedSpawnCount,
 		EffectiveDebrisLimit - ActiveDebrisComponents.Num());
 
 	for (int32 PieceIndex = 0; PieceIndex < SpawnCount; ++PieceIndex)
@@ -1041,8 +1198,11 @@ void AChunkedDestructibleHouse::SpawnDebrisForCell(FIntPoint Cell, FVector World
 		ActiveDebrisComponents.Add(Debris);
 		const TWeakObjectPtr<UStaticMeshComponent> WeakDebris(Debris);
 		const float SafeDebrisLifetime = FMath::Max(DebrisLifetime, 0.1f);
+		const float RequestedPhysicsDuration = bUseLightweightDebris
+			? FMath::Min(DebrisPhysicsDuration, 0.35f)
+			: DebrisPhysicsDuration;
 		const float SafePhysicsDuration = FMath::Clamp(
-			DebrisPhysicsDuration, 0.05f, SafeDebrisLifetime);
+			RequestedPhysicsDuration, 0.05f, SafeDebrisLifetime);
 		if (SafePhysicsDuration < SafeDebrisLifetime)
 		{
 			FTimerDelegate SleepDelegate = FTimerDelegate::CreateWeakLambda(

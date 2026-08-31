@@ -166,6 +166,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible House|Collapse", meta = (ClampMin = "0.0", Units = "s"))
 	FVector2D CollapseDelayRange = FVector2D(0.0, 0.35);
 
+	/** Rebuilds a small physical 3D region instead of a long flattened X/Y slice after a hit. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible House|Performance")
+	bool bUseSpatialRuntimeChunks = true;
+
+	/** Side length of each physical runtime rebuild region, measured in house cells. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible House|Performance", meta = (ClampMin = "4", ClampMax = "16"))
+	int32 SpatialChunkSideLength = 8;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible House|Debris")
 	bool bScatterDestroyedPieces = true;
 
@@ -194,6 +202,10 @@ protected:
 	/** Runtime safety budget applied even when an older placed actor saved a larger active limit. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible House|Debris", meta = (ClampMin = "0", ClampMax = "1024"))
 	int32 MaxRuntimeDebrisPieces = 48;
+
+	/** Uses one short-lived Chaos fragment per destroyed cell and a smaller active debris budget. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible House|Performance")
+	bool bUseLightweightDebris = true;
 
 	virtual bool CalculateLayout() override;
 	virtual bool ShouldCellExistInGeneratedShape(FIntPoint Cell) const override;
@@ -226,6 +238,7 @@ private:
 	int32 GridDepthBlocks = 1;
 	int32 GridHeightBlocks = 1;
 	FVector HouseGridLocalMin = FVector::ZeroVector;
+	FIntVector SpatialChunkCount = FIntVector::ZeroValue;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMesh> DebrisCubeMesh;
@@ -235,6 +248,14 @@ private:
 	bool bEvaluatingIntegrity = false;
 
 	bool CellExists3D(int32 X, int32 Y, int32 Z) const;
+	bool UsesSpatialRuntimeChunks() const;
+	int32 GetEffectiveSpatialChunkSideLength() const;
+	int32 GetSpatialChunkIndex(int32 X, int32 Y, int32 Z) const;
+	bool GetSpatialChunkBounds(
+		int32 ChunkIndex,
+		FIntVector& OutMinimum,
+		FIntVector& OutMaximum) const;
+	void GatherChunkCells(int32 ChunkIndex, TArray<FIntPoint>& OutCells) const;
 	int32 GetChimneyBaseZ() const;
 	bool IsCellPolygonFullRectangle(FIntPoint Cell, const TArray<FVector2D>& Polygon) const;
 	void AppendPolygonFaceAtY(

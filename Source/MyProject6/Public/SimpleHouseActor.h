@@ -7,6 +7,7 @@
 #include "SimpleHouseActor.generated.h"
 
 class UMaterialInterface;
+class UDynamicMesh;
 
 /**
  * A stylised, hollow house generated entirely with Geometry Script.
@@ -62,4 +63,13 @@ public:
 	/** Removes a spherical volume from the house at a world-space impact location. */
 	UFUNCTION(BlueprintCallable, Category = "Simple House|Destruction")
 	void CarveSphereAtWorldLocation(FVector WorldLocation, float Radius, float DepthFraction = 0.65f);
+
+private:
+	UDynamicMesh* GetOrCreateDamageCutter(float Radius);
+
+	/** Reused because projectile cavity radii are normally constant between impacts. */
+	UPROPERTY(Transient)
+	TObjectPtr<UDynamicMesh> CachedDamageCutterMesh;
+
+	float CachedDamageCutterRadius = -1.0f;
 };

@@ -9,6 +9,7 @@
 
 class UMaterialInterface;
 class USceneComponent;
+class UDynamicMesh;
 
 /** Horizontal placement of a floor's complete window group. */
 UENUM(BlueprintType)
@@ -420,4 +421,11 @@ public:
 private:
 	void SynchronizeFloorWindowSettings();
 	void FinalizeComponent(UDynamicMeshComponent* Component) const;
+	UDynamicMesh* GetOrCreateDamageCutter(float Radius);
+
+	/** Reused because projectile cavity radii are normally constant between impacts. */
+	UPROPERTY(Transient)
+	TObjectPtr<UDynamicMesh> CachedDamageCutterMesh;
+
+	float CachedDamageCutterRadius = -1.0f;
 };

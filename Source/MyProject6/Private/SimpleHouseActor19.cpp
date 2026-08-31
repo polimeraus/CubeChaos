@@ -72,6 +72,8 @@ ASimpleHouseActor19::ASimpleHouseActor19(const FObjectInitializer& ObjectInitial
 		Component->SetupAttachment(HouseRoot);
 		Component->SetMobility(EComponentMobility::Movable);
 		Component->SetGenerateOverlapEvents(false);
+		Component->SetCollisionObjectType(ECC_WorldStatic);
+		Component->SetCollisionResponseToAllChannels(ECR_Block);
 		// Boolean cuts change the generated triangles and their UV interpolation.
 		// Recalculate tangents from the final mesh so tangent-space materials
 		// (especially materials with normal maps) remain stable after resizing.
@@ -252,7 +254,16 @@ void ASimpleHouseActor19::RebuildMesh()
 		return;
 	}
 
-	const TArray<UDynamicMesh*> PartMeshes = {
+	UDynamicMeshComponent* const PartComponents[] = {
+		RoofComponent,
+		CeilingComponent,
+		GroundComponent,
+		FrontWallComponent,
+		BackWallComponent,
+		SideWall1Component,
+		SideWall2Component
+	};
+	UDynamicMesh* const PartMeshes[] = {
 		RoofMesh,
 		CeilingMesh,
 		GroundMesh,
@@ -661,6 +672,8 @@ void ASimpleHouseActor19::RebuildMesh()
 			RelativeRotation);
 		Component->SetMobility(EComponentMobility::Movable);
 		Component->SetGenerateOverlapEvents(false);
+		Component->SetCollisionObjectType(ECC_WorldStatic);
+		Component->SetCollisionResponseToAllChannels(ECR_Block);
 		Component->SetTangentsType(
 			EDynamicMeshComponentTangentsMode::AutoCalculated);
 		Component->ComponentTags.AddUnique(
@@ -2230,15 +2243,6 @@ void ASimpleHouseActor19::RebuildMesh()
 	FinalizeOpeningObjects(WindowObjectComponents);
 	FinalizeOpeningObjects(DoorObjectComponents);
 
-	const TArray<UDynamicMeshComponent*> PartComponents = {
-		RoofComponent,
-		CeilingComponent,
-		GroundComponent,
-		FrontWallComponent,
-		BackWallComponent,
-		SideWall1Component,
-		SideWall2Component
-	};
 	for (UDynamicMeshComponent* Component : PartComponents)
 	{
 		FinalizeComponent(Component);
@@ -2350,18 +2354,7 @@ void ASimpleHouseActor19::CarveSphereAtWorldLocation(
 		WorldLocation +
 		InwardDirection * SafeRadius * SafeDepthFraction;
 
-	UDynamicMesh* CutterMesh = NewObject<UDynamicMesh>(this);
-	FGeometryScriptPrimitiveOptions CutterOptions;
-	CutterOptions.PolygroupMode =
-		EGeometryScriptPrimitivePolygroupMode::PerFace;
-	UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendSphereLatLong(
-		CutterMesh,
-		CutterOptions,
-		FTransform::Identity,
-		SafeRadius,
-		12,
-		24,
-		EGeometryScriptPrimitiveOriginMode::Center);
+	UDynamicMesh* CutterMesh = GetOrCreateDamageCutter(SafeRadius);
 
 	FGeometryScriptMeshBooleanOptions DamageBooleanOptions;
 	DamageBooleanOptions.bFillHoles = true;
@@ -2375,7 +2368,7 @@ void ASimpleHouseActor19::CarveSphereAtWorldLocation(
 	SplitOptions.OpeningAngleDeg = 60.0f;
 	FGeometryScriptCalculateNormalsOptions NormalOptions;
 
-	TArray<UDynamicMeshComponent*> DamageableComponents = {
+	UDynamicMeshComponent* const FixedDamageableComponents[] = {
 		RoofComponent,
 		CeilingComponent,
 		GroundComponent,
@@ -2384,41 +2377,36 @@ void ASimpleHouseActor19::CarveSphereAtWorldLocation(
 		SideWall1Component,
 		SideWall2Component
 	};
-	for (UDynamicMeshComponent* Component : WindowObjectComponents)
-	{
-		DamageableComponents.Add(Component);
-	}
-	for (UDynamicMeshComponent* Component : DoorObjectComponents)
-	{
-		DamageableComponents.Add(Component);
-	}
 
 	const FTransform CutterTransform(
 		FRotator::ZeroRotator,
 		CutterCenter);
-	for (UDynamicMeshComponent* Component : DamageableComponents)
+	auto CarveComponent = [&](UDynamicMeshComponent* Component)
 	{
 		if (!IsValid(Component))
 		{
-			continue;
+			return;
 		}
 
 		UDynamicMesh* TargetMesh = Component->GetDynamicMesh();
 		if (!TargetMesh)
 		{
-			continue;
+			return;
 		}
 
 		const FBox WorldBounds = Component->Bounds.GetBox();
 		if (WorldBounds.ComputeSquaredDistanceToPoint(CutterCenter) >
 			FMath::Square(SafeRadius))
 		{
-			continue;
+			return;
 		}
 
 		const bool bHadCollision =
 			Component->GetCollisionEnabled() !=
 			ECollisionEnabled::NoCollision;
+		// Geometry and normals each signal a mesh edit. Only cook the final collision,
+		// keeping it synchronous so the next projectile sees the new hole immediately.
+		Component->SetTransientDeferCollisionUpdates(true);
 		UGeometryScriptLibrary_MeshBooleanFunctions::ApplyMeshBoolean(
 			TargetMesh,
 			Component->GetComponentTransform(),
@@ -2430,11 +2418,50 @@ void ASimpleHouseActor19::CarveSphereAtWorldLocation(
 			TargetMesh,
 			SplitOptions,
 			NormalOptions);
+		Component->SetTransientDeferCollisionUpdates(false);
 
 		Component->InvalidateAutoCalculatedTangents();
 		Component->NotifyMeshUpdated();
 		Component->SetComplexAsSimpleCollisionEnabled(
 			bHadCollision,
 			true);
+	};
+
+	for (UDynamicMeshComponent* Component : FixedDamageableComponents)
+	{
+		CarveComponent(Component);
 	}
+	for (UDynamicMeshComponent* Component : WindowObjectComponents)
+	{
+		CarveComponent(Component);
+	}
+	for (UDynamicMeshComponent* Component : DoorObjectComponents)
+	{
+		CarveComponent(Component);
+	}
+}
+
+UDynamicMesh* ASimpleHouseActor19::GetOrCreateDamageCutter(float Radius)
+{
+	if (!CachedDamageCutterMesh)
+	{
+		CachedDamageCutterMesh = NewObject<UDynamicMesh>(this);
+	}
+	if (CachedDamageCutterRadius != Radius)
+	{
+		CachedDamageCutterMesh->Reset();
+		FGeometryScriptPrimitiveOptions CutterOptions;
+		CutterOptions.PolygroupMode =
+			EGeometryScriptPrimitivePolygroupMode::PerFace;
+		UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendSphereLatLong(
+			CachedDamageCutterMesh,
+			CutterOptions,
+			FTransform::Identity,
+			Radius,
+			12,
+			24,
+			EGeometryScriptPrimitiveOriginMode::Center);
+		CachedDamageCutterRadius = Radius;
+	}
+	return CachedDamageCutterMesh;
 }

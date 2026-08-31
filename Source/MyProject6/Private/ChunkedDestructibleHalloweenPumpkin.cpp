@@ -756,46 +756,82 @@ int32 AChunkedDestructibleHalloweenPumpkin::SelectCellsInRadius(
 	EChunkedFloorBlastShape Shape,
 	TFunctionRef<void(int32, float)> CellFunction)
 {
-	if (Radius <= 0.0f || Cells.IsEmpty())
+	if (Radius <= 0.0f || Cells.IsEmpty() || PumpkinGridCellCount.X <= 0 ||
+		PumpkinGridCellCount.Y <= 0 || PumpkinGridCellCount.Z <= 0)
 	{
 		return 0;
 	}
 	const FVector LocalImpact = GetActorTransform().InverseTransformPosition(WorldLocation);
 	const FVector ActorScale = GetActorScale3D().GetAbs();
+	const FVector SafeScale(
+		FMath::Max(ActorScale.X, KINDA_SMALL_NUMBER),
+		FMath::Max(ActorScale.Y, KINDA_SMALL_NUMBER),
+		FMath::Max(ActorScale.Z, KINDA_SMALL_NUMBER));
+	const FVector LocalRadius(
+		Radius / SafeScale.X,
+		Radius / SafeScale.Y,
+		Radius / SafeScale.Z);
+	const FVector Pitch = BlockDimensions + BlockSpacing;
+	const int32 MinX = FMath::Clamp(FMath::FloorToInt(
+		(LocalImpact.X - LocalRadius.X - PumpkinGridLocalMin.X) / Pitch.X),
+		0, PumpkinGridCellCount.X - 1);
+	const int32 MaxX = FMath::Clamp(FMath::FloorToInt(
+		(LocalImpact.X + LocalRadius.X - PumpkinGridLocalMin.X) / Pitch.X),
+		0, PumpkinGridCellCount.X - 1);
+	const int32 MinY = FMath::Clamp(FMath::FloorToInt(
+		(LocalImpact.Y - LocalRadius.Y - PumpkinGridLocalMin.Y) / Pitch.Y),
+		0, PumpkinGridCellCount.Y - 1);
+	const int32 MaxY = FMath::Clamp(FMath::FloorToInt(
+		(LocalImpact.Y + LocalRadius.Y - PumpkinGridLocalMin.Y) / Pitch.Y),
+		0, PumpkinGridCellCount.Y - 1);
+	const int32 MinZ = FMath::Clamp(FMath::FloorToInt(
+		(LocalImpact.Z - LocalRadius.Z - PumpkinGridLocalMin.Z) / Pitch.Z),
+		0, PumpkinGridCellCount.Z - 1);
+	const int32 MaxZ = FMath::Clamp(FMath::FloorToInt(
+		(LocalImpact.Z + LocalRadius.Z - PumpkinGridLocalMin.Z) / Pitch.Z),
+		0, PumpkinGridCellCount.Z - 1);
 	int32 SelectedCount = 0;
-	for (int32 CellIndex = 0; CellIndex < Cells.Num(); ++CellIndex)
+	for (int32 Z = MinZ; Z <= MaxZ; ++Z)
 	{
-		if (!Cells[CellIndex].bExists)
+		for (int32 Y = MinY; Y <= MaxY; ++Y)
 		{
-			continue;
-		}
-		const FVector LocalDelta = GetCellLocalCenter(FromCellIndex(CellIndex)) - LocalImpact;
-		const FVector ScaledDelta(
-			LocalDelta.X * ActorScale.X,
-			LocalDelta.Y * ActorScale.Y,
-			LocalDelta.Z * ActorScale.Z);
-		float Distance = 0.0f;
-		switch (Shape)
-		{
-		case EChunkedFloorBlastShape::Square:
-			Distance = FMath::Max3(
-				FMath::Abs(ScaledDelta.X),
-				FMath::Abs(ScaledDelta.Y),
-				FMath::Abs(ScaledDelta.Z));
-			break;
-		case EChunkedFloorBlastShape::Diamond:
-			Distance = FMath::Abs(ScaledDelta.X) +
-				FMath::Abs(ScaledDelta.Y) + FMath::Abs(ScaledDelta.Z);
-			break;
-		case EChunkedFloorBlastShape::Circle:
-		default:
-			Distance = ScaledDelta.Size();
-			break;
-		}
-		if (Distance <= Radius)
-		{
-			CellFunction(CellIndex, Distance);
-			++SelectedCount;
+			for (int32 X = MinX; X <= MaxX; ++X)
+			{
+				const FIntPoint Cell = EncodeCell(X, Y, Z);
+				const int32 CellIndex = ToCellIndex(Cell);
+				if (!Cells.IsValidIndex(CellIndex) || !Cells[CellIndex].bExists)
+				{
+					continue;
+				}
+				const FVector LocalDelta = GetPhysicalCellLocalCenter(X, Y, Z) - LocalImpact;
+				const FVector ScaledDelta(
+					LocalDelta.X * ActorScale.X,
+					LocalDelta.Y * ActorScale.Y,
+					LocalDelta.Z * ActorScale.Z);
+				float Distance = 0.0f;
+				switch (Shape)
+				{
+				case EChunkedFloorBlastShape::Square:
+					Distance = FMath::Max3(
+						FMath::Abs(ScaledDelta.X),
+						FMath::Abs(ScaledDelta.Y),
+						FMath::Abs(ScaledDelta.Z));
+					break;
+				case EChunkedFloorBlastShape::Diamond:
+					Distance = FMath::Abs(ScaledDelta.X) +
+						FMath::Abs(ScaledDelta.Y) + FMath::Abs(ScaledDelta.Z);
+					break;
+				case EChunkedFloorBlastShape::Circle:
+				default:
+					Distance = ScaledDelta.Size();
+					break;
+				}
+				if (Distance <= Radius)
+				{
+					CellFunction(CellIndex, Distance);
+					++SelectedCount;
+				}
+			}
 		}
 	}
 	return SelectedCount;

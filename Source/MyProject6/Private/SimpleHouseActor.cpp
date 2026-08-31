@@ -41,6 +41,9 @@ void ASimpleHouseActor::RebuildMesh()
 	const float MaxThickness = 0.45f * FMath::Min3(SafeWidth, SafeDepth, SafeWallHeight);
 	const float SafeThickness = FMath::Clamp(WallThickness, 2.0f, MaxThickness);
 
+	// Publish only the finished shell to collision. Every primitive, boolean and
+	// normal operation otherwise cooks an intermediate mesh synchronously.
+	MeshComponent->SetTransientDeferCollisionUpdates(true);
 	HouseMesh->Reset();
 
 	FGeometryScriptPrimitiveOptions PrimitiveOptions;
@@ -129,6 +132,7 @@ void ASimpleHouseActor::RebuildMesh()
 	MeshComponent->NotifyMeshUpdated();
 	MeshComponent->SetCollisionEnabled(
 		bEnableCollision ? ECollisionEnabled::QueryAndPhysics : ECollisionEnabled::NoCollision);
+	MeshComponent->SetTransientDeferCollisionUpdates(false);
 	MeshComponent->SetComplexAsSimpleCollisionEnabled(bEnableCollision, true);
 }
 
@@ -142,17 +146,7 @@ void ASimpleHouseActor::CarveSphereAtWorldLocation(FVector WorldLocation, float 
 	}
 
 	const float SafeRadius = FMath::Max(Radius, 1.0f);
-	UDynamicMesh* Cutter = NewObject<UDynamicMesh>(this);
-	FGeometryScriptPrimitiveOptions PrimitiveOptions;
-	PrimitiveOptions.PolygroupMode = EGeometryScriptPrimitivePolygroupMode::PerFace;
-	UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendSphereLatLong(
-		Cutter,
-		PrimitiveOptions,
-		FTransform::Identity,
-		SafeRadius,
-		12,
-		24,
-		EGeometryScriptPrimitiveOriginMode::Center);
+	UDynamicMesh* Cutter = GetOrCreateDamageCutter(SafeRadius);
 
 	// Push the cutting sphere toward the approximate centre of the hollow house.
 	// This guarantees that a projectile impact crosses the shell instead of only
@@ -167,6 +161,8 @@ void ASimpleHouseActor::CarveSphereAtWorldLocation(FVector WorldLocation, float 
 	BooleanOptions.bFillHoles = true;
 	BooleanOptions.bSimplifyOutput = true;
 	BooleanOptions.OutputTransformSpace = EGeometryScriptBooleanOutputSpace::TargetTransformSpace;
+	// Collapse the boolean and normal edits into one synchronous collision cook.
+	MeshComponent->SetTransientDeferCollisionUpdates(true);
 	UGeometryScriptLibrary_MeshBooleanFunctions::ApplyMeshBoolean(
 		HouseMesh,
 		MeshComponent->GetComponentTransform(),
@@ -180,7 +176,32 @@ void ASimpleHouseActor::CarveSphereAtWorldLocation(FVector WorldLocation, float 
 	SplitOptions.OpeningAngleDeg = 60.0f;
 	FGeometryScriptCalculateNormalsOptions NormalOptions;
 	UGeometryScriptLibrary_MeshNormalsFunctions::ComputeSplitNormals(HouseMesh, SplitOptions, NormalOptions);
+	MeshComponent->SetTransientDeferCollisionUpdates(false);
 
 	MeshComponent->NotifyMeshUpdated();
 	MeshComponent->SetComplexAsSimpleCollisionEnabled(bEnableCollision, true);
+}
+
+UDynamicMesh* ASimpleHouseActor::GetOrCreateDamageCutter(float Radius)
+{
+	if (!CachedDamageCutterMesh)
+	{
+		CachedDamageCutterMesh = NewObject<UDynamicMesh>(this);
+	}
+	if (CachedDamageCutterRadius != Radius)
+	{
+		CachedDamageCutterMesh->Reset();
+		FGeometryScriptPrimitiveOptions PrimitiveOptions;
+		PrimitiveOptions.PolygroupMode = EGeometryScriptPrimitivePolygroupMode::PerFace;
+		UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendSphereLatLong(
+			CachedDamageCutterMesh,
+			PrimitiveOptions,
+			FTransform::Identity,
+			Radius,
+			12,
+			24,
+			EGeometryScriptPrimitiveOriginMode::Center);
+		CachedDamageCutterRadius = Radius;
+	}
+	return CachedDamageCutterMesh;
 }

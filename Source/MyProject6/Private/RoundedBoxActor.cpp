@@ -41,6 +41,9 @@ void ARoundedBoxActor::RebuildMesh()
 	const float MaxRadius = 0.499f * FMath::Min3(SafeWidth, SafeDepth, SafeHeight);
 	const float SafeRadius = FMath::Clamp(CornerRadius, 0.0f, MaxRadius);
 
+	// Geometry Script emits a change for each stage. Keep collision synchronous at the
+	// end, but do not cook the discarded reset/primitive/bevel intermediate meshes.
+	MeshComponent->SetTransientDeferCollisionUpdates(true);
 	DynamicMesh->Reset();
 
 	FGeometryScriptPrimitiveOptions PrimitiveOptions;
@@ -88,6 +91,7 @@ void ARoundedBoxActor::RebuildMesh()
 	MeshComponent->NotifyMeshUpdated();
 	MeshComponent->SetCollisionEnabled(
 		bEnableCollision ? ECollisionEnabled::QueryAndPhysics : ECollisionEnabled::NoCollision);
+	MeshComponent->SetTransientDeferCollisionUpdates(false);
 	MeshComponent->SetComplexAsSimpleCollisionEnabled(bEnableCollision, true);
 }
 
@@ -101,17 +105,7 @@ void ARoundedBoxActor::CarveSphereAtWorldLocation(FVector WorldLocation, float R
 		return;
 	}
 
-	UDynamicMesh* ToolMesh = NewObject<UDynamicMesh>(this);
-	FGeometryScriptPrimitiveOptions PrimitiveOptions;
-	PrimitiveOptions.PolygroupMode = EGeometryScriptPrimitivePolygroupMode::PerFace;
-	UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendSphereLatLong(
-		ToolMesh,
-		PrimitiveOptions,
-		FTransform::Identity,
-		SafeRadius,
-		12,
-		24,
-		EGeometryScriptPrimitiveOriginMode::Center);
+	UDynamicMesh* ToolMesh = GetOrCreateDamageCutter(SafeRadius);
 
 	const float SafeDepthFraction = FMath::Clamp(DepthFraction, 0.0f, 1.0f);
 	const FVector CutCenter = WorldLocation;
@@ -125,6 +119,9 @@ void ARoundedBoxActor::CarveSphereAtWorldLocation(FVector WorldLocation, float R
 	// Move the sphere inward toward the block's centre to create a visible cavity.
 	const FVector ToActorCenter = (GetActorLocation() - WorldLocation).GetSafeNormal();
 	const FTransform InsetToolTransform(FRotator::ZeroRotator, CutCenter + ToActorCenter * SafeRadius * SafeDepthFraction);
+	// The boolean and normal pass both emit mesh-change events. Defer their intermediate
+	// collision cooks, then synchronously publish the final collision below.
+	MeshComponent->SetTransientDeferCollisionUpdates(true);
 	UGeometryScriptLibrary_MeshBooleanFunctions::ApplyMeshBoolean(
 		TargetMesh,
 		MeshComponent->GetComponentTransform(),
@@ -138,7 +135,32 @@ void ARoundedBoxActor::CarveSphereAtWorldLocation(FVector WorldLocation, float R
 	SplitOptions.OpeningAngleDeg = 60.0f;
 	FGeometryScriptCalculateNormalsOptions NormalOptions;
 	UGeometryScriptLibrary_MeshNormalsFunctions::ComputeSplitNormals(TargetMesh, SplitOptions, NormalOptions);
+	MeshComponent->SetTransientDeferCollisionUpdates(false);
 
 	MeshComponent->NotifyMeshUpdated();
 	MeshComponent->SetComplexAsSimpleCollisionEnabled(bEnableCollision, true);
+}
+
+UDynamicMesh* ARoundedBoxActor::GetOrCreateDamageCutter(float Radius)
+{
+	if (!CachedDamageCutterMesh)
+	{
+		CachedDamageCutterMesh = NewObject<UDynamicMesh>(this);
+	}
+	if (CachedDamageCutterRadius != Radius)
+	{
+		CachedDamageCutterMesh->Reset();
+		FGeometryScriptPrimitiveOptions PrimitiveOptions;
+		PrimitiveOptions.PolygroupMode = EGeometryScriptPrimitivePolygroupMode::PerFace;
+		UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendSphereLatLong(
+			CachedDamageCutterMesh,
+			PrimitiveOptions,
+			FTransform::Identity,
+			Radius,
+			12,
+			24,
+			EGeometryScriptPrimitiveOriginMode::Center);
+		CachedDamageCutterRadius = Radius;
+	}
+	return CachedDamageCutterMesh;
 }
