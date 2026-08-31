@@ -280,16 +280,31 @@ void AChunkedDestructibleConeStructure::RebuildApexDecoration()
 		const double Height = FMath::Max(CandySpireHeightBlocks * PitchZ, 1.0f);
 		const double Radius = FMath::Max(CandySpireRadiusBlocks * CachedRadialBlockUnit, 1.0f);
 		const int32 Segments = 48;
-		const TArray<FVector2D> Profile = {
+		TArray<FVector2D> Profile = {
 			FVector2D(0.62, 0.00), FVector2D(1.12, 0.035),
 			FVector2D(1.16, 0.095), FVector2D(0.68, 0.13),
 			FVector2D(0.60, 0.19), FVector2D(0.88, 0.27),
 			FVector2D(1.00, 0.38), FVector2D(0.83, 0.49),
 			FVector2D(0.57, 0.56), FVector2D(0.68, 0.64),
 			FVector2D(0.76, 0.72), FVector2D(0.55, 0.82),
-			FVector2D(0.31, 0.90), FVector2D(0.18, 0.96),
-			FVector2D(0.0, 1.0)
+			FVector2D(0.31, 0.90), FVector2D(0.18, 0.96)
 		};
+		if (bGenerateCandySpireCenterSpike)
+		{
+			const double SpikeHeight = FMath::Max(
+				CandySpireCenterSpikeHeightBlocks * PitchZ,
+				1.0f);
+			const double NormalizedSpikeHeight = SpikeHeight / Height;
+			// Retain a very narrow neck at the original tip, then taper it to the
+			// centreline. Keeping this in the shared profile makes one continuous skin.
+			Profile.Add(FVector2D(0.10, 1.0));
+			Profile.Add(FVector2D(0.07, 1.0 + NormalizedSpikeHeight * 0.72));
+			Profile.Add(FVector2D(0.0, 1.0 + NormalizedSpikeHeight));
+		}
+		else
+		{
+			Profile.Add(FVector2D(0.0, 1.0));
+		}
 
 		auto PositionAt = [&](int32 ProfileIndex, int32 SegmentIndex)
 		{
@@ -297,7 +312,7 @@ void AChunkedDestructibleConeStructure::RebuildApexDecoration()
 			double RingRadius = Radius * Profile[ProfileIndex].X;
 			if (ProfileIndex <= 2)
 			{
-				// A subtle twelve-lobed collar echoes the ridged candy-tower crown in the reference.
+				// A subtle twelve-lobed collar echoes the ridged candy-tower crown.
 				RingRadius *= 1.0 + 0.055 * FMath::Max(FMath::Cos(12.0 * Angle), 0.0);
 			}
 			return FVector3d(

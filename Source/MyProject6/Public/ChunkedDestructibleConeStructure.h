@@ -44,7 +44,7 @@ UENUM(BlueprintType)
 enum class EConeStructureApexStyle : uint8
 {
 	CurrentApex UMETA(DisplayName = "Current Cone Apex"),
-	CandySpire UMETA(DisplayName = "Reference Candy Spire")
+	CandySpire UMETA(DisplayName = "Candy Spire")
 };
 
 /** Balances destruction-flash fidelity against projectile-hit cost. */
@@ -194,7 +194,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Cone", meta = (DisplayName = "Generate Cone Base"))
 	bool bGenerateConeBase = true;
 
-	/** Dropdown: keep the existing point or add the reference-inspired candy finial. */
+	/** Dropdown: keep the existing point or add the candy finial. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (DisplayName = "Apex Style"))
 	EConeStructureApexStyle ApexStyle = EConeStructureApexStyle::CurrentApex;
 
@@ -203,6 +203,14 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (EditCondition = "ApexStyle == EConeStructureApexStyle::CandySpire", EditConditionHides, ClampMin = "0.25", ClampMax = "6.0"))
 	float CandySpireRadiusBlocks = 1.35f;
+
+	/** Adds a narrow, upward-tapering spike at the exact centre of the Candy Spire. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (DisplayName = "Generate Center Spike", EditCondition = "ApexStyle == EConeStructureApexStyle::CandySpire", EditConditionHides))
+	bool bGenerateCandySpireCenterSpike = true;
+
+	/** Height of the thin centre spike above the regular Candy Spire tip. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (DisplayName = "Center Spike Height (Blocks)", EditCondition = "ApexStyle == EConeStructureApexStyle::CandySpire && bGenerateCandySpireCenterSpike", EditConditionHides, ClampMin = "0.1", ClampMax = "24.0"))
+	float CandySpireCenterSpikeHeightBlocks = 3.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (EditCondition = "ApexStyle == EConeStructureApexStyle::CandySpire", EditConditionHides))
 	TObjectPtr<UMaterialInterface> CandySpireMaterial;
