@@ -115,16 +115,53 @@ private:
 		FBox2D Bounds = FBox2D(EForceInit::ForceInit);
 	};
 
+	struct FBlobOutlineSegment
+	{
+		FVector2D A = FVector2D::ZeroVector;
+		FVector2D B = FVector2D::ZeroVector;
+	};
+
+	/** Immutable shape data reused by mesh, spiral, collision and flash rebuilds. */
+	struct FBlobCellGeometryCache
+	{
+		bool bBelongsToBlob = false;
+		bool bFullyInside = false;
+		TArray<TArray<FVector2D>> Fragments;
+		TArray<FBlobOutlineSegment> OutlineSegments;
+	};
+
+	struct FBlobCachedSurfaceTriangle
+	{
+		FVector2D A = FVector2D::ZeroVector;
+		FVector2D B = FVector2D::ZeroVector;
+		FVector2D C = FVector2D::ZeroVector;
+	};
+
 	TArray<FVector2D> CachedOutline;
 	TArray<FBlobTriangle> CachedTriangles;
 	FVector2D CachedFanCenter = FVector2D::ZeroVector;
+	TArray<FBlobCellGeometryCache> CachedCellGeometry;
+	mutable TArray<TArray<FBlobCachedSurfaceTriangle>> CachedSpiralTrianglesByCell;
+	mutable TBitArray<> CachedSpiralChunks;
+	mutable bool bCachedSpiralSettingsValid = false;
+	mutable float CachedSpiralTurns = 0.0f;
+	mutable float CachedSpiralBandFraction = 0.0f;
+	mutable float CachedSpiralRotationDegrees = 0.0f;
+	mutable FVector2D CachedSpiralCenterOffset = FVector2D::ZeroVector;
+	mutable int32 CachedSpiralCurveResolution = 0;
+	mutable bool bCachedSpiralClockwise = false;
 
 	void RebuildOutlineCache();
+	void RebuildCellGeometryCache();
 	bool IsPointInsideBlob(const FVector2D &Point, double Tolerance = 0.01) const;
 	bool DoesOutlineIntersectCell(FIntPoint Cell) const;
+	bool ComputeCellFullyInsideBlob(FIntPoint Cell) const;
 	bool IsCellFullyInsideBlob(FIntPoint Cell) const;
+	bool ComputeClippedCellFragments(FIntPoint Cell, TArray<TArray<FVector2D>> &OutFragments) const;
 	bool GetClippedCellFragments(FIntPoint Cell, TArray<TArray<FVector2D>> &OutFragments) const;
+	const FBlobCellGeometryCache *FindCellGeometryCache(FIntPoint Cell) const;
 	void GetCellBounds(FIntPoint Cell, double &OutMinX, double &OutMinY, double &OutMaxX, double &OutMaxY) const;
+	void AppendCachedHypnoticSpiralSurface(int32 ChunkIndex, UE::Geometry::FDynamicMesh3 &Mesh) const;
 	void AppendGreedyFullHorizontalFaces(
 		UE::Geometry::FDynamicMesh3 &Mesh,
 		int32 MinCellX,

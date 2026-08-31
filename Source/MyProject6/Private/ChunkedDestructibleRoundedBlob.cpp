@@ -165,6 +165,9 @@ AChunkedDestructibleRoundedBlob::AChunkedDestructibleRoundedBlob()
 {
 	AreaSize = BlobSize;
 	FloorPattern = EChunkedFloorPattern::Checkerboard;
+	// A shot rebuilds whole chunks synchronously. Ten keeps the affected working set small while
+	// preserving the exact same logical cells, outline, materials and collision behavior.
+	ChunkSideLength = 10;
 }
 
 #if WITH_EDITOR
@@ -241,7 +244,16 @@ bool AChunkedDestructibleRoundedBlob::CalculateLayout()
 		OutlineSamplesPerLobe, MinimumSamplesPerLobe, MaximumSamplesPerLobe);
 	AreaSize = BlobSize;
 	RebuildOutlineCache();
-	return Super::CalculateLayout();
+	if (!Super::CalculateLayout())
+	{
+		CachedCellGeometry.Reset();
+		CachedSpiralTrianglesByCell.Reset();
+		CachedSpiralChunks.Reset();
+		bCachedSpiralSettingsValid = false;
+		return false;
+	}
+	RebuildCellGeometryCache();
+	return true;
 }
 
 void AChunkedDestructibleRoundedBlob::RebuildOutlineCache()
@@ -335,6 +347,54 @@ void AChunkedDestructibleRoundedBlob::RebuildOutlineCache()
 	}
 }
 
+void AChunkedDestructibleRoundedBlob::RebuildCellGeometryCache()
+{
+	const int32 TotalCellCount = CellCount.X * CellCount.Y;
+	CachedCellGeometry.Reset();
+	CachedCellGeometry.SetNum(TotalCellCount);
+
+	for (int32 Y = 0; Y < CellCount.Y; ++Y)
+	{
+		for (int32 X = 0; X < CellCount.X; ++X)
+		{
+			const FIntPoint Cell(X, Y);
+			FBlobCellGeometryCache& CellCache = CachedCellGeometry[ToCellIndex(Cell)];
+			CellCache.bBelongsToBlob = ComputeClippedCellFragments(Cell, CellCache.Fragments);
+			CellCache.bFullyInside = CellCache.bBelongsToBlob && ComputeCellFullyInsideBlob(Cell);
+			if (!CellCache.bBelongsToBlob || CellCache.bFullyInside)
+			{
+				continue;
+			}
+
+			double CellMinX;
+			double CellMinY;
+			double CellMaxX;
+			double CellMaxY;
+			GetCellBounds(Cell, CellMinX, CellMinY, CellMaxX, CellMaxY);
+			for (int32 EdgeIndex = 0; EdgeIndex < CachedOutline.Num(); ++EdgeIndex)
+			{
+				FVector2D ClippedStart;
+				FVector2D ClippedEnd;
+				if (ClipSegmentToRectangle(
+					CachedOutline[EdgeIndex],
+					CachedOutline[(EdgeIndex + 1) % CachedOutline.Num()],
+					CellMinX, CellMinY, CellMaxX, CellMaxY,
+					ClippedStart, ClippedEnd))
+				{
+					FBlobOutlineSegment& Segment = CellCache.OutlineSegments.Emplace_GetRef();
+					Segment.A = ClippedStart;
+					Segment.B = ClippedEnd;
+				}
+			}
+		}
+	}
+
+	CachedSpiralTrianglesByCell.Reset();
+	CachedSpiralTrianglesByCell.SetNum(TotalCellCount);
+	CachedSpiralChunks.Init(false, ChunkCount.X * ChunkCount.Y);
+	bCachedSpiralSettingsValid = false;
+}
+
 void AChunkedDestructibleRoundedBlob::GetRoundedBlobOutline(TArray<FVector2D>& OutOutline) const
 {
 	OutOutline = CachedOutline;
@@ -422,7 +482,7 @@ bool AChunkedDestructibleRoundedBlob::DoesOutlineIntersectCell(FIntPoint Cell) c
 	return false;
 }
 
-bool AChunkedDestructibleRoundedBlob::IsCellFullyInsideBlob(FIntPoint Cell) const
+bool AChunkedDestructibleRoundedBlob::ComputeCellFullyInsideBlob(FIntPoint Cell) const
 {
 	double MinX;
 	double MinY;
@@ -436,7 +496,29 @@ bool AChunkedDestructibleRoundedBlob::IsCellFullyInsideBlob(FIntPoint Cell) cons
 		!DoesOutlineIntersectCell(Cell);
 }
 
-bool AChunkedDestructibleRoundedBlob::GetClippedCellFragments(
+const AChunkedDestructibleRoundedBlob::FBlobCellGeometryCache*
+AChunkedDestructibleRoundedBlob::FindCellGeometryCache(FIntPoint Cell) const
+{
+	if (!IsValidCell(Cell))
+	{
+		return nullptr;
+	}
+	const int32 CellIndex = ToCellIndex(Cell);
+	return CachedCellGeometry.IsValidIndex(CellIndex)
+		? &CachedCellGeometry[CellIndex]
+		: nullptr;
+}
+
+bool AChunkedDestructibleRoundedBlob::IsCellFullyInsideBlob(FIntPoint Cell) const
+{
+	if (const FBlobCellGeometryCache* CellCache = FindCellGeometryCache(Cell))
+	{
+		return CellCache->bFullyInside;
+	}
+	return ComputeCellFullyInsideBlob(Cell);
+}
+
+bool AChunkedDestructibleRoundedBlob::ComputeClippedCellFragments(
 	FIntPoint Cell,
 	TArray<TArray<FVector2D>>& OutFragments) const
 {
@@ -480,10 +562,26 @@ bool AChunkedDestructibleRoundedBlob::GetClippedCellFragments(
 	return !OutFragments.IsEmpty();
 }
 
+bool AChunkedDestructibleRoundedBlob::GetClippedCellFragments(
+	FIntPoint Cell,
+	TArray<TArray<FVector2D>>& OutFragments) const
+{
+	if (const FBlobCellGeometryCache* CellCache = FindCellGeometryCache(Cell))
+	{
+		OutFragments = CellCache->Fragments;
+		return CellCache->bBelongsToBlob;
+	}
+	return ComputeClippedCellFragments(Cell, OutFragments);
+}
+
 bool AChunkedDestructibleRoundedBlob::ShouldCellExistInGeneratedShape(FIntPoint Cell) const
 {
+	if (const FBlobCellGeometryCache* CellCache = FindCellGeometryCache(Cell))
+	{
+		return CellCache->bBelongsToBlob;
+	}
 	TArray<TArray<FVector2D>> Fragments;
-	return GetClippedCellFragments(Cell, Fragments);
+	return ComputeClippedCellFragments(Cell, Fragments);
 }
 
 void AChunkedDestructibleRoundedBlob::AppendPolygonHorizontalFace(
@@ -642,6 +740,172 @@ void AChunkedDestructibleRoundedBlob::AppendGreedyFullHorizontalFaces(
 	}
 }
 
+void AChunkedDestructibleRoundedBlob::AppendCachedHypnoticSpiralSurface(
+	int32 ChunkIndex,
+	FDynamicMesh3& Mesh) const
+{
+	if (FloorPattern != EChunkedFloorPattern::HypnoticSpiral ||
+		FloorMaterials.IsEmpty() || ChunkCount.X <= 0)
+	{
+		return;
+	}
+
+	const float SafeUVScale = FMath::Max(UVWorldUnits, 1.0f);
+	const int32 StripeMaterialIndex = FMath::Clamp(
+		SecondaryMaterialIndex, 0, FloorMaterials.Num() - 1);
+	auto AppendTriangle = [this, &Mesh, SafeUVScale](
+		const FVector2D& A,
+		const FVector2D& B,
+		const FVector2D& C,
+		int32 MaterialIndex)
+	{
+		AppendMeshTriangle(
+			Mesh,
+			FVector3d(A.X, A.Y, 0.20),
+			FVector3d(B.X, B.Y, 0.20),
+			FVector3d(C.X, C.Y, 0.20),
+			FVector3f::UnitZ(),
+			MaterialIndex,
+			FVector2f(A.X / SafeUVScale, A.Y / SafeUVScale),
+			FVector2f(B.X / SafeUVScale, B.Y / SafeUVScale),
+			FVector2f(C.X / SafeUVScale, C.Y / SafeUVScale));
+	};
+
+	const int32 TotalCellCount = CellCount.X * CellCount.Y;
+	const int32 TotalChunkCount = ChunkCount.X * ChunkCount.Y;
+	const bool bSpiralSettingsChanged =
+		!bCachedSpiralSettingsValid ||
+		CachedSpiralTurns != SpiralTurns ||
+		CachedSpiralBandFraction != SpiralBandFraction ||
+		CachedSpiralRotationDegrees != SpiralRotationDegrees ||
+		CachedSpiralCenterOffset != SpiralCenterOffset ||
+		CachedSpiralCurveResolution != SpiralCurveResolution ||
+		bCachedSpiralClockwise != bSpiralClockwise;
+	if (bSpiralSettingsChanged &&
+		CachedSpiralTrianglesByCell.Num() == TotalCellCount &&
+		CachedSpiralChunks.Num() == TotalChunkCount)
+	{
+		for (TArray<FBlobCachedSurfaceTriangle>& CellTriangles : CachedSpiralTrianglesByCell)
+		{
+			CellTriangles.Reset();
+		}
+		CachedSpiralChunks.Init(false, TotalChunkCount);
+		CachedSpiralTurns = SpiralTurns;
+		CachedSpiralBandFraction = SpiralBandFraction;
+		CachedSpiralRotationDegrees = SpiralRotationDegrees;
+		CachedSpiralCenterOffset = SpiralCenterOffset;
+		CachedSpiralCurveResolution = SpiralCurveResolution;
+		bCachedSpiralClockwise = bSpiralClockwise;
+		bCachedSpiralSettingsValid = true;
+	}
+	const bool bCacheIsUsable =
+		CachedCellGeometry.Num() == TotalCellCount &&
+		CachedSpiralTrianglesByCell.Num() == TotalCellCount &&
+		CachedSpiralChunks.Num() == TotalChunkCount &&
+		ChunkIndex >= 0 && ChunkIndex < TotalChunkCount;
+	if (!bCacheIsUsable)
+	{
+		AppendHypnoticSpiralSurface2D(
+			Mesh,
+			ChunkIndex,
+			FVector2D::ZeroVector,
+			(BlobSize * 0.5).Size(),
+			[this](FIntPoint Cell, TArray<TArray<FVector2D>>& OutPolygons)
+			{
+				OutPolygons.Reset();
+				return Cells.IsValidIndex(ToCellIndex(Cell)) &&
+					Cells[ToCellIndex(Cell)].bExists &&
+					GetClippedCellFragments(Cell, OutPolygons);
+			},
+			[&AppendTriangle](
+				FIntPoint,
+				const FVector2D& A,
+				const FVector2D& B,
+				const FVector2D& C,
+				int32 MaterialIndex)
+			{
+				AppendTriangle(A, B, C, MaterialIndex);
+			});
+		return;
+	}
+
+	const int32 SafeChunkSide = FMath::Clamp(ChunkSideLength, 4, 128);
+	const int32 ChunkX = ChunkIndex % ChunkCount.X;
+	const int32 ChunkY = ChunkIndex / ChunkCount.X;
+	const int32 MinCellX = ChunkX * SafeChunkSide;
+	const int32 MinCellY = ChunkY * SafeChunkSide;
+	const int32 MaxCellX = FMath::Min(MinCellX + SafeChunkSide, CellCount.X);
+	const int32 MaxCellY = FMath::Min(MinCellY + SafeChunkSide, CellCount.Y);
+
+	if (!CachedSpiralChunks[ChunkIndex])
+	{
+		for (int32 Y = MinCellY; Y < MaxCellY; ++Y)
+		{
+			for (int32 X = MinCellX; X < MaxCellX; ++X)
+			{
+				CachedSpiralTrianglesByCell[ToCellIndex(FIntPoint(X, Y))].Reset();
+			}
+		}
+
+		AppendHypnoticSpiralSurface2D(
+			Mesh,
+			ChunkIndex,
+			FVector2D::ZeroVector,
+			(BlobSize * 0.5).Size(),
+			[this](FIntPoint Cell, TArray<TArray<FVector2D>>& OutPolygons)
+			{
+				OutPolygons.Reset();
+				const FBlobCellGeometryCache* CellCache = FindCellGeometryCache(Cell);
+				if (!CellCache || !CellCache->bBelongsToBlob)
+				{
+					return false;
+				}
+				OutPolygons = CellCache->Fragments;
+				return !OutPolygons.IsEmpty();
+			},
+			[this, &AppendTriangle](
+				FIntPoint Cell,
+				const FVector2D& A,
+				const FVector2D& B,
+				const FVector2D& C,
+				int32 MaterialIndex)
+			{
+				const int32 CellIndex = ToCellIndex(Cell);
+				if (!CachedSpiralTrianglesByCell.IsValidIndex(CellIndex))
+				{
+					return;
+				}
+				FBlobCachedSurfaceTriangle& Triangle =
+					CachedSpiralTrianglesByCell[CellIndex].Emplace_GetRef();
+				Triangle.A = A;
+				Triangle.B = B;
+				Triangle.C = C;
+				if (Cells.IsValidIndex(CellIndex) && Cells[CellIndex].bExists)
+				{
+					AppendTriangle(A, B, C, MaterialIndex);
+				}
+			});
+		CachedSpiralChunks[ChunkIndex] = true;
+		return;
+	}
+
+	for (int32 Y = MinCellY; Y < MaxCellY; ++Y)
+	{
+		for (int32 X = MinCellX; X < MaxCellX; ++X)
+		{
+			const int32 CellIndex = ToCellIndex(FIntPoint(X, Y));
+			if (!Cells[CellIndex].bExists)
+			{
+				continue;
+			}
+			for (const FBlobCachedSurfaceTriangle& Triangle : CachedSpiralTrianglesByCell[CellIndex])
+			{
+				AppendTriangle(Triangle.A, Triangle.B, Triangle.C, StripeMaterialIndex);
+			}
+		}
+	}
+}
+
 void AChunkedDestructibleRoundedBlob::BuildChunkMesh(int32 ChunkIndex, FDynamicMesh3& OutMesh) const
 {
 	OutMesh.EnableVertexNormals(FVector3f::UnitZ());
@@ -704,28 +968,41 @@ void AChunkedDestructibleRoundedBlob::BuildChunkMesh(int32 ChunkIndex, FDynamicM
 				continue;
 			}
 
-			const bool bFullCell = IsCellFullyInsideBlob(Cell);
+			const FBlobCellGeometryCache* CellCache = FindCellGeometryCache(Cell);
+			const bool bFullCell = CellCache
+				? CellCache->bFullyInside
+				: IsCellFullyInsideBlob(Cell);
 			double CellMinX;
 			double CellMinY;
 			double CellMaxX;
 			double CellMaxY;
 			GetCellBounds(Cell, CellMinX, CellMinY, CellMaxX, CellMaxY);
 
-			TArray<TArray<FVector2D>> Fragments;
+			TArray<TArray<FVector2D>> LocalFragments;
+			const TArray<TArray<FVector2D>>* Fragments = nullptr;
 			if (bFullCell)
 			{
-				Fragments.Add({
+				LocalFragments.Add({
 					FVector2D(CellMinX, CellMinY), FVector2D(CellMaxX, CellMinY),
 					FVector2D(CellMaxX, CellMaxY), FVector2D(CellMinX, CellMaxY)
 				});
+				Fragments = &LocalFragments;
 			}
-			else if (!GetClippedCellFragments(Cell, Fragments))
+			else if (CellCache && CellCache->bBelongsToBlob)
+			{
+				Fragments = &CellCache->Fragments;
+			}
+			else if (GetClippedCellFragments(Cell, LocalFragments))
+			{
+				Fragments = &LocalFragments;
+			}
+			if (!Fragments)
 			{
 				continue;
 			}
 			if (!bFullCell)
 			{
-				for (const TArray<FVector2D>& Fragment : Fragments)
+				for (const TArray<FVector2D>& Fragment : *Fragments)
 				{
 					AppendPolygonHorizontalFace(OutMesh, Fragment, true, CellData.MaterialIndex);
 					if (bGenerateBottomFaces)
@@ -736,7 +1013,7 @@ void AChunkedDestructibleRoundedBlob::BuildChunkMesh(int32 ChunkIndex, FDynamicM
 			}
 
 			// Add walls only on exposed grid cuts. Fan-triangulation edges are deliberately ignored.
-			for (const TArray<FVector2D>& Fragment : Fragments)
+			for (const TArray<FVector2D>& Fragment : *Fragments)
 			{
 				for (int32 EdgeIndex = 0; EdgeIndex < Fragment.Num(); ++EdgeIndex)
 				{
@@ -771,17 +1048,27 @@ void AChunkedDestructibleRoundedBlob::BuildChunkMesh(int32 ChunkIndex, FDynamicM
 			}
 
 			// The sampled spline segments form the actual rounded outside wall.
-			for (int32 EdgeIndex = 0; !bFullCell && EdgeIndex < CachedOutline.Num(); ++EdgeIndex)
+			if (!bFullCell && CellCache)
 			{
-				FVector2D ClippedStart;
-				FVector2D ClippedEnd;
-				if (ClipSegmentToRectangle(
-					CachedOutline[EdgeIndex],
-					CachedOutline[(EdgeIndex + 1) % CachedOutline.Num()],
-					CellMinX, CellMinY, CellMaxX, CellMaxY,
-					ClippedStart, ClippedEnd))
+				for (const FBlobOutlineSegment& Segment : CellCache->OutlineSegments)
 				{
-					AppendWall(ClippedStart, ClippedEnd, CellData.MaterialIndex);
+					AppendWall(Segment.A, Segment.B, CellData.MaterialIndex);
+				}
+			}
+			else
+			{
+				for (int32 EdgeIndex = 0; !bFullCell && EdgeIndex < CachedOutline.Num(); ++EdgeIndex)
+				{
+					FVector2D ClippedStart;
+					FVector2D ClippedEnd;
+					if (ClipSegmentToRectangle(
+						CachedOutline[EdgeIndex],
+						CachedOutline[(EdgeIndex + 1) % CachedOutline.Num()],
+						CellMinX, CellMinY, CellMaxX, CellMaxY,
+						ClippedStart, ClippedEnd))
+					{
+						AppendWall(ClippedStart, ClippedEnd, CellData.MaterialIndex);
+					}
 				}
 			}
 		}
@@ -789,30 +1076,7 @@ void AChunkedDestructibleRoundedBlob::BuildChunkMesh(int32 ChunkIndex, FDynamicM
 
 	if (FloorPattern == EChunkedFloorPattern::HypnoticSpiral)
 	{
-		AppendHypnoticSpiralSurface2D(
-			OutMesh,
-			ChunkIndex,
-			FVector2D::ZeroVector,
-			(BlobSize * 0.5).Size(),
-			[this](FIntPoint Cell, TArray<TArray<FVector2D>>& OutPolygons)
-			{
-				OutPolygons.Reset();
-				return Cells[ToCellIndex(Cell)].bExists && GetClippedCellFragments(Cell, OutPolygons);
-			},
-			[this, &OutMesh](FIntPoint, const FVector2D& A, const FVector2D& B, const FVector2D& C, int32 MaterialIndex)
-			{
-				const float SafeUVScale = FMath::Max(UVWorldUnits, 1.0f);
-				AppendMeshTriangle(
-					OutMesh,
-					FVector3d(A.X, A.Y, 0.20),
-					FVector3d(B.X, B.Y, 0.20),
-					FVector3d(C.X, C.Y, 0.20),
-					FVector3f::UnitZ(),
-					MaterialIndex,
-					FVector2f(A.X / SafeUVScale, A.Y / SafeUVScale),
-					FVector2f(B.X / SafeUVScale, B.Y / SafeUVScale),
-					FVector2f(C.X / SafeUVScale, C.Y / SafeUVScale));
-			});
+		AppendCachedHypnoticSpiralSurface(ChunkIndex, OutMesh);
 	}
 }
 
@@ -937,12 +1201,19 @@ void AChunkedDestructibleRoundedBlob::BuildChunkSimpleCollision(
 			{
 				continue;
 			}
-			TArray<TArray<FVector2D>> Fragments;
-			if (!GetClippedCellFragments(Cell, Fragments))
+			TArray<TArray<FVector2D>> LocalFragments;
+			const FBlobCellGeometryCache* CellCache = FindCellGeometryCache(Cell);
+			const TArray<TArray<FVector2D>>* Fragments =
+				CellCache && CellCache->bBelongsToBlob ? &CellCache->Fragments : nullptr;
+			if (!Fragments && GetClippedCellFragments(Cell, LocalFragments))
+			{
+				Fragments = &LocalFragments;
+			}
+			if (!Fragments)
 			{
 				continue;
 			}
-			for (const TArray<FVector2D>& Fragment : Fragments)
+			for (const TArray<FVector2D>& Fragment : *Fragments)
 			{
 				FKConvexElem& Convex = OutCollision.ConvexElems.Emplace_GetRef();
 				Convex.VertexData.Reserve(Fragment.Num() * 2);
@@ -964,14 +1235,21 @@ FTransform AChunkedDestructibleRoundedBlob::GetCellFlashTransform(FIntPoint Cell
 		return Super::GetCellFlashTransform(Cell);
 	}
 
-	TArray<TArray<FVector2D>> Fragments;
-	if (!GetClippedCellFragments(Cell, Fragments))
+	TArray<TArray<FVector2D>> LocalFragments;
+	const FBlobCellGeometryCache* CellCache = FindCellGeometryCache(Cell);
+	const TArray<TArray<FVector2D>>* Fragments =
+		CellCache && CellCache->bBelongsToBlob ? &CellCache->Fragments : nullptr;
+	if (!Fragments && GetClippedCellFragments(Cell, LocalFragments))
+	{
+		Fragments = &LocalFragments;
+	}
+	if (!Fragments)
 	{
 		return Super::GetCellFlashTransform(Cell);
 	}
 
 	FBox2D Bounds(EForceInit::ForceInit);
-	for (const TArray<FVector2D>& Fragment : Fragments)
+	for (const TArray<FVector2D>& Fragment : *Fragments)
 	{
 		for (const FVector2D& Point : Fragment)
 		{
