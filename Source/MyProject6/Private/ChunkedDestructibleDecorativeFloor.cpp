@@ -529,6 +529,9 @@ AChunkedDestructibleDecorativeFloor::AChunkedDestructibleDecorativeFloor()
 	AreaSize = ShapeSize;
 	CellDimensions = FVector(100.0, 100.0, 35.0);
 	FloorPattern = EChunkedFloorPattern::Solid;
+	// Decorative outlines and overlays are substantially denser than rectangular floor cells.
+	// Smaller chunks limit a hit to a local rebuild while retaining identical geometry/collision.
+	ChunkSideLength = 10;
 
 	// Retain the base floor's dark material as the small heart, and place the bundled glow
 	// material in slot 1 so a newly placed actor immediately demonstrates the intended layering.
@@ -894,7 +897,14 @@ bool AChunkedDestructibleDecorativeFloor::CalculateLayout()
 	RebuildBlobCache();
 	RebuildShapeOutline();
 	CenterMotifsInShape();
-	return Super::CalculateLayout();
+	if (!Super::CalculateLayout())
+	{
+		CellGeometryCache.Reset();
+		PatternSurfaceCaches.Reset();
+		return false;
+	}
+	RebuildCellGeometryCache();
+	return true;
 }
 
 void AChunkedDestructibleDecorativeFloor::RebuildBlobCache()
@@ -1209,7 +1219,7 @@ bool AChunkedDestructibleDecorativeFloor::DoesShapeOutlineIntersectCell(FIntPoin
 	return false;
 }
 
-bool AChunkedDestructibleDecorativeFloor::IsCellFullyInsideGeneratedShape(FIntPoint Cell) const
+bool AChunkedDestructibleDecorativeFloor::ComputeCellFullyInsideGeneratedShape(FIntPoint Cell) const
 {
 	double MinX;
 	double MinY;
@@ -1223,7 +1233,7 @@ bool AChunkedDestructibleDecorativeFloor::IsCellFullyInsideGeneratedShape(FIntPo
 		!DoesShapeOutlineIntersectCell(Cell);
 }
 
-bool AChunkedDestructibleDecorativeFloor::GetClippedCellFragments(
+bool AChunkedDestructibleDecorativeFloor::ComputeClippedCellFragments(
 	FIntPoint Cell,
 	TArray<TArray<FVector2D>>& OutFragments) const
 {
@@ -1265,6 +1275,69 @@ bool AChunkedDestructibleDecorativeFloor::GetClippedCellFragments(
 		}
 	}
 	return !OutFragments.IsEmpty();
+}
+
+void AChunkedDestructibleDecorativeFloor::RebuildCellGeometryCache()
+{
+	CellGeometryCache.SetNum(CellCount.X * CellCount.Y);
+	PatternSurfaceCaches.Reset();
+	for (int32 Y = 0; Y < CellCount.Y; ++Y)
+	{
+		for (int32 X = 0; X < CellCount.X; ++X)
+		{
+			const FIntPoint Cell(X, Y);
+			FDecorativeCellGeometryCache& Cache = CellGeometryCache[ToCellIndex(Cell)];
+			Cache.bBelongsToShape = ComputeClippedCellFragments(Cell, Cache.Fragments);
+			Cache.bFullyInside = Cache.bBelongsToShape && ComputeCellFullyInsideGeneratedShape(Cell);
+			Cache.OutlineSegments.Reset();
+			if (!Cache.bBelongsToShape || Cache.bFullyInside)
+			{
+				continue;
+			}
+
+			double MinX;
+			double MinY;
+			double MaxX;
+			double MaxY;
+			GetCellBounds(Cell, MinX, MinY, MaxX, MaxY);
+			for (int32 EdgeIndex = 0; EdgeIndex < CachedShapeOutline.Num(); ++EdgeIndex)
+			{
+				FVector2D ClippedStart;
+				FVector2D ClippedEnd;
+				if (ClipSegmentToRectangle(
+					CachedShapeOutline[EdgeIndex],
+					CachedShapeOutline[(EdgeIndex + 1) % CachedShapeOutline.Num()],
+					MinX, MinY, MaxX, MaxY,
+					ClippedStart, ClippedEnd))
+				{
+					FShapeOutlineSegment& Segment = Cache.OutlineSegments.Emplace_GetRef();
+					Segment.A = ClippedStart;
+					Segment.B = ClippedEnd;
+				}
+			}
+		}
+	}
+}
+
+bool AChunkedDestructibleDecorativeFloor::IsCellFullyInsideGeneratedShape(FIntPoint Cell) const
+{
+	const int32 CellIndex = IsValidCell(Cell) ? ToCellIndex(Cell) : INDEX_NONE;
+	return CellGeometryCache.IsValidIndex(CellIndex)
+		? CellGeometryCache[CellIndex].bFullyInside
+		: ComputeCellFullyInsideGeneratedShape(Cell);
+}
+
+bool AChunkedDestructibleDecorativeFloor::GetClippedCellFragments(
+	FIntPoint Cell,
+	TArray<TArray<FVector2D>>& OutFragments) const
+{
+	const int32 CellIndex = IsValidCell(Cell) ? ToCellIndex(Cell) : INDEX_NONE;
+	if (CellGeometryCache.IsValidIndex(CellIndex))
+	{
+		OutFragments = CellGeometryCache[CellIndex].Fragments;
+		return CellGeometryCache[CellIndex].bBelongsToShape;
+	}
+	return ComputeClippedCellFragments(Cell, OutFragments);
 }
 
 bool AChunkedDestructibleDecorativeFloor::IsPointInsideNormalizedShape(const FVector2D& Point) const
@@ -1682,17 +1755,12 @@ void AChunkedDestructibleDecorativeFloor::BuildChunkMesh(
 				}
 			}
 
-			for (int32 EdgeIndex = 0; !bFullCell && EdgeIndex < CachedShapeOutline.Num(); ++EdgeIndex)
+			const int32 CellIndex = ToCellIndex(Cell);
+			if (!bFullCell && CellGeometryCache.IsValidIndex(CellIndex))
 			{
-				FVector2D ClippedStart;
-				FVector2D ClippedEnd;
-				if (ClipSegmentToRectangle(
-					CachedShapeOutline[EdgeIndex],
-					CachedShapeOutline[(EdgeIndex + 1) % CachedShapeOutline.Num()],
-					CellMinX, CellMinY, CellMaxX, CellMaxY,
-					ClippedStart, ClippedEnd))
+				for (const FShapeOutlineSegment& Segment : CellGeometryCache[CellIndex].OutlineSegments)
 				{
-					AppendWall(ClippedStart, ClippedEnd, CellData.MaterialIndex);
+					AppendWall(Segment.A, Segment.B, CellData.MaterialIndex);
 				}
 			}
 		}
@@ -2117,20 +2185,15 @@ void AChunkedDestructibleDecorativeFloor::AppendPolygonSurface(
 	int32 MaterialIndex,
 	double SurfaceZ) const
 {
-	const TArray<FHeartTriangle> HeartTriangles = TriangulateHeartOutline(Outline);
-	if (HeartTriangles.IsEmpty() || ChunkCount.X <= 0)
+	if (Outline.Num() < 3 || ChunkCount.X <= 0)
 	{
 		return;
 	}
-
-	FVector2D HeartBoundsMin(TNumericLimits<double>::Max(), TNumericLimits<double>::Max());
-	FVector2D HeartBoundsMax(TNumericLimits<double>::Lowest(), TNumericLimits<double>::Lowest());
-	for (const FVector2D& Point : Outline)
+	FPatternSurfaceCache& SurfaceCache = FindOrAddPatternSurfaceCache(
+		Outline, MaterialIndex, SurfaceZ);
+	if (SurfaceCache.SourceTriangles.IsEmpty())
 	{
-		HeartBoundsMin.X = FMath::Min(HeartBoundsMin.X, Point.X);
-		HeartBoundsMin.Y = FMath::Min(HeartBoundsMin.Y, Point.Y);
-		HeartBoundsMax.X = FMath::Max(HeartBoundsMax.X, Point.X);
-		HeartBoundsMax.Y = FMath::Max(HeartBoundsMax.Y, Point.Y);
+		return;
 	}
 
 	const int32 SafeChunkSide = FMath::Clamp(ChunkSideLength, 4, 128);
@@ -2149,17 +2212,38 @@ void AChunkedDestructibleDecorativeFloor::AppendPolygonSurface(
 		for (int32 X = MinCellX; X < MaxCellX; ++X)
 		{
 			const FIntPoint Cell(X, Y);
-			if (!Cells[ToCellIndex(Cell)].bExists)
+			const int32 CellIndex = ToCellIndex(Cell);
+			if (!Cells[CellIndex].bExists || !SurfaceCache.CellTriangles.IsValidIndex(CellIndex) ||
+				!SurfaceCache.CellBuilt.IsValidIndex(CellIndex))
 			{
 				continue;
 			}
+			TArray<FCachedPatternTriangle>& CachedTriangles = SurfaceCache.CellTriangles[CellIndex];
+			if (SurfaceCache.CellBuilt[CellIndex])
+			{
+				for (const FCachedPatternTriangle& Triangle : CachedTriangles)
+				{
+					AppendMeshTriangle(
+						Mesh,
+						FVector3d(Triangle.A.X, Triangle.A.Y, SurfaceZ),
+						FVector3d(Triangle.B.X, Triangle.B.Y, SurfaceZ),
+						FVector3d(Triangle.C.X, Triangle.C.Y, SurfaceZ),
+						FVector3f::UnitZ(), MaterialIndex,
+						FVector2f(Triangle.A.X / SafeUVWorldUnits, Triangle.A.Y / SafeUVWorldUnits),
+						FVector2f(Triangle.B.X / SafeUVWorldUnits, Triangle.B.Y / SafeUVWorldUnits),
+						FVector2f(Triangle.C.X / SafeUVWorldUnits, Triangle.C.Y / SafeUVWorldUnits));
+				}
+				continue;
+			}
+			CachedTriangles.Reset();
 
 			const FVector Center3D = GetCellLocalCenter(Cell);
 			const FVector2D RectangleMin(Center3D.X - HalfCellX, Center3D.Y - HalfCellY);
 			const FVector2D RectangleMax(Center3D.X + HalfCellX, Center3D.Y + HalfCellY);
-			if (RectangleMax.X < HeartBoundsMin.X || RectangleMin.X > HeartBoundsMax.X ||
-				RectangleMax.Y < HeartBoundsMin.Y || RectangleMin.Y > HeartBoundsMax.Y)
+			if (RectangleMax.X < SurfaceCache.BoundsMin.X || RectangleMin.X > SurfaceCache.BoundsMax.X ||
+				RectangleMax.Y < SurfaceCache.BoundsMin.Y || RectangleMin.Y > SurfaceCache.BoundsMax.Y)
 			{
+				SurfaceCache.CellBuilt[CellIndex] = true;
 				continue;
 			}
 
@@ -2178,7 +2262,7 @@ void AChunkedDestructibleDecorativeFloor::AppendPolygonSurface(
 				continue;
 			}
 
-			for (const FHeartTriangle& Triangle : HeartTriangles)
+			for (const FPatternSourceTriangle& Triangle : SurfaceCache.SourceTriangles)
 			{
 				if (Triangle.Max.X < RectangleMin.X || Triangle.Min.X > RectangleMax.X ||
 					Triangle.Max.Y < RectangleMin.Y || Triangle.Min.Y > RectangleMax.Y)
@@ -2186,8 +2270,12 @@ void AChunkedDestructibleDecorativeFloor::AppendPolygonSurface(
 					continue;
 				}
 
+				FHeartTriangle SourceTriangle;
+				SourceTriangle.A = Triangle.A;
+				SourceTriangle.B = Triangle.B;
+				SourceTriangle.C = Triangle.C;
 				const TArray<FVector2D> CellClipped = ClipTriangleToRectangle(
-					Triangle,
+					SourceTriangle,
 					RectangleMin,
 					RectangleMax);
 				for (const TArray<FVector2D>& ShapeFragment : ShapeFragments)
@@ -2205,19 +2293,91 @@ void AChunkedDestructibleDecorativeFloor::AppendPolygonSurface(
 							continue;
 						}
 
-						AppendMeshTriangle(
-							Mesh,
-							FVector3d(A.X, A.Y, SurfaceZ),
-							FVector3d(B.X, B.Y, SurfaceZ),
-							FVector3d(C.X, C.Y, SurfaceZ),
-							FVector3f::UnitZ(),
-							MaterialIndex,
-							FVector2f(A.X / SafeUVWorldUnits, A.Y / SafeUVWorldUnits),
-							FVector2f(B.X / SafeUVWorldUnits, B.Y / SafeUVWorldUnits),
-							FVector2f(C.X / SafeUVWorldUnits, C.Y / SafeUVWorldUnits));
+						FCachedPatternTriangle& CachedTriangle = CachedTriangles.Emplace_GetRef();
+						CachedTriangle.A = A;
+						CachedTriangle.B = B;
+						CachedTriangle.C = C;
 					}
 				}
 			}
+			SurfaceCache.CellBuilt[CellIndex] = true;
+			for (const FCachedPatternTriangle& Triangle : CachedTriangles)
+			{
+				AppendMeshTriangle(
+					Mesh,
+					FVector3d(Triangle.A.X, Triangle.A.Y, SurfaceZ),
+					FVector3d(Triangle.B.X, Triangle.B.Y, SurfaceZ),
+					FVector3d(Triangle.C.X, Triangle.C.Y, SurfaceZ),
+					FVector3f::UnitZ(), MaterialIndex,
+					FVector2f(Triangle.A.X / SafeUVWorldUnits, Triangle.A.Y / SafeUVWorldUnits),
+					FVector2f(Triangle.B.X / SafeUVWorldUnits, Triangle.B.Y / SafeUVWorldUnits),
+					FVector2f(Triangle.C.X / SafeUVWorldUnits, Triangle.C.Y / SafeUVWorldUnits));
+			}
 		}
 	}
+}
+
+AChunkedDestructibleDecorativeFloor::FPatternSurfaceCache&
+AChunkedDestructibleDecorativeFloor::FindOrAddPatternSurfaceCache(
+	const TArray<FVector2D>& Outline,
+	int32 MaterialIndex,
+	double SurfaceZ) const
+{
+	auto OutlinesMatch = [&Outline](const TArray<FVector2D>& Candidate)
+	{
+		if (Candidate.Num() != Outline.Num())
+		{
+			return false;
+		}
+		for (int32 Index = 0; Index < Outline.Num(); ++Index)
+		{
+			if (Candidate[Index] != Outline[Index])
+			{
+				return false;
+			}
+		}
+		return true;
+	};
+	for (FPatternSurfaceCache& Cache : PatternSurfaceCaches)
+	{
+		if (Cache.MaterialIndex == MaterialIndex && Cache.SurfaceZ == SurfaceZ &&
+			OutlinesMatch(Cache.Outline))
+		{
+			return Cache;
+		}
+	}
+
+	// Repeated live editing can leave inactive motif variants behind. Bound that editor-only
+	// accumulation; active entries are rebuilt lazily with exactly the same geometry.
+	if (PatternSurfaceCaches.Num() >= 256)
+	{
+		PatternSurfaceCaches.Reset();
+	}
+	FPatternSurfaceCache& Cache = PatternSurfaceCaches.Emplace_GetRef();
+	Cache.Outline = Outline;
+	Cache.MaterialIndex = MaterialIndex;
+	Cache.SurfaceZ = SurfaceZ;
+	Cache.BoundsMin = FVector2D(TNumericLimits<double>::Max(), TNumericLimits<double>::Max());
+	Cache.BoundsMax = FVector2D(TNumericLimits<double>::Lowest(), TNumericLimits<double>::Lowest());
+	for (const FVector2D& Point : Outline)
+	{
+		Cache.BoundsMin.X = FMath::Min(Cache.BoundsMin.X, Point.X);
+		Cache.BoundsMin.Y = FMath::Min(Cache.BoundsMin.Y, Point.Y);
+		Cache.BoundsMax.X = FMath::Max(Cache.BoundsMax.X, Point.X);
+		Cache.BoundsMax.Y = FMath::Max(Cache.BoundsMax.Y, Point.Y);
+	}
+	const TArray<FHeartTriangle> Triangles = TriangulateHeartOutline(Outline);
+	Cache.SourceTriangles.Reserve(Triangles.Num());
+	for (const FHeartTriangle& Triangle : Triangles)
+	{
+		FPatternSourceTriangle& CachedTriangle = Cache.SourceTriangles.Emplace_GetRef();
+		CachedTriangle.A = Triangle.A;
+		CachedTriangle.B = Triangle.B;
+		CachedTriangle.C = Triangle.C;
+		CachedTriangle.Min = Triangle.Min;
+		CachedTriangle.Max = Triangle.Max;
+	}
+	Cache.CellTriangles.SetNum(Cells.Num());
+	Cache.CellBuilt.Init(false, Cells.Num());
+	return Cache;
 }

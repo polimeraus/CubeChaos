@@ -74,6 +74,16 @@ struct FChunkedSpiralPatternSettings
 	bool bClockwise = true;
 };
 
+/** Immutable 2D triangle used by the shared spiral geometry cache. */
+struct FChunkedCachedSpiralTriangle
+{
+	FVector2D A = FVector2D::ZeroVector;
+	FVector2D B = FVector2D::ZeroVector;
+	FVector2D C = FVector2D::ZeroVector;
+	FVector2D BoundsMin = FVector2D::ZeroVector;
+	FVector2D BoundsMax = FVector2D::ZeroVector;
+};
+
 /** Footprint used when selecting cells around an explosion. */
 UENUM(BlueprintType)
 enum class EChunkedFloorBlastShape : uint8
@@ -464,6 +474,21 @@ protected:
 	FVector2D EffectiveGridSize = FVector2D::ZeroVector;
 	FVector2D GridLocalMin = FVector2D::ZeroVector;
 
+	// Spiral sampling and polygon clipping depend only on the generated layout and pattern
+	// settings. Cache those immutable triangles while still evaluating bExists every rebuild.
+	mutable TArray<FChunkedCachedSpiralTriangle> CachedSpiralSourceTriangles;
+	mutable TArray<TArray<FChunkedCachedSpiralTriangle>> CachedSpiralCellTriangles;
+	mutable TBitArray<> CachedSpiralCellBuilt;
+	mutable bool bCachedSpiralGeometryKeyValid = false;
+	mutable FVector2D CachedSpiralPatternCenter = FVector2D::ZeroVector;
+	mutable double CachedSpiralFurthestRadius = 0.0;
+	mutable float CachedSpiralTurns = 0.0f;
+	mutable float CachedSpiralBandFraction = 0.0f;
+	mutable float CachedSpiralRotationDegrees = 0.0f;
+	mutable FVector2D CachedSpiralCenterOffset = FVector2D::ZeroVector;
+	mutable int32 CachedSpiralCurveResolution = 0;
+	mutable bool bCachedSpiralClockwise = false;
+
 	/** Shape subclasses can derive their rectangular backing grid from their own parameters. */
 	virtual bool CalculateLayout();
 
@@ -475,6 +500,7 @@ protected:
 	void CreateChunkComponents();
 	void RebuildAllChunks();
 	void RebuildChunk(int32 ChunkIndex);
+	void ResetSharedGeometryCaches();
 	virtual void BuildChunkMesh(int32 ChunkIndex, UE::Geometry::FDynamicMesh3& OutMesh) const;
 	/** Adds the shared smooth spiral to an arbitrary 2D cell surface. */
 	void AppendHypnoticSpiralSurface2D(

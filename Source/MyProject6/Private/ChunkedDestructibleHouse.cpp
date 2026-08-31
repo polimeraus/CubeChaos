@@ -154,6 +154,8 @@ bool AChunkedDestructibleHouse::CalculateLayout()
 	const int64 TotalCells = EncodedWidth * GridHeightBlocks;
 	if (TotalCells <= 0 || TotalCells > FMath::Max(MaxGeneratedCells, 1))
 	{
+		CachedCellPolygons.Reset();
+		CachedCellPolygonValid.Reset();
 		UE_LOG(LogTemp, Error,
 			TEXT("%s requested %lld house cells, exceeding MaxGeneratedCells (%d)."),
 			*GetName(), TotalCells, MaxGeneratedCells);
@@ -194,7 +196,39 @@ bool AChunkedDestructibleHouse::CalculateLayout()
 	GridLocalMin = FVector2D(HouseGridLocalMin.X, 0.0);
 	EffectiveGridSize = FVector2D(Width, Height);
 	AreaSize = EffectiveGridSize;
+	RebuildCellPolygonCache();
 	return true;
+}
+
+void AChunkedDestructibleHouse::RebuildCellPolygonCache()
+{
+	const int32 TotalCells = CellCount.X * CellCount.Y;
+	CachedCellPolygons.SetNum(TotalCells);
+	CachedCellPolygonValid.Init(false, TotalCells);
+	for (int32 Z = 0; Z < GridHeightBlocks; ++Z)
+	{
+		for (int32 EncodedX = 0; EncodedX < CellCount.X; ++EncodedX)
+		{
+			const FIntPoint Cell(EncodedX, Z);
+			const int32 CellIndex = ToCellIndex(Cell);
+			CachedCellPolygonValid[CellIndex] = GetCellPolygonXZ(
+				Cell, CachedCellPolygons[CellIndex]);
+		}
+	}
+}
+
+bool AChunkedDestructibleHouse::GetCachedCellPolygonXZ(
+	FIntPoint Cell,
+	TArray<FVector2D>& OutPolygon) const
+{
+	const int32 CellIndex = IsValidCell(Cell) ? ToCellIndex(Cell) : INDEX_NONE;
+	if (!CachedCellPolygons.IsValidIndex(CellIndex) ||
+		!CachedCellPolygonValid.IsValidIndex(CellIndex))
+	{
+		return GetCellPolygonXZ(Cell, OutPolygon);
+	}
+	OutPolygon = CachedCellPolygons[CellIndex];
+	return CachedCellPolygonValid[CellIndex];
 }
 
 FChunkedDestructibleHouseMetrics AChunkedDestructibleHouse::GetHouseMetrics() const
@@ -592,7 +626,7 @@ bool AChunkedDestructibleHouse::IsCellPolygonFullRectangle(
 bool AChunkedDestructibleHouse::ShouldCellExistInGeneratedShape(FIntPoint Cell) const
 {
 	TArray<FVector2D> Polygon;
-	return GetCellPolygonXZ(Cell, Polygon);
+	return GetCachedCellPolygonXZ(Cell, Polygon);
 }
 
 int32 AChunkedDestructibleHouse::EvaluatePatternMaterial(FIntPoint Cell) const
@@ -686,7 +720,7 @@ void AChunkedDestructibleHouse::BuildChunkMesh(int32 ChunkIndex, FDynamicMesh3& 
 			continue;
 		}
 		TArray<FVector2D> Polygon;
-		if (!GetCellPolygonXZ(Cell, Polygon))
+		if (!GetCachedCellPolygonXZ(Cell, Polygon))
 		{
 			continue;
 		}
@@ -781,7 +815,7 @@ void AChunkedDestructibleHouse::BuildChunkMesh(int32 ChunkIndex, FDynamicMesh3& 
 					return false;
 				}
 				TArray<FVector2D> Polygon;
-				if (!GetCellPolygonXZ(Cell, Polygon))
+				if (!GetCachedCellPolygonXZ(Cell, Polygon))
 				{
 					return false;
 				}
@@ -850,7 +884,7 @@ void AChunkedDestructibleHouse::BuildChunkSimpleCollision(
 			continue;
 		}
 		TArray<FVector2D> Polygon;
-		if (!GetCellPolygonXZ(Cell, Polygon))
+		if (!GetCachedCellPolygonXZ(Cell, Polygon))
 		{
 			continue;
 		}
@@ -895,7 +929,7 @@ void AChunkedDestructibleHouse::GetPieceLocalBounds(
 	FVector& OutSize) const
 {
 	TArray<FVector2D> Polygon;
-	if (!GetCellPolygonXZ(Cell, Polygon))
+	if (!GetCachedCellPolygonXZ(Cell, Polygon))
 	{
 		OutCenter = GetCellLocalCenter(Cell);
 		OutSize = BlockDimensions;

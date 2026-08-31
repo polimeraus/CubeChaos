@@ -39,6 +39,9 @@ AChunkedDestructibleTriangle::AChunkedDestructibleTriangle()
 {
 	AreaSize = FVector2D(BaseLength, TriangleHeight);
 	FloorPattern = EChunkedFloorPattern::Checkerboard;
+	// Exact edge cells and pattern overlays are immutable between regenerations. Smaller chunks
+	// keep a single hit from rebuilding a large part of the triangle without changing its shape.
+	ChunkSideLength = 10;
 }
 
 #if WITH_EDITOR
@@ -91,7 +94,13 @@ bool AChunkedDestructibleTriangle::CalculateLayout()
 	TriangleHeight = FMath::Max(FMath::Abs(TriangleHeight), MinimumTriangleDimension);
 	ApexOffset = FMath::Clamp(ApexOffset, -1.0f, 1.0f);
 	AreaSize = FVector2D(BaseLength, TriangleHeight);
-	return Super::CalculateLayout();
+	if (!Super::CalculateLayout())
+	{
+		CellGeometryCache.Reset();
+		return false;
+	}
+	RebuildCellGeometryCache();
+	return true;
 }
 
 int32 AChunkedDestructibleTriangle::EvaluatePatternMaterial(FIntPoint Cell) const
@@ -171,7 +180,7 @@ void AChunkedDestructibleTriangle::GetCellBounds(
 	OutMaxY = Center.Y + EffectiveCellDimensions.Y * 0.5;
 }
 
-bool AChunkedDestructibleTriangle::IsCellFullyInsideTriangle(FIntPoint Cell) const
+bool AChunkedDestructibleTriangle::ComputeCellFullyInsideTriangle(FIntPoint Cell) const
 {
 	double MinX;
 	double MinY;
@@ -184,7 +193,7 @@ bool AChunkedDestructibleTriangle::IsCellFullyInsideTriangle(FIntPoint Cell) con
 		IsPointInsideTriangle(FVector2D(MinX, MaxY));
 }
 
-bool AChunkedDestructibleTriangle::GetClippedCellPolygon(
+bool AChunkedDestructibleTriangle::ComputeClippedCellPolygon(
 	FIntPoint Cell,
 	TArray<FVector2D>& OutPolygon) const
 {
@@ -253,6 +262,42 @@ bool AChunkedDestructibleTriangle::GetClippedCellPolygon(
 		EffectiveCellDimensions.X * EffectiveCellDimensions.Y * 0.00001,
 		0.001);
 	return OutPolygon.Num() >= 3 && FMath::Abs(SignedPolygonArea(OutPolygon)) >= MinimumArea;
+}
+
+void AChunkedDestructibleTriangle::RebuildCellGeometryCache()
+{
+	CellGeometryCache.SetNum(CellCount.X * CellCount.Y);
+	for (int32 Y = 0; Y < CellCount.Y; ++Y)
+	{
+		for (int32 X = 0; X < CellCount.X; ++X)
+		{
+			const FIntPoint Cell(X, Y);
+			FTriangleCellGeometryCache& Cache = CellGeometryCache[ToCellIndex(Cell)];
+			Cache.bBelongsToTriangle = ComputeClippedCellPolygon(Cell, Cache.Polygon);
+			Cache.bFullyInside = Cache.bBelongsToTriangle && ComputeCellFullyInsideTriangle(Cell);
+		}
+	}
+}
+
+bool AChunkedDestructibleTriangle::IsCellFullyInsideTriangle(FIntPoint Cell) const
+{
+	const int32 CellIndex = IsValidCell(Cell) ? ToCellIndex(Cell) : INDEX_NONE;
+	return CellGeometryCache.IsValidIndex(CellIndex)
+		? CellGeometryCache[CellIndex].bFullyInside
+		: ComputeCellFullyInsideTriangle(Cell);
+}
+
+bool AChunkedDestructibleTriangle::GetClippedCellPolygon(
+	FIntPoint Cell,
+	TArray<FVector2D>& OutPolygon) const
+{
+	const int32 CellIndex = IsValidCell(Cell) ? ToCellIndex(Cell) : INDEX_NONE;
+	if (CellGeometryCache.IsValidIndex(CellIndex))
+	{
+		OutPolygon = CellGeometryCache[CellIndex].Polygon;
+		return CellGeometryCache[CellIndex].bBelongsToTriangle;
+	}
+	return ComputeClippedCellPolygon(Cell, OutPolygon);
 }
 
 bool AChunkedDestructibleTriangle::ShouldCellExistInGeneratedShape(FIntPoint Cell) const

@@ -100,9 +100,21 @@ protected:
 	virtual FTransform GetCellFlashTransform(FIntPoint Cell) const override;
 
 private:
+	struct FTriangleCellGeometryCache
+	{
+		bool bBelongsToTriangle = false;
+		bool bFullyInside = false;
+		TArray<FVector2D> Polygon;
+	};
+
+	TArray<FTriangleCellGeometryCache> CellGeometryCache;
+
 	bool IsPointInsideTriangle(const FVector2D& Point, double Tolerance = 0.01) const;
+	bool ComputeCellFullyInsideTriangle(FIntPoint Cell) const;
 	bool IsCellFullyInsideTriangle(FIntPoint Cell) const;
+	bool ComputeClippedCellPolygon(FIntPoint Cell, TArray<FVector2D>& OutPolygon) const;
 	bool GetClippedCellPolygon(FIntPoint Cell, TArray<FVector2D>& OutPolygon) const;
+	void RebuildCellGeometryCache();
 	void GetCellBounds(FIntPoint Cell, double& OutMinX, double& OutMinY, double& OutMaxX, double& OutMaxY) const;
 	void AppendGreedyFullHorizontalFaces(
 		UE::Geometry::FDynamicMesh3& Mesh,

@@ -31,15 +31,6 @@ namespace
 	constexpr float FlashCleanupInterval = 1.0f / 30.0f;
 	const FName ChunkComponentTag(TEXT("ChunkedDestructibleFloorChunk"));
 
-	struct FSharedSpiralTriangle
-	{
-		FVector2D A;
-		FVector2D B;
-		FVector2D C;
-		FVector2D BoundsMin;
-		FVector2D BoundsMax;
-	};
-
 	double SpiralCross2D(const FVector2D& A, const FVector2D& B)
 	{
 		return A.X * B.Y - A.Y * B.X;
@@ -56,7 +47,7 @@ namespace
 	}
 
 	void AddSharedSpiralTriangle(
-		TArray<FSharedSpiralTriangle>& Triangles,
+		TArray<FChunkedCachedSpiralTriangle>& Triangles,
 		FVector2D A,
 		FVector2D B,
 		FVector2D C)
@@ -71,7 +62,7 @@ namespace
 			Swap(B, C);
 		}
 
-		FSharedSpiralTriangle& Triangle = Triangles.Emplace_GetRef();
+		FChunkedCachedSpiralTriangle& Triangle = Triangles.Emplace_GetRef();
 		Triangle.A = A;
 		Triangle.B = B;
 		Triangle.C = C;
@@ -84,7 +75,7 @@ namespace
 	}
 
 	TArray<FVector2D> ClipSharedSpiralTriangle(
-		const FSharedSpiralTriangle& Triangle,
+		const FChunkedCachedSpiralTriangle& Triangle,
 		const TArray<FVector2D>& ClipPolygon)
 	{
 		TArray<FVector2D> Fragment = { Triangle.A, Triangle.B, Triangle.C };
@@ -476,6 +467,7 @@ void AChunkedDestructibleFloor::GenerateFloor(bool bPreserveCellState)
 		PreviousCells = Cells;
 	}
 
+	ResetSharedGeometryCaches();
 	if (!CalculateLayout())
 	{
 		return;
@@ -524,6 +516,14 @@ void AChunkedDestructibleFloor::GenerateFloor(bool bPreserveCellState)
 	RefreshFlashMaterial();
 	RebuildAllChunks();
 	OnFloorRegenerated.Broadcast();
+}
+
+void AChunkedDestructibleFloor::ResetSharedGeometryCaches()
+{
+	CachedSpiralSourceTriangles.Reset();
+	CachedSpiralCellTriangles.Reset();
+	CachedSpiralCellBuilt.Reset();
+	bCachedSpiralGeometryKeyValid = false;
 }
 
 void AChunkedDestructibleFloor::ConfigureFloor(
@@ -951,6 +951,32 @@ void AChunkedDestructibleFloor::AppendHypnoticSpiralSurface2D(
 		return;
 	}
 
+	const bool bGeometryKeyChanged = !bCachedSpiralGeometryKeyValid ||
+		!CachedSpiralPatternCenter.Equals(PatternCenter, KINDA_SMALL_NUMBER) ||
+		!FMath::IsNearlyEqual(CachedSpiralFurthestRadius, FurthestRadius) ||
+		!FMath::IsNearlyEqual(CachedSpiralTurns, SpiralTurns) ||
+		!FMath::IsNearlyEqual(CachedSpiralBandFraction, SpiralBandFraction) ||
+		!FMath::IsNearlyEqual(CachedSpiralRotationDegrees, SpiralRotationDegrees) ||
+		!CachedSpiralCenterOffset.Equals(SpiralCenterOffset, KINDA_SMALL_NUMBER) ||
+		CachedSpiralCurveResolution != SpiralCurveResolution ||
+		bCachedSpiralClockwise != bSpiralClockwise ||
+		CachedSpiralCellTriangles.Num() != Cells.Num();
+	if (bGeometryKeyChanged)
+	{
+		CachedSpiralSourceTriangles.Reset();
+		CachedSpiralCellTriangles.SetNum(Cells.Num());
+		CachedSpiralCellBuilt.Init(false, Cells.Num());
+		bCachedSpiralGeometryKeyValid = true;
+		CachedSpiralPatternCenter = PatternCenter;
+		CachedSpiralFurthestRadius = FurthestRadius;
+		CachedSpiralTurns = SpiralTurns;
+		CachedSpiralBandFraction = SpiralBandFraction;
+		CachedSpiralRotationDegrees = SpiralRotationDegrees;
+		CachedSpiralCenterOffset = SpiralCenterOffset;
+		CachedSpiralCurveResolution = SpiralCurveResolution;
+		bCachedSpiralClockwise = bSpiralClockwise;
+	}
+
 	const FVector2D SpiralCenter = PatternCenter + SpiralCenterOffset;
 	const double SafeTurns = FMath::Clamp(static_cast<double>(SpiralTurns), 1.0, 12.0);
 	const double RadialPitch = FMath::Max(FurthestRadius / SafeTurns, 1.0);
@@ -966,55 +992,57 @@ void AChunkedDestructibleFloor::AppendHypnoticSpiralSurface2D(
 		128,
 		4096);
 
-	TArray<FVector2D> LeftEdge;
-	TArray<FVector2D> RightEdge;
-	LeftEdge.Reserve(SampleCount + 1);
-	RightEdge.Reserve(SampleCount + 1);
-	for (int32 SampleIndex = 0; SampleIndex <= SampleCount; ++SampleIndex)
+	if (CachedSpiralSourceTriangles.IsEmpty())
 	{
-		const double Alpha = static_cast<double>(SampleIndex) / SampleCount;
-		const double CurveTheta = MaximumTheta * Alpha;
-		const double Angle = RotationRadians + Direction * CurveTheta;
-		const double Radius = OuterRadius * Alpha;
-		const double CosAngle = FMath::Cos(Angle);
-		const double SinAngle = FMath::Sin(Angle);
-		const FVector2D Centerline = SpiralCenter + FVector2D(CosAngle, SinAngle) * Radius;
-		const double RadiusDerivative = OuterRadius / MaximumTheta;
-		const FVector2D Tangent(
-			RadiusDerivative * CosAngle - Direction * Radius * SinAngle,
-			RadiusDerivative * SinAngle + Direction * Radius * CosAngle);
-		const FVector2D Normal = FVector2D(-Tangent.Y, Tangent.X).GetSafeNormal();
-		LeftEdge.Add(Centerline + Normal * (BandWidth * 0.5));
-		RightEdge.Add(Centerline - Normal * (BandWidth * 0.5));
-	}
+		TArray<FVector2D> LeftEdge;
+		TArray<FVector2D> RightEdge;
+		LeftEdge.Reserve(SampleCount + 1);
+		RightEdge.Reserve(SampleCount + 1);
+		for (int32 SampleIndex = 0; SampleIndex <= SampleCount; ++SampleIndex)
+		{
+			const double Alpha = static_cast<double>(SampleIndex) / SampleCount;
+			const double CurveTheta = MaximumTheta * Alpha;
+			const double Angle = RotationRadians + Direction * CurveTheta;
+			const double Radius = OuterRadius * Alpha;
+			const double CosAngle = FMath::Cos(Angle);
+			const double SinAngle = FMath::Sin(Angle);
+			const FVector2D Centerline = SpiralCenter + FVector2D(CosAngle, SinAngle) * Radius;
+			const double RadiusDerivative = OuterRadius / MaximumTheta;
+			const FVector2D Tangent(
+				RadiusDerivative * CosAngle - Direction * Radius * SinAngle,
+				RadiusDerivative * SinAngle + Direction * Radius * CosAngle);
+			const FVector2D Normal = FVector2D(-Tangent.Y, Tangent.X).GetSafeNormal();
+			LeftEdge.Add(Centerline + Normal * (BandWidth * 0.5));
+			RightEdge.Add(Centerline - Normal * (BandWidth * 0.5));
+		}
 
-	TArray<FSharedSpiralTriangle> SpiralTriangles;
-	SpiralTriangles.Reserve(SampleCount * 2 + 48);
-	for (int32 SampleIndex = 0; SampleIndex < SampleCount; ++SampleIndex)
-	{
-		AddSharedSpiralTriangle(
-			SpiralTriangles,
-			LeftEdge[SampleIndex],
-			RightEdge[SampleIndex],
-			RightEdge[SampleIndex + 1]);
-		AddSharedSpiralTriangle(
-			SpiralTriangles,
-			LeftEdge[SampleIndex],
-			RightEdge[SampleIndex + 1],
-			LeftEdge[SampleIndex + 1]);
-	}
+		CachedSpiralSourceTriangles.Reserve(SampleCount * 2 + 48);
+		for (int32 SampleIndex = 0; SampleIndex < SampleCount; ++SampleIndex)
+		{
+			AddSharedSpiralTriangle(
+				CachedSpiralSourceTriangles,
+				LeftEdge[SampleIndex],
+				RightEdge[SampleIndex],
+				RightEdge[SampleIndex + 1]);
+			AddSharedSpiralTriangle(
+				CachedSpiralSourceTriangles,
+				LeftEdge[SampleIndex],
+				RightEdge[SampleIndex + 1],
+				LeftEdge[SampleIndex + 1]);
+		}
 
-	// The round inner cap removes the visible wedge/kink where an Archimedean strip begins.
-	constexpr int32 CenterCapSegments = 48;
-	for (int32 SegmentIndex = 0; SegmentIndex < CenterCapSegments; ++SegmentIndex)
-	{
-		const double AngleA = UE_TWO_PI * SegmentIndex / CenterCapSegments;
-		const double AngleB = UE_TWO_PI * (SegmentIndex + 1) / CenterCapSegments;
-		AddSharedSpiralTriangle(
-			SpiralTriangles,
-			SpiralCenter,
-			SpiralCenter + FVector2D(FMath::Cos(AngleA), FMath::Sin(AngleA)) * (BandWidth * 0.5),
-			SpiralCenter + FVector2D(FMath::Cos(AngleB), FMath::Sin(AngleB)) * (BandWidth * 0.5));
+		// The round inner cap removes the visible wedge/kink where an Archimedean strip begins.
+		constexpr int32 CenterCapSegments = 48;
+		for (int32 SegmentIndex = 0; SegmentIndex < CenterCapSegments; ++SegmentIndex)
+		{
+			const double AngleA = UE_TWO_PI * SegmentIndex / CenterCapSegments;
+			const double AngleB = UE_TWO_PI * (SegmentIndex + 1) / CenterCapSegments;
+			AddSharedSpiralTriangle(
+				CachedSpiralSourceTriangles,
+				SpiralCenter,
+				SpiralCenter + FVector2D(FMath::Cos(AngleA), FMath::Sin(AngleA)) * (BandWidth * 0.5),
+				SpiralCenter + FVector2D(FMath::Cos(AngleB), FMath::Sin(AngleB)) * (BandWidth * 0.5));
+		}
 	}
 
 	const int32 SafeChunkSide = FMath::Clamp(ChunkSideLength, 4, 128);
@@ -1031,11 +1059,32 @@ void AChunkedDestructibleFloor::AppendHypnoticSpiralSurface2D(
 		for (int32 X = MinCellX; X < MaxCellX; ++X)
 		{
 			const FIntPoint Cell(X, Y);
-			TArray<TArray<FVector2D>> CellPolygons;
-			if (!GetCellPolygons(Cell, CellPolygons))
+			const int32 CellIndex = ToCellIndex(Cell);
+			if (!Cells.IsValidIndex(CellIndex) || !Cells[CellIndex].bExists ||
+				!CachedSpiralCellTriangles.IsValidIndex(CellIndex) ||
+				!CachedSpiralCellBuilt.IsValidIndex(CellIndex))
 			{
 				continue;
 			}
+
+			TArray<FChunkedCachedSpiralTriangle>& CachedCellTriangles =
+				CachedSpiralCellTriangles[CellIndex];
+			if (CachedSpiralCellBuilt[CellIndex])
+			{
+				for (const FChunkedCachedSpiralTriangle& Triangle : CachedCellTriangles)
+				{
+					AppendSurfaceTriangle(Cell, Triangle.A, Triangle.B, Triangle.C, StripeMaterialIndex);
+				}
+				continue;
+			}
+
+			TArray<TArray<FVector2D>> CellPolygons;
+			if (!GetCellPolygons(Cell, CellPolygons))
+			{
+				CachedSpiralCellBuilt[CellIndex] = true;
+				continue;
+			}
+			CachedCellTriangles.Reset();
 
 			for (const TArray<FVector2D>& CellPolygon : CellPolygons)
 			{
@@ -1053,7 +1102,7 @@ void AChunkedDestructibleFloor::AppendHypnoticSpiralSurface2D(
 					CellBoundsMax.Y = FMath::Max(CellBoundsMax.Y, Point.Y);
 				}
 
-				for (const FSharedSpiralTriangle& Triangle : SpiralTriangles)
+				for (const FChunkedCachedSpiralTriangle& Triangle : CachedSpiralSourceTriangles)
 				{
 					if (Triangle.BoundsMax.X < CellBoundsMin.X || Triangle.BoundsMin.X > CellBoundsMax.X ||
 						Triangle.BoundsMax.Y < CellBoundsMin.Y || Triangle.BoundsMin.Y > CellBoundsMax.Y)
@@ -1075,9 +1124,17 @@ void AChunkedDestructibleFloor::AppendHypnoticSpiralSurface2D(
 						{
 							Swap(B, C);
 						}
-						AppendSurfaceTriangle(Cell, A, B, C, StripeMaterialIndex);
+						FChunkedCachedSpiralTriangle& CachedTriangle = CachedCellTriangles.Emplace_GetRef();
+						CachedTriangle.A = A;
+						CachedTriangle.B = B;
+						CachedTriangle.C = C;
 					}
 				}
+			}
+			CachedSpiralCellBuilt[CellIndex] = true;
+			for (const FChunkedCachedSpiralTriangle& Triangle : CachedCellTriangles)
+			{
+				AppendSurfaceTriangle(Cell, Triangle.A, Triangle.B, Triangle.C, StripeMaterialIndex);
 			}
 		}
 	}

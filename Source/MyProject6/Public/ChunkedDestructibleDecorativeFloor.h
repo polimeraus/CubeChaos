@@ -395,10 +395,54 @@ private:
 		FBox2D Bounds = FBox2D(EForceInit::ForceInit);
 	};
 
+	struct FShapeOutlineSegment
+	{
+		FVector2D A = FVector2D::ZeroVector;
+		FVector2D B = FVector2D::ZeroVector;
+	};
+
+	struct FDecorativeCellGeometryCache
+	{
+		bool bBelongsToShape = false;
+		bool bFullyInside = false;
+		TArray<TArray<FVector2D>> Fragments;
+		TArray<FShapeOutlineSegment> OutlineSegments;
+	};
+
+	struct FPatternSourceTriangle
+	{
+		FVector2D A = FVector2D::ZeroVector;
+		FVector2D B = FVector2D::ZeroVector;
+		FVector2D C = FVector2D::ZeroVector;
+		FVector2D Min = FVector2D::ZeroVector;
+		FVector2D Max = FVector2D::ZeroVector;
+	};
+
+	struct FCachedPatternTriangle
+	{
+		FVector2D A = FVector2D::ZeroVector;
+		FVector2D B = FVector2D::ZeroVector;
+		FVector2D C = FVector2D::ZeroVector;
+	};
+
+	struct FPatternSurfaceCache
+	{
+		TArray<FVector2D> Outline;
+		int32 MaterialIndex = 0;
+		double SurfaceZ = 0.0;
+		FVector2D BoundsMin = FVector2D::ZeroVector;
+		FVector2D BoundsMax = FVector2D::ZeroVector;
+		TArray<FPatternSourceTriangle> SourceTriangles;
+		TArray<TArray<FCachedPatternTriangle>> CellTriangles;
+		TBitArray<> CellBuilt;
+	};
+
 	TArray<float> CachedBlobRadii;
 	TArray<FVector2D> CachedShapeOutline;
 	TArray<FShapeTriangle> CachedShapeTriangles;
 	FVector2D CachedShapeFanCenter = FVector2D::ZeroVector;
+	TArray<FDecorativeCellGeometryCache> CellGeometryCache;
+	mutable TArray<FPatternSurfaceCache> PatternSurfaceCaches;
 
 	void RebuildBlobCache();
 	void RebuildShapeOutline();
@@ -408,8 +452,15 @@ private:
 	bool IsPointInsidePolygon(const FVector2D& Point, const TArray<FVector2D>& Polygon) const;
 	bool IsPointInsideGeneratedShape(const FVector2D& Point, double Tolerance = 0.01) const;
 	bool DoesShapeOutlineIntersectCell(FIntPoint Cell) const;
+	bool ComputeCellFullyInsideGeneratedShape(FIntPoint Cell) const;
 	bool IsCellFullyInsideGeneratedShape(FIntPoint Cell) const;
+	bool ComputeClippedCellFragments(FIntPoint Cell, TArray<TArray<FVector2D>>& OutFragments) const;
 	bool GetClippedCellFragments(FIntPoint Cell, TArray<TArray<FVector2D>>& OutFragments) const;
+	void RebuildCellGeometryCache();
+	FPatternSurfaceCache& FindOrAddPatternSurfaceCache(
+		const TArray<FVector2D>& Outline,
+		int32 MaterialIndex,
+		double SurfaceZ) const;
 	void GetCellBounds(FIntPoint Cell, double& OutMinX, double& OutMinY, double& OutMaxX, double& OutMaxY) const;
 	float SampleBlobRadius(float Angle) const;
 	int32 ClampMaterialIndex(int32 MaterialIndex) const;
