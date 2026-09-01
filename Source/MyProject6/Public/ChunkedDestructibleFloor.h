@@ -247,6 +247,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Damage")
 	int32 DestroyCellsInRadius(FVector WorldLocation, float Radius, EChunkedFloorBlastShape Shape);
 
+	/** Destroys every cell around the inside of a collision hit, bypassing health. */
+	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Damage")
+	int32 DestroyCellsFromHit(
+		const FHitResult& Hit,
+		float Radius,
+		EChunkedFloorBlastShape Shape = EChunkedFloorBlastShape::Circle);
+
 	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Cells")
 	bool RestoreCell(FIntPoint Cell);
 

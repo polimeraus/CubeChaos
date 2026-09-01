@@ -166,6 +166,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Destructible Cone Structure|Damage")
 	bool DestroyConeCellFromHit(const FHitResult& Hit);
 
+	/** Uses the same thickness-aware destruction as a normal cone hit for every piece in a radius. */
+	UFUNCTION(BlueprintCallable, Category = "Destructible Cone Structure|Damage")
+	int32 DestroyConeCellsFromHit(const FHitResult& Hit, float Radius);
+
 	virtual bool WorldLocationToCell(FVector WorldLocation, FIntPoint& OutCell) const override;
 
 protected:
@@ -415,7 +419,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Debris", meta = (ClampMin = "0.1", Units = "s"))
 	float DebrisLifetime = 1.5f;
 
-	/** Debris becomes visual-only after its initial bounce, avoiding long-running Chaos bodies. */
+	/** Debris is removed when this physical phase ends, so it can never freeze in mid-air. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible Cone Structure|Debris", meta = (ClampMin = "0.05", Units = "s"))
 	float DebrisPhysicsDuration = 0.65f;
 
@@ -633,7 +637,13 @@ private:
 		int32& OutSegmentIndex,
 		int32* OutTriangleSliceIndex = nullptr) const;
 	bool DestroySpiralSegmentFromHit(const FHitResult& Hit);
+	int32 DestroySpiralSegmentsInRadiusFromHit(const FHitResult& Hit, float Radius);
+	void AddSpiralCrossSectionCells(
+		FIntPoint Cell,
+		FVector WorldImpact,
+		TSet<int32>& OutCellIndices) const;
 	void RebuildSpiralSegmentChunks(int32 SegmentIndex);
+	void RebuildSpiralSegmentChunks(const TSet<int32>& SegmentIndices);
 	bool IsSpiralSegmentDestroyed(int32 SegmentIndex) const;
 	bool IsSpiralTriangleSliceDestroyed(int32 SegmentIndex, int32 TriangleSliceIndex) const;
 	void GetCellRadialRange(int32 X, int32 Y, float& OutMinimumRadius, float& OutMaximumRadius) const;

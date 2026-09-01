@@ -1792,6 +1792,24 @@ int32 AChunkedDestructibleFloor::DestroyCellsInRadius(
 	return QueuedCount;
 }
 
+int32 AChunkedDestructibleFloor::DestroyCellsFromHit(
+	const FHitResult& Hit,
+	float Radius,
+	EChunkedFloorBlastShape Shape)
+{
+	// Resolve the directly struck cell before radial destruction changes the mesh. A small blast
+	// can otherwise miss a large cell whose centre lies outside the requested radius.
+	FIntPoint HitCell = FIntPoint::NoneValue;
+	const bool bResolvedHitCell = ResolveExistingCellFromHit(Hit, HitCell);
+	int32 DestroyedCount = DestroyCellsInRadius(GetInteriorImpactPoint(Hit), Radius, Shape);
+	if (bResolvedHitCell && Cells.IsValidIndex(ToCellIndex(HitCell)) &&
+		Cells[ToCellIndex(HitCell)].bExists && DestroyCell(HitCell))
+	{
+		++DestroyedCount;
+	}
+	return DestroyedCount;
+}
+
 bool AChunkedDestructibleFloor::QueueCellDestruction(int32 CellIndex, float Delay, bool bRadial)
 {
 	if (!Cells.IsValidIndex(CellIndex) || PendingCellIndices.Contains(CellIndex))

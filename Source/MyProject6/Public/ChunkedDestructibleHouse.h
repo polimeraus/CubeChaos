@@ -183,7 +183,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible House|Debris", meta = (ClampMin = "0.1", Units = "s"))
 	float DebrisLifetime = 3.0f;
 
-	/** Debris becomes visual-only after its initial bounce, avoiding long-running Chaos bodies. */
+	/** Debris is removed when this physical phase ends, so it can never freeze in mid-air. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible House|Debris", meta = (ClampMin = "0.05", Units = "s"))
 	float DebrisPhysicsDuration = 0.75f;
 

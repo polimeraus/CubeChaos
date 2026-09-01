@@ -1237,22 +1237,6 @@ void AChunkedDestructibleHouse::SpawnDebrisForCell(FIntPoint Cell, FVector World
 			: DebrisPhysicsDuration;
 		const float SafePhysicsDuration = FMath::Clamp(
 			RequestedPhysicsDuration, 0.05f, SafeDebrisLifetime);
-		if (SafePhysicsDuration < SafeDebrisLifetime)
-		{
-			FTimerDelegate SleepDelegate = FTimerDelegate::CreateWeakLambda(
-				this,
-				[WeakDebris]()
-				{
-					if (UStaticMeshComponent* Component = WeakDebris.Get())
-					{
-						Component->SetSimulatePhysics(false);
-						Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-					}
-				});
-			FTimerHandle SleepHandle;
-			GetWorld()->GetTimerManager().SetTimer(
-				SleepHandle, MoveTemp(SleepDelegate), SafePhysicsDuration, false);
-		}
 		FTimerDelegate CleanupDelegate = FTimerDelegate::CreateWeakLambda(
 			this,
 			[this, WeakDebris]()
@@ -1268,7 +1252,7 @@ void AChunkedDestructibleHouse::SpawnDebrisForCell(FIntPoint Cell, FVector World
 		GetWorld()->GetTimerManager().SetTimer(
 			CleanupHandle,
 			MoveTemp(CleanupDelegate),
-			SafeDebrisLifetime,
+			SafePhysicsDuration,
 			false);
 	}
 }

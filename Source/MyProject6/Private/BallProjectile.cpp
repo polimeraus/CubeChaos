@@ -23,7 +23,7 @@ ABallProjectile::ABallProjectile()
 	InitialLifeSpan = 5.0f;
 
 	CollisionComponent = CreateDefaultSubobject<USphereComponent>(TEXT("CollisionComponent"));
-	CollisionComponent->InitSphereRadius(12.0f);
+	CollisionComponent->InitSphereRadius(ProjectileCollisionRadius);
 	CollisionComponent->SetCollisionProfileName(TEXT("Projectile"));
 	CollisionComponent->SetNotifyRigidBodyCollision(true);
 	CollisionComponent->SetGenerateOverlapEvents(false);
@@ -36,7 +36,7 @@ ABallProjectile::ABallProjectile()
 	MeshComponent->SetGenerateOverlapEvents(false);
 	MeshComponent->SetCanEverAffectNavigation(false);
 	MeshComponent->SetCastShadow(false);
-	MeshComponent->SetRelativeScale3D(FVector(0.24f));
+	MeshComponent->SetRelativeScale3D(FVector(ProjectileVisualScale));
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 	if (SphereMesh.Succeeded())
@@ -53,16 +53,25 @@ ABallProjectile::ABallProjectile()
 	}
 
 	ProjectileMovement = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("ProjectileMovement"));
-	ProjectileMovement->InitialSpeed = 2500.0f;
-	ProjectileMovement->MaxSpeed = 2500.0f;
-	ProjectileMovement->ProjectileGravityScale = 0.0f;
+	ProjectileMovement->InitialSpeed = ProjectileInitialSpeed;
+	ProjectileMovement->MaxSpeed = ProjectileMaxSpeed;
+	ProjectileMovement->ProjectileGravityScale = ProjectileGravityScale;
 	ProjectileMovement->bRotationFollowsVelocity = true;
-	ProjectileMovement->bShouldBounce = true;
+	ProjectileMovement->bShouldBounce = bProjectileShouldBounce;
 }
 
 void ABallProjectile::BeginPlay()
 {
 	Super::BeginPlay();
+	ApplyProjectileConfiguration();
+	if (AActor* OwnerActor = GetOwner())
+	{
+		CollisionComponent->IgnoreActorWhenMoving(OwnerActor, true);
+	}
+	if (APawn* InstigatorPawn = GetInstigator())
+	{
+		CollisionComponent->IgnoreActorWhenMoving(InstigatorPawn, true);
+	}
 
 	UMaterialInterface* ParentMaterial = ProjectileMaterial.Get();
 	if (!ParentMaterial)
@@ -89,6 +98,26 @@ void ABallProjectile::BeginPlay()
 	}
 }
 
+void ABallProjectile::ApplyProjectileConfiguration()
+{
+	if (CollisionComponent)
+	{
+		CollisionComponent->SetSphereRadius(FMath::Max(ProjectileCollisionRadius, 1.0f), true);
+	}
+	if (MeshComponent)
+	{
+		MeshComponent->SetRelativeScale3D(FVector(FMath::Max(ProjectileVisualScale, 0.01f)));
+	}
+	if (ProjectileMovement)
+	{
+		ProjectileMovement->InitialSpeed = FMath::Max(ProjectileInitialSpeed, 1.0f);
+		ProjectileMovement->MaxSpeed = FMath::Max(ProjectileMaxSpeed, ProjectileMovement->InitialSpeed);
+		ProjectileMovement->ProjectileGravityScale = ProjectileGravityScale;
+		ProjectileMovement->bShouldBounce = bProjectileShouldBounce;
+		ProjectileMovement->Velocity = GetActorForwardVector() * ProjectileMovement->InitialSpeed;
+	}
+}
+
 void ABallProjectile::NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPrimitiveComponent* OtherComp,
 	bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit)
 {
@@ -104,7 +133,14 @@ void ABallProjectile::NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPri
 		bHasCarvedSurface = true;
 		if (bExplodeChunkedFloor)
 		{
-			Cone->ApplyExplosionFromHit(Hit, FloorExplosionRadius, FloorDamage);
+			if (bDestroyChunkedCellsInBlast)
+			{
+				Cone->DestroyConeCellsFromHit(Hit, FloorExplosionRadius);
+			}
+			else
+			{
+				Cone->ApplyExplosionFromHit(Hit, FloorExplosionRadius, FloorDamage);
+			}
 		}
 		else
 		{
@@ -117,7 +153,17 @@ void ABallProjectile::NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPri
 		bHasCarvedSurface = true;
 		if (bExplodeChunkedFloor)
 		{
-			Floor->ApplyExplosionFromHit(Hit, FloorExplosionRadius, FloorDamage);
+			if (bDestroyChunkedCellsInBlast)
+			{
+				Floor->DestroyCellsFromHit(
+					Hit,
+					FloorExplosionRadius,
+					EChunkedFloorBlastShape::Circle);
+			}
+			else
+			{
+				Floor->ApplyExplosionFromHit(Hit, FloorExplosionRadius, FloorDamage);
+			}
 		}
 		else
 		{
@@ -171,5 +217,11 @@ void ABallProjectile::NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPri
 			bHasCarvedSurface = true;
 			Destroy();
 		}
+	}
+
+	if (bDestroyOnAnyImpact && !bHasCarvedSurface && Other && Other != GetOwner())
+	{
+		bHasCarvedSurface = true;
+		Destroy();
 	}
 }
