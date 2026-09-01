@@ -44,7 +44,9 @@ UENUM(BlueprintType)
 enum class EConeStructureApexStyle : uint8
 {
 	CurrentApex UMETA(DisplayName = "Current Cone Apex"),
-	CandySpire UMETA(DisplayName = "Candy Spire")
+	CandySpire UMETA(DisplayName = "Candy Spire"),
+	Star UMETA(DisplayName = "Star"),
+	Moon UMETA(DisplayName = "Moon")
 };
 
 /** Balances destruction-flash fidelity against projectile-hit cost. */
@@ -194,7 +196,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Cone", meta = (DisplayName = "Generate Cone Base"))
 	bool bGenerateConeBase = true;
 
-	/** Dropdown: keep the existing point or add the candy finial. */
+	/** Dropdown: keep the existing point or add a decorative apex mesh. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (DisplayName = "Apex Style"))
 	EConeStructureApexStyle ApexStyle = EConeStructureApexStyle::CurrentApex;
 
@@ -214,6 +216,28 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (EditCondition = "ApexStyle == EConeStructureApexStyle::CandySpire", EditConditionHides))
 	TObjectPtr<UMaterialInterface> CandySpireMaterial;
+
+	/** Total height from the cone contact point to the highest part of the star. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (DisplayName = "Star Height (Blocks)", EditCondition = "ApexStyle == EConeStructureApexStyle::Star", EditConditionHides, ClampMin = "0.5", ClampMax = "24.0"))
+	float StarHeightBlocks = 4.5f;
+
+	/** Front-to-back depth of the faceted 3D star. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (DisplayName = "Star Thickness (Blocks)", EditCondition = "ApexStyle == EConeStructureApexStyle::Star", EditConditionHides, ClampMin = "0.1", ClampMax = "8.0"))
+	float StarThicknessBlocks = 0.75f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (EditCondition = "ApexStyle == EConeStructureApexStyle::Star", EditConditionHides))
+	TObjectPtr<UMaterialInterface> StarMaterial;
+
+	/** Total height of the crescent after its tips are tilted 45 degrees upward. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (DisplayName = "Moon Height (Blocks)", EditCondition = "ApexStyle == EConeStructureApexStyle::Moon", EditConditionHides, ClampMin = "0.5", ClampMax = "24.0"))
+	float MoonHeightBlocks = 4.5f;
+
+	/** Front-to-back depth of the 3D crescent. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (DisplayName = "Moon Thickness (Blocks)", EditCondition = "ApexStyle == EConeStructureApexStyle::Moon", EditConditionHides, ClampMin = "0.1", ClampMax = "8.0"))
+	float MoonThicknessBlocks = 0.65f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Apex", meta = (EditCondition = "ApexStyle == EConeStructureApexStyle::Moon", EditConditionHides))
+	TObjectPtr<UMaterialInterface> MoonMaterial;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Blocks", meta = (ClampMin = "1.0", Units = "cm"))
 	FVector BlockDimensions = FVector(100.0, 100.0, 100.0);

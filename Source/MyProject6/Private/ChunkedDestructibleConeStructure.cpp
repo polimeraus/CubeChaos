@@ -153,6 +153,8 @@ AChunkedDestructibleConeStructure::AChunkedDestructibleConeStructure()
 	{
 		CrispSpiralMaterial = CrispSpiralMaterialFinder.Object;
 		CandySpireMaterial = CrispSpiralMaterialFinder.Object;
+		StarMaterial = CrispSpiralMaterialFinder.Object;
+		MoonMaterial = CrispSpiralMaterialFinder.Object;
 	}
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeFinder(TEXT("/Engine/BasicShapes/Cube.Cube"));
@@ -349,16 +351,237 @@ void AChunkedDestructibleConeStructure::RebuildApexDecoration()
 				AppendOriented(A, C, D);
 			}
 		}
+
+		// Close the underside of the decoration. The revolved profile starts with a
+		// non-zero radius, so generating only its side walls leaves the spire hollow
+		// and visibly open when it is viewed from below.
+		const float UVScale = FMath::Max(UVWorldUnits, 1.0f);
+		const FVector3d BottomCenter(0.0, 0.0, BaseZ);
+		const FVector3f BottomNormal(0.0f, 0.0f, -1.0f);
+		for (int32 SegmentIndex = 0; SegmentIndex < Segments; ++SegmentIndex)
+		{
+			const int32 NextSegment = (SegmentIndex + 1) % Segments;
+			const FVector3d Current = PositionAt(0, SegmentIndex);
+			const FVector3d Next = PositionAt(0, NextSegment);
+			AppendMeshTriangle(
+				Mesh,
+				BottomCenter,
+				Next,
+				Current,
+				BottomNormal,
+				0,
+				FVector2f(0.0f, 0.0f),
+				FVector2f(Next.X / UVScale, Next.Y / UVScale),
+				FVector2f(Current.X / UVScale, Current.Y / UVScale));
+		}
+	}
+	else if (ApexStyle == EConeStructureApexStyle::Star && GridHeightBlocks > 0)
+	{
+		const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
+		const double BaseZ = BlockDimensions.Z * GridHeightBlocks +
+			BlockSpacing.Z * FMath::Max(GridHeightBlocks - 1, 0);
+		const double StarHeight = FMath::Max(StarHeightBlocks * PitchZ, 1.0f);
+		const double HalfThickness = FMath::Max(
+			StarThicknessBlocks * CachedRadialBlockUnit * 0.5,
+			0.5);
+		constexpr int32 StarPointCount = 5;
+		constexpr int32 OutlinePointCount = StarPointCount * 2;
+		constexpr double InnerRadiusRatio = 0.45;
+		// A downward-facing outer point is the star's sole contact with the cone.
+		// cos(36 degrees) is the height of the highest outer points relative to
+		// the radius, so this conversion preserves the requested total height.
+		const double OuterRadius = StarHeight / (1.0 + FMath::Cos(UE_PI / 5.0));
+		const double CenterZ = BaseZ + OuterRadius;
+		const float UVScale = FMath::Max(UVWorldUnits, 1.0f);
+
+		TArray<FVector3d, TInlineAllocator<OutlinePointCount>> Outline;
+		Outline.Reserve(OutlinePointCount);
+		for (int32 PointIndex = 0; PointIndex < OutlinePointCount; ++PointIndex)
+		{
+			const double Angle = -UE_HALF_PI + UE_PI * PointIndex / StarPointCount;
+			const double PointRadius = (PointIndex % 2 == 0)
+				? OuterRadius
+				: OuterRadius * InnerRadiusRatio;
+			Outline.Emplace(
+				FMath::Cos(Angle) * PointRadius,
+				0.0,
+				CenterZ + FMath::Sin(Angle) * PointRadius);
+		}
+
+		const FVector3d FrontCenter(0.0, -HalfThickness, CenterZ);
+		const FVector3d BackCenter(0.0, HalfThickness, CenterZ);
+		auto AppendStarTriangle = [&](const FVector3d& A, const FVector3d& B, const FVector3d& C)
+		{
+			const FVector3f Normal(FVector3d::CrossProduct(B - A, C - A).GetSafeNormal());
+			AppendMeshTriangle(
+				Mesh,
+				A,
+				B,
+				C,
+				Normal,
+				0,
+				FVector2f(A.X / UVScale, A.Z / UVScale),
+				FVector2f(B.X / UVScale, B.Z / UVScale),
+				FVector2f(C.X / UVScale, C.Z / UVScale));
+		};
+		for (int32 PointIndex = 0; PointIndex < OutlinePointCount; ++PointIndex)
+		{
+			const int32 NextPointIndex = (PointIndex + 1) % OutlinePointCount;
+			AppendStarTriangle(FrontCenter, Outline[PointIndex], Outline[NextPointIndex]);
+			AppendStarTriangle(BackCenter, Outline[NextPointIndex], Outline[PointIndex]);
+		}
+	}
+	else if (ApexStyle == EConeStructureApexStyle::Moon && GridHeightBlocks > 0)
+	{
+		const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
+		const double BaseZ = BlockDimensions.Z * GridHeightBlocks +
+			BlockSpacing.Z * FMath::Max(GridHeightBlocks - 1, 0);
+		const double MoonHeight = FMath::Max(MoonHeightBlocks * PitchZ, 1.0f);
+		const double HalfThickness = FMath::Max(
+			MoonThicknessBlocks * CachedRadialBlockUnit * 0.5,
+			0.5);
+		constexpr int32 ArcSegments = 32;
+		constexpr double CutoutCenterOffset = 0.38;
+		constexpr double CutoutRadius = 0.82;
+		constexpr double MoonTiltRadians = UE_PI / 4.0;
+		const double IntersectionX =
+			(1.0 - FMath::Square(CutoutRadius) + FMath::Square(CutoutCenterOffset)) /
+			(2.0 * CutoutCenterOffset);
+		const double OuterTopAngle = FMath::Acos(IntersectionX);
+		const double InnerTopAngle = FMath::Acos(
+			(IntersectionX - CutoutCenterOffset) / CutoutRadius);
+		const double TiltCos = FMath::Cos(MoonTiltRadians);
+		const double TiltSin = FMath::Sin(MoonTiltRadians);
+
+		TArray<FVector2D, TInlineAllocator<ArcSegments + 1>> OuterArc;
+		TArray<FVector2D, TInlineAllocator<ArcSegments + 1>> InnerArc;
+		OuterArc.Reserve(ArcSegments + 1);
+		InnerArc.Reserve(ArcSegments + 1);
+		double MinimumZ = TNumericLimits<double>::Max();
+		double ContactX = 0.0;
+		auto AddRotatedMoonPoint = [&](TArray<FVector2D, TInlineAllocator<ArcSegments + 1>>& Arc, double X, double Z)
+		{
+			const FVector2D Rotated(
+				X * TiltCos - Z * TiltSin,
+				X * TiltSin + Z * TiltCos);
+			Arc.Add(Rotated);
+			if (Rotated.Y < MinimumZ)
+			{
+				MinimumZ = Rotated.Y;
+				ContactX = Rotated.X;
+			}
+		};
+		for (int32 PointIndex = 0; PointIndex <= ArcSegments; ++PointIndex)
+		{
+			const double Alpha = static_cast<double>(PointIndex) / ArcSegments;
+			const double OuterAngle = FMath::Lerp(
+				OuterTopAngle,
+				UE_TWO_PI - OuterTopAngle,
+				Alpha);
+			const double InnerAngle = FMath::Lerp(
+				InnerTopAngle,
+				UE_TWO_PI - InnerTopAngle,
+				Alpha);
+			AddRotatedMoonPoint(
+				OuterArc,
+				FMath::Cos(OuterAngle),
+				FMath::Sin(OuterAngle));
+			AddRotatedMoonPoint(
+				InnerArc,
+				CutoutCenterOffset + CutoutRadius * FMath::Cos(InnerAngle),
+				CutoutRadius * FMath::Sin(InnerAngle));
+		}
+
+		double MaximumZ = -TNumericLimits<double>::Max();
+		for (const FVector2D& Point : OuterArc)
+		{
+			MaximumZ = FMath::Max(MaximumZ, Point.Y);
+		}
+		for (const FVector2D& Point : InnerArc)
+		{
+			MaximumZ = FMath::Max(MaximumZ, Point.Y);
+		}
+		const double ShapeHeight = FMath::Max(MaximumZ - MinimumZ, UE_DOUBLE_SMALL_NUMBER);
+		const double ShapeScale = MoonHeight / ShapeHeight;
+		auto ToMoonPosition = [&](const FVector2D& Point, double Y)
+		{
+			return FVector3d(
+				(Point.X - ContactX) * ShapeScale,
+				Y,
+				BaseZ + (Point.Y - MinimumZ) * ShapeScale);
+		};
+		const float UVScale = FMath::Max(UVWorldUnits, 1.0f);
+		auto AppendMoonTriangle = [&](const FVector3d& A, const FVector3d& B, const FVector3d& C)
+		{
+			const FVector3f Normal(FVector3d::CrossProduct(B - A, C - A).GetSafeNormal());
+			AppendMeshTriangle(
+				Mesh,
+				A,
+				B,
+				C,
+				Normal,
+				0,
+				FVector2f(A.X / UVScale, A.Z / UVScale),
+				FVector2f(B.X / UVScale, B.Z / UVScale),
+				FVector2f(C.X / UVScale, C.Z / UVScale));
+		};
+		for (int32 SegmentIndex = 0; SegmentIndex < ArcSegments; ++SegmentIndex)
+		{
+			const FVector3d OuterFrontA = ToMoonPosition(OuterArc[SegmentIndex], -HalfThickness);
+			const FVector3d OuterFrontB = ToMoonPosition(OuterArc[SegmentIndex + 1], -HalfThickness);
+			const FVector3d InnerFrontA = ToMoonPosition(InnerArc[SegmentIndex], -HalfThickness);
+			const FVector3d InnerFrontB = ToMoonPosition(InnerArc[SegmentIndex + 1], -HalfThickness);
+			const FVector3d OuterBackA = ToMoonPosition(OuterArc[SegmentIndex], HalfThickness);
+			const FVector3d OuterBackB = ToMoonPosition(OuterArc[SegmentIndex + 1], HalfThickness);
+			const FVector3d InnerBackA = ToMoonPosition(InnerArc[SegmentIndex], HalfThickness);
+			const FVector3d InnerBackB = ToMoonPosition(InnerArc[SegmentIndex + 1], HalfThickness);
+
+			if (SegmentIndex == 0)
+			{
+				AppendMoonTriangle(OuterFrontA, OuterFrontB, InnerFrontB);
+				AppendMoonTriangle(OuterBackA, InnerBackB, OuterBackB);
+			}
+			else if (SegmentIndex == ArcSegments - 1)
+			{
+				AppendMoonTriangle(OuterFrontA, OuterFrontB, InnerFrontA);
+				AppendMoonTriangle(OuterBackA, InnerBackA, OuterBackB);
+			}
+			else
+			{
+				AppendMoonTriangle(OuterFrontA, OuterFrontB, InnerFrontB);
+				AppendMoonTriangle(OuterFrontA, InnerFrontB, InnerFrontA);
+				AppendMoonTriangle(OuterBackA, InnerBackB, OuterBackB);
+				AppendMoonTriangle(OuterBackA, InnerBackA, InnerBackB);
+			}
+
+			AppendMoonTriangle(OuterFrontA, OuterBackA, OuterBackB);
+			AppendMoonTriangle(OuterFrontA, OuterBackB, OuterFrontB);
+			AppendMoonTriangle(InnerFrontA, InnerFrontB, InnerBackB);
+			AppendMoonTriangle(InnerFrontA, InnerBackB, InnerBackA);
+		}
 	}
 
 	ApexDecorationComponent->GetDynamicMesh()->SetMesh(MoveTemp(Mesh));
 	ApexDecorationComponent->SetNumMaterials(1);
+	UMaterialInterface* DecorationMaterial = ResolveStructureMaterial(false);
+	if (ApexStyle == EConeStructureApexStyle::CandySpire && CandySpireMaterial)
+	{
+		DecorationMaterial = CandySpireMaterial.Get();
+	}
+	else if (ApexStyle == EConeStructureApexStyle::Star && StarMaterial)
+	{
+		DecorationMaterial = StarMaterial.Get();
+	}
+	else if (ApexStyle == EConeStructureApexStyle::Moon && MoonMaterial)
+	{
+		DecorationMaterial = MoonMaterial.Get();
+	}
 	ApexDecorationComponent->SetMaterial(
 		0,
-		CandySpireMaterial ? CandySpireMaterial.Get() : ResolveStructureMaterial(false));
+		DecorationMaterial);
 	ApexDecorationComponent->NotifyMeshUpdated();
 	ApexDecorationComponent->SetVisibility(
-		ApexStyle == EConeStructureApexStyle::CandySpire &&
+		ApexStyle != EConeStructureApexStyle::CurrentApex &&
 		ApexDecorationComponent->GetDynamicMesh()->GetTriangleCount() > 0,
 		true);
 	ApexDecorationComponent->MarkRenderStateDirty();
