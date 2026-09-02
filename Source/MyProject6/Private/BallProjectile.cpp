@@ -6,7 +6,6 @@
 #include "ChunkedDestructibleFloor.h"
 #include "RoundedBoxActor.h"
 #include "SimpleHouseActor.h"
-#include "SimpleHouseActor19.h"
 
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -179,24 +178,16 @@ void ABallProjectile::NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPri
 			CollisionComponent->GetScaledSphereRadius() * CavityRadiusMultiplier);
 		Destroy();
 	}
-	else if (ASimpleHouseActor19* House19 = Cast<ASimpleHouseActor19>(Other))
+	else if (ASimpleHouseActor* House = Cast<ASimpleHouseActor>(Other))
 	{
-		if (House19->bEnableDamage)
+		if (House->bEnableDamage)
 		{
 			bHasCarvedSurface = true;
-			House19->CarveSphereAtWorldLocation(
+			House->CarveSphereAtWorldLocation(
 				Hit.ImpactPoint,
 				CollisionComponent->GetScaledSphereRadius() * CavityRadiusMultiplier);
 			Destroy();
 		}
-	}
-	else if (ASimpleHouseActor* House = Cast<ASimpleHouseActor>(Other))
-	{
-		bHasCarvedSurface = true;
-		House->CarveSphereAtWorldLocation(
-			Hit.ImpactPoint,
-			CollisionComponent->GetScaledSphereRadius() * CavityRadiusMultiplier);
-		Destroy();
 	}
 	else if (Other && Other != GetOwner())
 	{

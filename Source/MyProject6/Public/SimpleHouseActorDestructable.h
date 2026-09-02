@@ -140,7 +140,7 @@ struct MYPROJECT6_API FSimpleHouseDestructableFacadeSettings
 };
 
 /**
- * SimpleHouseActor19-inspired house assembled only from destructible logical cubes.
+ * SimpleHouseActor-inspired house assembled only from destructible logical cubes.
  * It deliberately uses the chunked destruction system, not Geometry Script.
  */
 UCLASS(BlueprintType, Blueprintable, meta = (DisplayName = "Simple House Actor Destructable"))

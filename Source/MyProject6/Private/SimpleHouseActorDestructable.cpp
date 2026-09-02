@@ -85,7 +85,7 @@ namespace
 
 ASimpleHouseActorDestructable::ASimpleHouseActorDestructable()
 {
-	// Match SimpleHouseActor19's default silhouette on a 50 cm destruction grid.
+	// Match SimpleHouseActor's default silhouette on a 50 cm destruction grid.
 	FrontFacade.bEnableOpenings = true;
 	SynchronizeFloorWindowSettings();
 	if (!FrontFacade.FloorWindows.IsEmpty())
