@@ -6,13 +6,13 @@
 #include "ChunkedDestructibleFloor.h"
 #include "ChunkedDestructiblePyramid.generated.h"
 
-/** Selects which pyramid faces receive the same parametric entrance opening. */
+/** Selects how many pyramid faces receive the same parametric entrance opening. */
 UENUM(BlueprintType)
 enum class EChunkedPyramidEntranceSides : uint8
 {
-	FrontOnly UMETA(DisplayName = "Front Only"),
-	FrontAndBack UMETA(DisplayName = "Front And Back"),
-	AllSides UMETA(DisplayName = "All Four Sides")
+	FrontOnly UMETA(DisplayName = "1"),
+	FrontAndBack UMETA(DisplayName = "2"),
+	AllSides UMETA(DisplayName = "4")
 };
 
 /** Main proportions and destructible surface-piece controls. */
@@ -70,7 +70,8 @@ struct MYPROJECT6_API FChunkedPyramidEntranceSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entrance")
 	bool bGenerateEntrance = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entrance", meta = (EditCondition = "bGenerateEntrance"))
+	/** One uses the front face, two uses opposite faces, and four uses every face. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entrance", meta = (DisplayName = "Door Count", EditCondition = "bGenerateEntrance"))
 	EChunkedPyramidEntranceSides Sides = EChunkedPyramidEntranceSides::FrontOnly;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entrance", meta = (EditCondition = "bGenerateEntrance", ClampMin = "10.0", UIMin = "10.0", Units = "cm"))
@@ -155,6 +156,15 @@ public:
 		const FChunkedPyramidInteriorFloorSettings& NewInteriorFloor,
 		bool bPreserveCellState = false);
 
+	/** Separates a configurable number of top layers and optionally assigns them a dedicated material. */
+	UFUNCTION(BlueprintCallable, Category = "Destructible Pyramid|Top Slice")
+	void ConfigureTopSlice(
+		bool bEnabled,
+		int32 NewLayerCount,
+		float NewSeparationDistance,
+		UMaterialInterface* NewMaterial,
+		bool bPreserveCellState = false);
+
 	UFUNCTION(BlueprintPure, Category = "Destructible Pyramid|Generation")
 	FChunkedDestructiblePyramidMetrics GetPyramidMetrics() const;
 
@@ -170,6 +180,22 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Pyramid|Interior Floor", meta = (ShowOnlyInnerProperties))
 	FChunkedPyramidInteriorFloorSettings InteriorFloor;
+
+	/** Separates the selected number of upper pyramid layers into one elevated visual group. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Pyramid|Top Slice", meta = (DisplayName = "Top Slice"))
+	bool bTopSlice = false;
+
+	/** Number of layers counted downward from the apex, including the solid apex cap. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Pyramid|Top Slice", meta = (DisplayName = "Top Slice Layer Count", EditCondition = "bTopSlice", EditConditionHides, ClampMin = "1", ClampMax = "513"))
+	int32 TopSliceLayerCount = 3;
+
+	/** Empty vertical distance between the elevated top group and the lower pyramid body. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Pyramid|Top Slice", meta = (DisplayName = "Top Slice Separation Distance", EditCondition = "bTopSlice", EditConditionHides, ClampMin = "0.0", UIMin = "0.0", Units = "cm"))
+	float TopSliceSeparationDistance = 150.0f;
+
+	/** Optional material applied to every visible surface of the elevated top group. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Pyramid|Top Slice", meta = (DisplayName = "Top Slice Material", EditCondition = "bTopSlice", EditConditionHides))
+	TObjectPtr<UMaterialInterface> TopSliceMaterial;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Pyramid|Materials", meta = (ClampMin = "0"))
 	int32 PyramidMaterialIndex = 0;
@@ -194,6 +220,7 @@ protected:
 	virtual bool ShouldCellExistInGeneratedShape(FIntPoint Cell) const override;
 	virtual void BuildChunkMesh(int32 ChunkIndex, UE::Geometry::FDynamicMesh3& OutMesh) const override;
 	virtual void BuildChunkSimpleCollision(int32 ChunkIndex, FKAggregateGeom& OutCollision) const override;
+	virtual void ConfigureChunkComponent(UDynamicMeshComponent* Component) const override;
 	virtual FVector GetCellLocalCenter(FIntPoint Cell) const override;
 	virtual FTransform GetCellFlashTransform(FIntPoint Cell) const override;
 	virtual bool ResolveExistingCellFromHit(const FHitResult& Hit, FIntPoint& OutCell) const override;
@@ -229,6 +256,7 @@ private:
 		FVector BoxSize = FVector::ZeroVector;
 		FVector Center = FVector::ZeroVector;
 		FBox Bounds = FBox(ForceInit);
+		bool bBelongsToTopSlice = false;
 	};
 
 	TArray<FPyramidPieceGeometry> PieceGeometry;
@@ -249,10 +277,19 @@ private:
 		int32 RowIndex,
 		int32 ColumnIndex,
 		const TArray<FVector>& OuterPolygon,
-		const FVector& OutwardNormal);
+		const FVector& OutwardNormal,
+		bool bBelongsToTopSlice);
+	bool AddEntranceClippedFacePieces(
+		int32 FaceIndex,
+		int32 RowIndex,
+		int32 ColumnIndex,
+		const TArray<FVector>& OuterPolygon,
+		const FVector& OutwardNormal,
+		bool bBelongsToTopSlice);
 	bool AddBoxPiece(EPyramidPieceKind Kind, FVector Center, FVector Size);
 	bool CanAddAnotherPiece() const;
 	bool FaceHasEntrance(int32 FaceIndex) const;
+	int32 GetTopSliceMaterialSlot() const;
 	FVector GetPyramidSurfacePoint(int32 FaceIndex, float Horizontal, float LocalBodyZ) const;
 	FVector GetPyramidFaceNormal(int32 FaceIndex) const;
 	bool FindCellAtLocalPoint(FVector LocalPoint, FIntPoint& OutCell, float ExtraTolerance) const;
