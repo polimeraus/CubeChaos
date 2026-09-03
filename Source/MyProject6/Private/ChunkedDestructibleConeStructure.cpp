@@ -137,7 +137,8 @@ AChunkedDestructibleConeStructure::AChunkedDestructibleConeStructure()
 	ChunkSideLength = 64;
 	bDestructibleByDefault = true;
 	SpatialChunkSideLength = 8;
-	DestructionFlashStyle = EConeStructureDestructionFlashStyle::FastCompact;
+	DestructionFlashStyle = EConeStructureDestructionFlashStyle::DetailedSurface;
+	FlashColor = FLinearColor::White;
 
 	ApexDecorationComponent = CreateDefaultSubobject<UDynamicMeshComponent>(TEXT("ConeApexDecoration"));
 	ApexDecorationComponent->SetupAttachment(FloorRoot);

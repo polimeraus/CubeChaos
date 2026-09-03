@@ -288,10 +288,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible Cone Structure|Performance", meta = (ClampMin = "4", ClampMax = "16"))
 	int32 SpatialChunkSideLength = 8;
 
-	/** Fast Compact avoids rebuilding a curved flash mesh on every projectile impact. */
+	/** Detailed Surface flashes the exact curved piece; Fast Compact is an optional cube fallback. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Performance", meta = (DisplayName = "Destruction Flash Style"))
 	EConeStructureDestructionFlashStyle DestructionFlashStyle =
-		EConeStructureDestructionFlashStyle::FastCompact;
+		EConeStructureDestructionFlashStyle::DetailedSurface;
 
 	/** Limits each hit to one short-lived Chaos fragment and a smaller active debris budget. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Performance")
