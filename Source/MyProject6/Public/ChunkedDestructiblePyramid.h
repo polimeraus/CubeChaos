@@ -15,6 +15,14 @@ enum class EChunkedPyramidEntranceSides : uint8
 	AllSides UMETA(DisplayName = "4")
 };
 
+/** Selects how many evenly spaced horizontal slice gaps split the pyramid top. */
+UENUM(BlueprintType)
+enum class EChunkedPyramidTopSliceCount : uint8
+{
+	One UMETA(DisplayName = "1"),
+	Two UMETA(DisplayName = "2")
+};
+
 /** Main proportions and destructible surface-piece controls. */
 USTRUCT(BlueprintType)
 struct MYPROJECT6_API FChunkedPyramidShapeSettings
@@ -165,6 +173,12 @@ public:
 		UMaterialInterface* NewMaterial,
 		bool bPreserveCellState = false);
 
+	/** Changes the number of equally spaced top-slice gaps. */
+	UFUNCTION(BlueprintCallable, Category = "Destructible Pyramid|Top Slice")
+	void SetTopSliceCount(
+		EChunkedPyramidTopSliceCount NewSliceCount,
+		bool bPreserveCellState = false);
+
 	UFUNCTION(BlueprintPure, Category = "Destructible Pyramid|Generation")
 	FChunkedDestructiblePyramidMetrics GetPyramidMetrics() const;
 
@@ -181,19 +195,23 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Pyramid|Interior Floor", meta = (ShowOnlyInnerProperties))
 	FChunkedPyramidInteriorFloorSettings InteriorFloor;
 
-	/** Separates the selected number of upper pyramid layers into one elevated visual group. */
+	/** Enables one or two horizontal gaps measured downward from the pyramid apex. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Pyramid|Top Slice", meta = (DisplayName = "Top Slice"))
 	bool bTopSlice = false;
 
-	/** Number of layers counted downward from the apex, including the solid apex cap. */
+	/** Number of horizontal slice gaps. Two creates a second gap after the same layer interval. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Pyramid|Top Slice", meta = (DisplayName = "Top Slice Count", EditCondition = "bTopSlice", EditConditionHides))
+	EChunkedPyramidTopSliceCount TopSliceCount = EChunkedPyramidTopSliceCount::One;
+
+	/** Layers per separated group, counted downward from the apex including the solid apex cap. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Pyramid|Top Slice", meta = (DisplayName = "Top Slice Layer Count", EditCondition = "bTopSlice", EditConditionHides, ClampMin = "1", ClampMax = "513"))
 	int32 TopSliceLayerCount = 3;
 
-	/** Empty vertical distance between the elevated top group and the lower pyramid body. */
+	/** Vertical distance inserted at each slice gap. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Pyramid|Top Slice", meta = (DisplayName = "Top Slice Separation Distance", EditCondition = "bTopSlice", EditConditionHides, ClampMin = "0.0", UIMin = "0.0", Units = "cm"))
 	float TopSliceSeparationDistance = 150.0f;
 
-	/** Optional material applied to every visible surface of the elevated top group. */
+	/** Optional material applied to every visible surface of the separated upper groups. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Pyramid|Top Slice", meta = (DisplayName = "Top Slice Material", EditCondition = "bTopSlice", EditConditionHides))
 	TObjectPtr<UMaterialInterface> TopSliceMaterial;
 
@@ -257,6 +275,7 @@ private:
 		FVector Center = FVector::ZeroVector;
 		FBox Bounds = FBox(ForceInit);
 		bool bBelongsToTopSlice = false;
+		float TopSliceVerticalOffset = 0.0f;
 	};
 
 	TArray<FPyramidPieceGeometry> PieceGeometry;
@@ -278,17 +297,21 @@ private:
 		int32 ColumnIndex,
 		const TArray<FVector>& OuterPolygon,
 		const FVector& OutwardNormal,
-		bool bBelongsToTopSlice);
+		bool bBelongsToTopSlice,
+		float TopSliceVerticalOffset);
 	bool AddEntranceClippedFacePieces(
 		int32 FaceIndex,
 		int32 RowIndex,
 		int32 ColumnIndex,
 		const TArray<FVector>& OuterPolygon,
 		const FVector& OutwardNormal,
-		bool bBelongsToTopSlice);
+		bool bBelongsToTopSlice,
+		float TopSliceVerticalOffset);
 	bool AddBoxPiece(EPyramidPieceKind Kind, FVector Center, FVector Size);
 	bool CanAddAnotherPiece() const;
 	bool FaceHasEntrance(int32 FaceIndex) const;
+	int32 GetEffectiveTopSliceCount() const;
+	int32 GetTopSliceOffsetMultiplierForLayer(int32 LayerFromTop, int32 TotalLayerCount) const;
 	int32 GetTopSliceMaterialSlot() const;
 	FVector GetPyramidSurfacePoint(int32 FaceIndex, float Horizontal, float LocalBodyZ) const;
 	FVector GetPyramidFaceNormal(int32 FaceIndex) const;

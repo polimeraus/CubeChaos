@@ -142,6 +142,14 @@ void AChunkedDestructiblePyramid::ConfigureTopSlice(
 	GenerateFloor(bPreserveCellState);
 }
 
+void AChunkedDestructiblePyramid::SetTopSliceCount(
+	EChunkedPyramidTopSliceCount NewSliceCount,
+	bool bPreserveCellState)
+{
+	TopSliceCount = NewSliceCount;
+	GenerateFloor(bPreserveCellState);
+}
+
 FChunkedDestructiblePyramidMetrics AChunkedDestructiblePyramid::GetPyramidMetrics() const
 {
 	FChunkedDestructiblePyramidMetrics Metrics;
@@ -235,7 +243,7 @@ bool AChunkedDestructiblePyramid::RebuildPieceGeometry()
 	CachedOverallBaseWidth = Shape.BaseWidth +
 		2.0f * static_cast<float>(EffectiveStepCount) * Steps.StepDepth;
 	CachedOverallHeight = CachedBodyBaseZ + Shape.Height +
-		(bTopSlice ? TopSliceSeparationDistance : 0.0f);
+		static_cast<float>(GetEffectiveTopSliceCount()) * TopSliceSeparationDistance;
 
 	if (!AddSteppedBasePieces())
 	{
@@ -368,19 +376,19 @@ bool AChunkedDestructiblePyramid::AddPyramidFacePieces()
 		1,
 		MaximumFaceRows);
 	const float RowHeight = ApexBaseZ / static_cast<float>(RowCount);
-	const int32 EffectiveTopSliceLayerCount = bTopSlice
-		? FMath::Clamp(TopSliceLayerCount, 1, RowCount + 1)
-		: 0;
-	const int32 FirstTopSliceFaceRow = RowCount -
-		FMath::Max(EffectiveTopSliceLayerCount - 1, 0);
+	const int32 TotalPyramidLayerCount = RowCount + 1;
 
 	for (int32 FaceIndex = 0; FaceIndex < 4; ++FaceIndex)
 	{
 		const FVector OutwardNormal = GetPyramidFaceNormal(FaceIndex);
 		for (int32 Row = 0; Row < RowCount; ++Row)
 		{
-			const bool bTopSliceRow = EffectiveTopSliceLayerCount > 1 &&
-				Row >= FirstTopSliceFaceRow;
+			const int32 LayerFromTop = RowCount - Row;
+			const int32 TopSliceOffsetMultiplier = GetTopSliceOffsetMultiplierForLayer(
+				LayerFromTop, TotalPyramidLayerCount);
+			const bool bTopSliceRow = TopSliceOffsetMultiplier > 0;
+			const float TopSliceVerticalOffset =
+				static_cast<float>(TopSliceOffsetMultiplier) * TopSliceSeparationDistance;
 			const float RowBottom = static_cast<float>(Row) * RowHeight;
 			const float RowTop = static_cast<float>(Row + 1) * RowHeight;
 			const float RowMiddle = (RowBottom + RowTop) * 0.5f;
@@ -446,7 +454,8 @@ bool AChunkedDestructiblePyramid::AddPyramidFacePieces()
 					Column,
 					OuterPolygon,
 					OutwardNormal,
-					bTopSliceRow))
+					bTopSliceRow,
+					TopSliceVerticalOffset))
 				{
 					return false;
 				}
@@ -466,13 +475,16 @@ bool AChunkedDestructiblePyramid::AddApexPiece(float LocalBaseZ)
 	const float SafeBaseZ = FMath::Clamp(LocalBaseZ, 0.0f, Shape.Height);
 	const float HalfWidth = Shape.BaseWidth * 0.5f *
 		(1.0f - SafeBaseZ / Shape.Height);
-	const float TopSliceOffset = bTopSlice ? TopSliceSeparationDistance : 0.0f;
+	const int32 TopSliceOffsetMultiplier = GetTopSliceOffsetMultiplierForLayer(0, 1);
+	const float TopSliceOffset =
+		static_cast<float>(TopSliceOffsetMultiplier) * TopSliceSeparationDistance;
 	const float WorldBaseZ = CachedBodyBaseZ + SafeBaseZ + TopSliceOffset;
 	const float WorldApexZ = CachedBodyBaseZ + Shape.Height + TopSliceOffset;
 
 	FPyramidPieceGeometry& Piece = PieceGeometry.Emplace_GetRef();
 	Piece.Kind = EPyramidPieceKind::Apex;
-	Piece.bBelongsToTopSlice = bTopSlice;
+	Piece.bBelongsToTopSlice = TopSliceOffsetMultiplier > 0;
+	Piece.TopSliceVerticalOffset = TopSliceOffset;
 	Piece.OuterPolygon.Reserve(5);
 	Piece.OuterPolygon.Add(FVector(-HalfWidth, -HalfWidth, WorldBaseZ));
 	Piece.OuterPolygon.Add(FVector(HalfWidth, -HalfWidth, WorldBaseZ));
@@ -497,7 +509,8 @@ bool AChunkedDestructiblePyramid::AddFacePiece(
 	int32 ColumnIndex,
 	const TArray<FVector>& OuterPolygon,
 	const FVector& OutwardNormal,
-	bool bBelongsToTopSlice)
+	bool bBelongsToTopSlice,
+	float TopSliceVerticalOffset)
 {
 	if (OuterPolygon.Num() < 3 || !CanAddAnotherPiece())
 	{
@@ -510,6 +523,7 @@ bool AChunkedDestructiblePyramid::AddFacePiece(
 	Piece.RowIndex = RowIndex;
 	Piece.ColumnIndex = ColumnIndex;
 	Piece.bBelongsToTopSlice = bBelongsToTopSlice;
+	Piece.TopSliceVerticalOffset = TopSliceVerticalOffset;
 	Piece.OuterPolygon = OuterPolygon;
 	Piece.InnerPolygon.Reserve(OuterPolygon.Num());
 	for (const FVector& Point : OuterPolygon)
@@ -525,7 +539,7 @@ bool AChunkedDestructiblePyramid::AddFacePiece(
 			};
 			const FVector& HorizontalAxis = HorizontalAxes[FMath::Clamp(FaceIndex, 0, 3)];
 			const float DoorTopZ = CachedBodyBaseZ + Entrance.Height +
-				(bBelongsToTopSlice ? TopSliceSeparationDistance : 0.0f);
+				TopSliceVerticalOffset;
 			const float Horizontal = FVector::DotProduct(Point, HorizontalAxis);
 			if (FMath::IsNearlyEqual(Point.Z, DoorTopZ, GeometryTolerance) &&
 				FMath::Abs(Horizontal) <= Entrance.Width * 0.5f + GeometryTolerance)
@@ -556,7 +570,8 @@ bool AChunkedDestructiblePyramid::AddEntranceClippedFacePieces(
 	int32 ColumnIndex,
 	const TArray<FVector>& OuterPolygon,
 	const FVector& OutwardNormal,
-	bool bBelongsToTopSlice)
+	bool bBelongsToTopSlice,
+	float TopSliceVerticalOffset)
 {
 	TArray<TArray<FVector>> VisiblePolygons;
 	if (!Entrance.bGenerateEntrance || !FaceHasEntrance(FaceIndex))
@@ -617,9 +632,7 @@ bool AChunkedDestructiblePyramid::AddEntranceClippedFacePieces(
 		}
 	}
 
-	const FVector TopSliceOffset = bBelongsToTopSlice
-		? FVector::UpVector * TopSliceSeparationDistance
-		: FVector::ZeroVector;
+	const FVector TopSliceOffset = FVector::UpVector * TopSliceVerticalOffset;
 	for (TArray<FVector>& VisiblePolygon : VisiblePolygons)
 	{
 		for (FVector& Point : VisiblePolygon)
@@ -632,7 +645,8 @@ bool AChunkedDestructiblePyramid::AddEntranceClippedFacePieces(
 			ColumnIndex,
 			VisiblePolygon,
 			OutwardNormal,
-			bBelongsToTopSlice))
+			bBelongsToTopSlice,
+			TopSliceVerticalOffset))
 		{
 			return false;
 		}
@@ -672,6 +686,34 @@ bool AChunkedDestructiblePyramid::FaceHasEntrance(int32 FaceIndex) const
 	default:
 		return FaceIndex == 0;
 	}
+}
+
+int32 AChunkedDestructiblePyramid::GetEffectiveTopSliceCount() const
+{
+	if (!bTopSlice)
+	{
+		return 0;
+	}
+	return TopSliceCount == EChunkedPyramidTopSliceCount::Two ? 2 : 1;
+}
+
+int32 AChunkedDestructiblePyramid::GetTopSliceOffsetMultiplierForLayer(
+	int32 LayerFromTop,
+	int32 TotalLayerCount) const
+{
+	const int32 SliceCount = GetEffectiveTopSliceCount();
+	if (SliceCount <= 0 || LayerFromTop < 0 || TotalLayerCount <= 0)
+	{
+		return 0;
+	}
+
+	// Clamp the interval so every requested slice remains inside the pyramid. A layer above both
+	// cuts crosses two gaps and receives two separation offsets; the middle group crosses one.
+	const int32 MaximumLayersPerSlice = FMath::Max(TotalLayerCount / SliceCount, 1);
+	const int32 LayersPerSlice = FMath::Clamp(
+		TopSliceLayerCount, 1, MaximumLayersPerSlice);
+	const int32 GroupFromTop = LayerFromTop / LayersPerSlice;
+	return FMath::Clamp(SliceCount - GroupFromTop, 0, SliceCount);
 }
 
 int32 AChunkedDestructiblePyramid::GetTopSliceMaterialSlot() const
