@@ -84,10 +84,15 @@ void AChunkedDestructibleHouse::BeginPlay()
 	OnCellDestroyed.AddDynamic(this, &AChunkedDestructibleHouse::HandleHouseCellDestroyed);
 }
 
-void AChunkedDestructibleHouse::EndPlay(const EEndPlayReason::Type EndPlayReason)
+void AChunkedDestructibleHouse::ClearAdditionalRuntimeEffects()
 {
 	ClearDebris();
-	Super::EndPlay(EndPlayReason);
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(StructuralIntegrityTimerHandle);
+	}
+	bIntegrityCheckQueued = false;
+	Super::ClearAdditionalRuntimeEffects();
 }
 
 void AChunkedDestructibleHouse::RebuildHouse(bool bPreserveCellState)
@@ -1264,7 +1269,7 @@ void AChunkedDestructibleHouse::ScheduleStructuralIntegrityCheck()
 		return;
 	}
 	bIntegrityCheckQueued = true;
-	GetWorld()->GetTimerManager().SetTimerForNextTick(
+	StructuralIntegrityTimerHandle = GetWorld()->GetTimerManager().SetTimerForNextTick(
 		FTimerDelegate::CreateWeakLambda(
 			this,
 			[this]()
@@ -1281,22 +1286,20 @@ void AChunkedDestructibleHouse::EvaluateStructuralIntegrity()
 		return;
 	}
 	bEvaluatingIntegrity = true;
-	TSet<int32> SupportedIndices;
+	// Cell indices are dense. A bit per cell avoids a hash entry and allocation per supported block.
+	TBitArray<> SupportedIndices(false, Cells.Num());
 	TArray<int32> OpenSet;
 	OpenSet.Reserve(Cells.Num());
-	for (int32 CellIndex = 0; CellIndex < Cells.Num(); ++CellIndex)
+	for (int32 Y = 0; Y < GridDepthBlocks; ++Y)
 	{
-		if (!Cells[CellIndex].bExists)
+		for (int32 X = 0; X < GridWidthBlocks; ++X)
 		{
-			continue;
-		}
-		int32 X;
-		int32 Y;
-		int32 Z;
-		if (DecodeCell(FromCellIndex(CellIndex), X, Y, Z) && Z == 0)
-		{
-			SupportedIndices.Add(CellIndex);
-			OpenSet.Add(CellIndex);
+			const int32 CellIndex = ToCellIndex(EncodeCell(X, Y, 0));
+			if (Cells.IsValidIndex(CellIndex) && Cells[CellIndex].bExists)
+			{
+				SupportedIndices[CellIndex] = true;
+				OpenSet.Add(CellIndex);
+			}
 		}
 	}
 
@@ -1323,9 +1326,9 @@ void AChunkedDestructibleHouse::EvaluateStructuralIntegrity()
 				continue;
 			}
 			const int32 NeighbourIndex = ToCellIndex(Neighbour);
-			if (Cells[NeighbourIndex].bExists && !SupportedIndices.Contains(NeighbourIndex))
+			if (Cells[NeighbourIndex].bExists && !SupportedIndices[NeighbourIndex])
 			{
-				SupportedIndices.Add(NeighbourIndex);
+				SupportedIndices[NeighbourIndex] = true;
 				OpenSet.Add(NeighbourIndex);
 			}
 		}
@@ -1338,7 +1341,7 @@ void AChunkedDestructibleHouse::EvaluateStructuralIntegrity()
 	int32 QueuedCount = 0;
 	for (int32 CellIndex = 0; CellIndex < Cells.Num(); ++CellIndex)
 	{
-		if (Cells[CellIndex].bExists && Cells[CellIndex].bDestructible && !SupportedIndices.Contains(CellIndex))
+		if (Cells[CellIndex].bExists && Cells[CellIndex].bDestructible && !SupportedIndices[CellIndex])
 		{
 			if (QueueCellDestruction(CellIndex, FMath::FRandRange(MinDelay, MaxDelay), true))
 			{

@@ -145,6 +145,9 @@ class MYPROJECT6_API AChunkedDestructibleFloor : public AActor
 {
 	GENERATED_BODY()
 	friend class FDestructibleMusicAnimationTest;
+	friend class FDestructibleQueueTest;
+	friend class FDestructibleCollisionTest;
+	friend class FDestructibleStructureTest;
 
 public:
 	AChunkedDestructibleFloor();
@@ -808,6 +811,8 @@ protected:
 		TFunctionRef<void(int32, float)> CellFunction);
 
 	bool QueueCellDestruction(int32 CellIndex, float Delay, bool bRadial);
+	void CancelQueuedDestruction(int32 CellIndex);
+	bool ApplyDamageToCell(FIntPoint Cell, float DamageAmount);
 	void ProcessQueuedDestructions(double CurrentTime);
 	virtual void FinalizeDestructionBatch(double CurrentTime) {}
 	virtual void MarkCellChunksDirty(FIntPoint Cell);

@@ -4,6 +4,7 @@
 
 #include "Components/DynamicMeshComponent.h"
 #include "DynamicMesh/DynamicMesh3.h"
+#include "DestructibleBoxCollision.h"
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
 #include "PhysicsEngine/AggregateGeom.h"
 #include "PhysicsEngine/BoxElem.h"
@@ -772,24 +773,10 @@ void AChunkedDestructibleHalloweenPumpkin5::BuildChunkSimpleCollision(
 	const int32 MaxX = FMath::Min(MinX + Side, PumpkinGridCellCount.X);
 	const int32 MaxY = FMath::Min(MinY + Side, PumpkinGridCellCount.Y);
 	const int32 MaxZ = FMath::Min(MinZ + Side, PumpkinGridCellCount.Z);
-	for (int32 Z = MinZ; Z < MaxZ; ++Z)
-	{
-		for (int32 Y = MinY; Y < MaxY; ++Y)
-		{
-			for (int32 X = MinX; X < MaxX; ++X)
-			{
-				if (!CellExists3D(X, Y, Z))
-				{
-					continue;
-				}
-				FKBoxElem& Box = OutCollision.BoxElems.Emplace_GetRef(
-					static_cast<float>(BlockDimensions.X),
-					static_cast<float>(BlockDimensions.Y),
-					static_cast<float>(BlockDimensions.Z));
-				Box.Center = GetPhysicalCellLocalCenter(X, Y, Z);
-			}
-		}
-	}
+	DestructibleCollision::AppendBoxRuns(
+		OutCollision, FIntVector(MinX, MinY, MinZ), FIntVector(MaxX, MaxY, MaxZ),
+		BlockDimensions, BlockSpacing, FVector(PumpkinGridLocalMin.X, PumpkinGridLocalMin.Y, 0.0),
+		[this](int32 X, int32 Y, int32 Z) { return CellExists3D(X, Y, Z); });
 }
 
 void AChunkedDestructibleHalloweenPumpkin5::ConfigureChunkComponent(

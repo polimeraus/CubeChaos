@@ -11,6 +11,7 @@
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
+#include "Engine/EngineBaseTypes.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/ScopeExit.h"
@@ -26,6 +27,7 @@ bool FDestructibleMusicAnimationTest::RunTest(const FString& Parameters)
 {
 	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
 	GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
 	ON_SCOPE_EXIT
 	{
 		World->DestroyWorld(false);

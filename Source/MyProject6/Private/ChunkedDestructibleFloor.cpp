@@ -1902,6 +1902,15 @@ bool AChunkedDestructibleFloor::DamageCellAtWorldLocation(FVector WorldLocation,
 	{
 		return false;
 	}
+	return ApplyDamageToCell(Cell, DamageAmount);
+}
+
+bool AChunkedDestructibleFloor::ApplyDamageToCell(FIntPoint Cell, float DamageAmount)
+{
+	if (DamageAmount <= 0.0f || !IsValidCell(Cell))
+	{
+		return false;
+	}
 
 	const int32 CellIndex = ToCellIndex(Cell);
 	FFloorCellData& CellData = Cells[CellIndex];
@@ -2015,9 +2024,8 @@ bool AChunkedDestructibleFloor::DamageCellFromHit(const FHitResult& Hit, float D
 		return false;
 	}
 
-	// Resolve once from the full hit, then use the unambiguous center of that cell so all existing
-	// health, destructibility, flash, sound and chunk-rebuild behavior stays in one code path.
-	return DamageCellAtWorldLocation(GetCellWorldCenter(Cell), DamageAmount);
+	// The hit already resolved the cell; avoid a second spatial lookup through its world centre.
+	return ApplyDamageToCell(Cell, DamageAmount);
 }
 
 int32 AChunkedDestructibleFloor::ApplyExplosionAtWorldLocation(
@@ -2224,6 +2232,25 @@ bool AChunkedDestructibleFloor::QueueCellDestruction(int32 CellIndex, float Dela
 	PendingCellIndices.Add(CellIndex);
 	SetActorTickEnabled(true);
 	return true;
+}
+
+void AChunkedDestructibleFloor::CancelQueuedDestruction(int32 CellIndex)
+{
+	if (!PendingCellIndices.Remove(CellIndex))
+	{
+		return;
+	}
+	// Removing only the pending flag leaves an old deadline that can consume a later request
+	// for the same cell. Remove that deadline as well, then restore the heap ordering.
+	QueuedDestructions.RemoveAll([CellIndex](const FQueuedCellDestruction& Entry)
+	{
+		return Entry.CellIndex == CellIndex;
+	});
+	QueuedDestructions.Heapify();
+	if (QueuedDestructions.IsEmpty() && !HasActiveMusicEqualizer())
+	{
+		SetActorTickEnabled(false);
+	}
 }
 
 void AChunkedDestructibleFloor::ProcessQueuedDestructions(double CurrentTime)
@@ -2435,7 +2462,8 @@ void AChunkedDestructibleFloor::InitializeMusicEqualizerPool()
 		MusicEqualizerInstances->SetTranslucentSortPriority(50);
 		MusicEqualizerInstances->ComponentTags.Add(TEXT("MusicEqualizer"));
 		MusicEqualizerInstances->SetVisibility(false);
-		MusicEqualizerInstances->SetStaticMesh(FlashInstances->GetStaticMesh());
+		MusicEqualizerInstances->SetStaticMesh(LoadObject<UStaticMesh>(
+			nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
 		MusicEqualizerInstances->RegisterComponent();
 	}
 	if (!MusicReactionMaterialInstance)
@@ -2845,7 +2873,7 @@ bool AChunkedDestructibleFloor::RestoreCell(FIntPoint Cell)
 	const int32 CellIndex = ToCellIndex(Cell);
 	FFloorCellData& CellData = Cells[CellIndex];
 	const bool bChanged = !CellData.bExists || PendingCellIndices.Contains(CellIndex);
-	PendingCellIndices.Remove(CellIndex);
+	CancelQueuedDestruction(CellIndex);
 	CellData.bExists = true;
 	CellData.Health = FMath::Max(DefaultCellHealth, 0.01f);
 	if (bChanged)
@@ -2860,6 +2888,7 @@ void AChunkedDestructibleFloor::RestoreAllCells()
 {
 	QueuedDestructions.Reset();
 	PendingCellIndices.Reset();
+	SetActorTickEnabled(HasActiveMusicEqualizer());
 	for (int32 CellIndex = 0; CellIndex < Cells.Num(); ++CellIndex)
 	{
 		FFloorCellData& CellData = Cells[CellIndex];
@@ -2881,7 +2910,7 @@ bool AChunkedDestructibleFloor::SetCellDestructible(FIntPoint Cell, bool bNewDes
 	Cells[CellIndex].bDestructible = bNewDestructible;
 	if (!bNewDestructible)
 	{
-		PendingCellIndices.Remove(CellIndex);
+		CancelQueuedDestruction(CellIndex);
 	}
 	return true;
 }
@@ -2896,6 +2925,7 @@ void AChunkedDestructibleFloor::SetAllCellsDestructible(bool bNewDestructible)
 	{
 		PendingCellIndices.Reset();
 		QueuedDestructions.Reset();
+		SetActorTickEnabled(HasActiveMusicEqualizer());
 	}
 }
 

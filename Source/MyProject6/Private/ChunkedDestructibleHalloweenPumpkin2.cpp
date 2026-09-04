@@ -5,6 +5,7 @@
 #include "Components/DynamicMeshComponent.h"
 #include "Components/PointLightComponent.h"
 #include "DynamicMesh/DynamicMesh3.h"
+#include "DestructibleBoxCollision.h"
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -692,29 +693,25 @@ void AChunkedDestructibleHalloweenPumpkin2::BuildChunkSimpleCollision(
 	const int32 MinZ = ChunkY * SafeChunkSide;
 	const int32 MaxEncodedX = FMath::Min(MinEncodedX + SafeChunkSide, CellCount.X);
 	const int32 MaxZ = FMath::Min(MinZ + SafeChunkSide, CellCount.Y);
-	for (int32 Z = MinZ; Z < MaxZ; ++Z)
+	const int32 GridWidth = PumpkinGridCellCount.X;
+	if (GridWidth <= 0 || MinEncodedX >= MaxEncodedX)
 	{
-		for (int32 EncodedX = MinEncodedX; EncodedX < MaxEncodedX; ++EncodedX)
-		{
-			const FIntPoint Cell(EncodedX, Z);
-			if (!Cells[ToCellIndex(Cell)].bExists)
-			{
-				continue;
-			}
-			int32 X;
-			int32 Y;
-			int32 DecodedZ;
-			if (!DecodeCell(Cell, X, Y, DecodedZ))
-			{
-				continue;
-			}
-			FKBoxElem& Box = OutCollision.BoxElems.Emplace_GetRef(
-				static_cast<float>(BlockDimensions.X),
-				static_cast<float>(BlockDimensions.Y),
-				static_cast<float>(BlockDimensions.Z));
-			Box.Center = GetPhysicalCellLocalCenter(X, Y, DecodedZ);
-		}
+		return;
 	}
+	const int32 FirstY = MinEncodedX / GridWidth;
+	const int32 LastY = (MaxEncodedX - 1) / GridWidth + 1;
+	const bool bSingleRow = LastY == FirstY + 1;
+	const int32 FirstX = bSingleRow ? MinEncodedX % GridWidth : 0;
+	const int32 LastX = bSingleRow ? (MaxEncodedX - 1) % GridWidth + 1 : GridWidth;
+	DestructibleCollision::AppendBoxRuns(
+		OutCollision, FIntVector(FirstX, FirstY, MinZ), FIntVector(LastX, LastY, MaxZ),
+		BlockDimensions, BlockSpacing, FVector(PumpkinGridLocalMin.X, PumpkinGridLocalMin.Y, 0.0),
+		[this, MinEncodedX, MaxEncodedX](int32 X, int32 Y, int32 Z)
+		{
+			const FIntPoint Cell = EncodeCell(X, Y, Z);
+			return Cell.X >= MinEncodedX && Cell.X < MaxEncodedX &&
+				Cells[ToCellIndex(Cell)].bExists;
+		});
 }
 
 bool AChunkedDestructibleHalloweenPumpkin2::WorldLocationToCell(

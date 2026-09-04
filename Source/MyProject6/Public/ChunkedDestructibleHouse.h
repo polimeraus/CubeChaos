@@ -38,6 +38,7 @@ UCLASS(BlueprintType, Blueprintable)
 class MYPROJECT6_API AChunkedDestructibleHouse : public AChunkedDestructibleFloor
 {
 	GENERATED_BODY()
+	friend class FDestructibleStructureTest;
 
 public:
 	AChunkedDestructibleHouse();
@@ -76,7 +77,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
-	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void ClearAdditionalRuntimeEffects() override;
 
 	/** X=width, Y=depth, Z=wall height, in whole blocks. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible House|Shape", meta = (ClampMin = "3"))
@@ -247,6 +248,7 @@ private:
 
 	TArray<TWeakObjectPtr<UStaticMeshComponent>> ActiveDebrisComponents;
 	bool bIntegrityCheckQueued = false;
+	FTimerHandle StructuralIntegrityTimerHandle;
 	bool bEvaluatingIntegrity = false;
 
 	bool CellExists3D(int32 X, int32 Y, int32 Z) const;
