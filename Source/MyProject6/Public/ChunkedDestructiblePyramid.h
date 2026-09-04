@@ -145,6 +145,7 @@ UCLASS(BlueprintType, Blueprintable, meta = (DisplayName = "Chunked Destructible
 class MYPROJECT6_API AChunkedDestructiblePyramid : public AChunkedDestructibleFloor
 {
 	GENERATED_BODY()
+	friend class FDestructibleMusicAnimationTest;
 
 public:
 	AChunkedDestructiblePyramid();
@@ -237,6 +238,10 @@ protected:
 	virtual bool CalculateLayout() override;
 	virtual bool ShouldCellExistInGeneratedShape(FIntPoint Cell) const override;
 	virtual void BuildChunkMesh(int32 ChunkIndex, UE::Geometry::FDynamicMesh3& OutMesh) const override;
+	virtual FTransform GetMusicEqualizerTransform(FIntPoint Cell) const override;
+	virtual bool UsesMusicPieceMaterials() const override { return true; }
+	virtual void RenderMusicEqualizerCells(TConstArrayView<int32> CellIndices) override;
+	virtual void ClearMusicPieceMaterials() override;
 	virtual void BuildChunkSimpleCollision(int32 ChunkIndex, FKAggregateGeom& OutCollision) const override;
 	virtual void ConfigureChunkComponent(UDynamicMeshComponent* Component) const override;
 	virtual FVector GetCellLocalCenter(FIntPoint Cell) const override;
@@ -249,6 +254,11 @@ protected:
 		EChunkedFloorBlastShape ShapeType,
 		TFunctionRef<void(int32, float)> CellFunction) override;
 	virtual void MarkCellChunksDirty(FIntPoint Cell) override;
+	virtual bool SupportsFixedAnimation() const override { return true; }
+	virtual bool CreateFixedAnimationResources() override;
+	virtual bool HasFixedAnimationResources() const override;
+	virtual void DestroyFixedAnimationResources() override;
+	virtual void RenderFixedAnimation(TConstArrayView<float> AnimationAlphas) override;
 
 public:
 	virtual bool WorldLocationToCell(FVector WorldLocation, FIntPoint& OutCell) const override;
@@ -279,12 +289,35 @@ private:
 	};
 
 	TArray<FPyramidPieceGeometry> PieceGeometry;
+	struct FMusicPieceTriangles
+	{
+		int32 FirstTriangle = 0;
+		TArray<int32> OriginalMaterials;
+	};
+	mutable TMap<int32, FMusicPieceTriangles> MusicPieceTriangles;
+	TSet<int32> MusicHighlightedCells;
+	int32 GetMusicMaterialSlot() const;
 	float CachedBodyBaseZ = 0.0f;
 	float CachedOverallBaseWidth = 0.0f;
 	float CachedOverallHeight = 0.0f;
 	int32 CachedPyramidPieceCount = 0;
 	int32 CachedStepPieceCount = 0;
 	int32 CachedInteriorFloorPieceCount = 0;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UDynamicMeshComponent> PyramidAnimationComponent;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> PyramidAnimationMaterialInstance;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UDynamicMeshComponent>> PyramidAnimationRowComponents;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UMaterialInstanceDynamic>> PyramidAnimationRowMaterialInstances;
+
+	TArray<TArray<int32>> PyramidAnimationCellsByRow;
+	TArray<int32> PyramidAnimationRowAssignments;
 
 	bool RebuildPieceGeometry();
 	bool AddPyramidFacePieces();
@@ -328,4 +361,14 @@ private:
 		UE::Geometry::FDynamicMesh3& Mesh,
 		const FPyramidPieceGeometry& Piece,
 		int32 MaterialIndex) const;
+	void CreatePyramidAnimationComponent();
+	void CreatePyramidSineRowAnimationComponents();
+	void BuildPyramidAnimationRows();
+	void AppendPyramidAnimationPieceSurface(
+		UE::Geometry::FDynamicMesh3& Mesh,
+		int32 CellIndex,
+		float SurfaceOffset) const;
+	void UpdatePyramidBottomToTopGlowWaves(TConstArrayView<float> AnimationAlphas);
+	void UpdatePyramidBottomToTopSineRows(TConstArrayView<float> AnimationAlphas);
+	void UpdatePyramidRisingSpiralGlow(TConstArrayView<float> AnimationAlphas);
 };

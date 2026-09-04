@@ -29,16 +29,6 @@ enum class EConeStructureSpiralDestructionMode : uint8
 	OneTrianglePerHit UMETA(DisplayName = "One Triangle Slice Per Hit")
 };
 
-/** Selects the material animation played across the cone shell. */
-UENUM(BlueprintType)
-enum class EConeStructureAnimationType : uint8
-{
-	None UMETA(DisplayName = "None"),
-	BottomToTopGlowWave UMETA(DisplayName = "Bottom To Top Glow Wave"),
-	BottomToTopSineRows UMETA(DisplayName = "Bottom To Top Sine Rows"),
-	RisingSpiralGlow UMETA(DisplayName = "Rising Candy Cane Spiral Glow")
-};
-
 /** Selects the non-destructible ornament placed above the cone tip. */
 UENUM(BlueprintType)
 enum class EConeStructureApexStyle : uint8
@@ -138,11 +128,11 @@ public:
 	void SetPlatformSpeedBoost(bool bEnabled, float NewSpeedMultiplier = 2.0f);
 
 	/** Starts the selected cone material animation from the beginning. */
-	UFUNCTION(BlueprintCallable, Category = "Destructible Cone Structure|Animation")
+	UFUNCTION(BlueprintCallable, Category = "Animation|Fixed")
 	void PlayConeAnimation();
 
 	/** Stops the cone material animation and restores the unobstructed normal material. */
-	UFUNCTION(BlueprintCallable, Category = "Destructible Cone Structure|Animation")
+	UFUNCTION(BlueprintCallable, Category = "Animation|Fixed")
 	void StopConeAnimation();
 
 	/** Configures the repeated arched openings and rebuilds the structure. */
@@ -443,119 +433,17 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible Cone Structure|Debris", meta = (ClampMin = "0", ClampMax = "1024"))
 	int32 MaxRuntimeDebrisPieces = 48;
 
-	/** Material animation played on top of the normal cone shell. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation", meta = (DisplayName = "Animation Type"))
-	EConeStructureAnimationType ConeAnimationType = EConeStructureAnimationType::BottomToTopGlowWave;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation", meta = (EditCondition = "ConeAnimationType != EConeStructureAnimationType::None"))
-	bool bAutoPlayConeAnimation = true;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation", meta = (EditCondition = "ConeAnimationType != EConeStructureAnimationType::None"))
-	bool bLoopConeAnimation = true;
-
-	/** Allows a new wave to start before earlier waves have finished. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation", meta = (DisplayName = "Allow Overlapping Waves", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None && ConeAnimationType != EConeStructureAnimationType::RisingSpiralGlow && bLoopConeAnimation"))
-	bool bAllowOverlappingConeWaves = true;
-
-	/** Time between wave starts. Set this below the animation duration to overlap multiple waves. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation", meta = (DisplayName = "Wave Start Interval", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None && ConeAnimationType != EConeStructureAnimationType::RisingSpiralGlow && bLoopConeAnimation && bAllowOverlappingConeWaves", EditConditionHides, ClampMin = "0.05", Units = "s"))
-	float ConeWaveStartInterval = 1.0f;
-
-	/** Safety and performance cap for simultaneously active waves. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible Cone Structure|Animation", meta = (DisplayName = "Maximum Concurrent Waves", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None && ConeAnimationType != EConeStructureAnimationType::RisingSpiralGlow && bLoopConeAnimation && bAllowOverlappingConeWaves", EditConditionHides, ClampMin = "1", ClampMax = "32"))
-	int32 MaxConcurrentConeWaves = 8;
-
-	/** Time taken by the glow band to travel completely from the base to the apex. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Bottom To Top Glow Wave", meta = (DisplayName = "Wave Duration", EditCondition = "ConeAnimationType == EConeStructureAnimationType::BottomToTopGlowWave", EditConditionHides, ClampMin = "0.05", Units = "s"))
-	float GlowWaveDuration = 2.5f;
-
-	/** Vertical height of the glowing band, measured using the cone's block pitch. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Bottom To Top Glow Wave", meta = (DisplayName = "Wave Band Height (Blocks)", EditCondition = "ConeAnimationType == EConeStructureAnimationType::BottomToTopGlowWave", EditConditionHides, ClampMin = "0.05", ClampMax = "64.0"))
-	float GlowWaveBandHeightBlocks = 3.0f;
-
-	/** Pause after a completed wave before a looping animation starts again. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Bottom To Top Glow Wave", meta = (DisplayName = "Wave Loop Delay", EditCondition = "ConeAnimationType == EConeStructureAnimationType::BottomToTopGlowWave && bLoopConeAnimation", EditConditionHides, ClampMin = "0.0", Units = "s"))
-	float GlowWaveLoopDelay = 0.35f;
-
-	/** Time for the candy-cane helix to rise by one complete stripe spacing. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Spiral Duration", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides, ClampMin = "0.05", Units = "s"))
-	float SpiralGlowDuration = 4.0f;
-
-	/** Number of complete rotations made by each glowing stripe from base to apex. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Spiral Turns", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides, ClampMin = "0.1", ClampMax = "32.0"))
-	float SpiralGlowTurns = 5.0f;
-
-	/** Angular width of each helical stripe on the cone surface. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Stripe Width (Degrees)", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides, ClampMin = "1.0", ClampMax = "350.0", Units = "deg"))
-	float SpiralGlowStripeWidthDegrees = 90.0f;
-
-	/** Number of evenly spaced parallel helixes produced by each animation wave. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Spiral Strands Per Wave", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides, ClampMin = "1", ClampMax = "8"))
-	int32 SpiralGlowStrandCount = 1;
-
-	/** Rotates the entire spiral pattern around the cone before animation begins. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Start Angle", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides, ClampMin = "-360.0", ClampMax = "360.0", Units = "deg"))
-	float SpiralGlowStartAngleDegrees = 0.0f;
-
-	/** Reverses the diagonal slant and winding direction of the helix. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Reverse Spiral Direction", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides))
-	bool bReverseSpiralGlowDirection = false;
-
-	/** Keeps the ribbon clear of the cone surface and prevents depth flickering. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible Cone Structure|Animation|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Surface Offset", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides, ClampMin = "0.5", ClampMax = "20.0", Units = "cm"))
-	float SpiralGlowSurfaceOffset = 3.0f;
-
-	/** Uses a solid opaque material for clean edges instead of a translucent particle material. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Use Crisp Opaque Material", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides))
-	bool bUseCrispOpaqueSpiralMaterial = true;
-
-	/** Opaque material used by the crisp spiral mode. It should expose a Base Color parameter. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Crisp Opaque Material", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow && bUseCrispOpaqueSpiralMaterial", EditConditionHides))
-	TObjectPtr<UMaterialInterface> CrispSpiralMaterial;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Spiral Loop Delay", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow && bLoopConeAnimation", EditConditionHides, ClampMin = "0.0", Units = "s"))
-	float SpiralGlowLoopDelay = 0.0f;
-
-	/** Bright material drawn by the selected animation. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Glow Material", meta = (DisplayName = "Animation Glow Material", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None", EditConditionHides))
-	TObjectPtr<UMaterialInterface> GlowWaveMaterial;
-
-	/** Sent to common color parameters and to the optional named Vector Parameter below. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Glow Material", meta = (DisplayName = "Animation Glow Color", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None", EditConditionHides, HideAlphaChannel))
-	FLinearColor GlowWaveColor = FLinearColor(0.05f, 0.55f, 1.0f, 1.0f);
-
-	/** Peak value sent to common intensity parameters and to the optional named Scalar Parameter. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Glow Material", meta = (DisplayName = "Peak Glow Intensity", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None", EditConditionHides, ClampMin = "0.0"))
-	float GlowWaveIntensity = 25.0f;
-
-	/** Optional Vector Parameter in the selected material. Connect it to Base Color or Emissive Color. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible Cone Structure|Animation|Glow Material", meta = (DisplayName = "Color Parameter Name", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None", EditConditionHides))
-	FName GlowWaveColorParameterName = TEXT("WaveColor");
-
-	/** Optional Scalar Parameter in the selected material. Multiply Emissive Color by this value. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Destructible Cone Structure|Animation|Glow Material", meta = (DisplayName = "Intensity Parameter Name", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None", EditConditionHides))
-	FName GlowWaveIntensityParameterName = TEXT("WaveIntensity");
-
-	/** Total time from the first bottom-row pulse to the last top-row pulse fading out. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Bottom To Top Sine Rows", meta = (DisplayName = "Sine Rows Duration", EditCondition = "ConeAnimationType == EConeStructureAnimationType::BottomToTopSineRows", EditConditionHides, ClampMin = "0.05", Units = "s"))
-	float SineRowsDuration = 3.5f;
-
-	/** Number of neighbouring rows that overlap with phase-shifted sine intensities. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Bottom To Top Sine Rows", meta = (DisplayName = "Simultaneous Glowing Rows", EditCondition = "ConeAnimationType == EConeStructureAnimationType::BottomToTopSineRows", EditConditionHides, ClampMin = "2", ClampMax = "32"))
-	int32 SineRowsSimultaneousRowCount = 5;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destructible Cone Structure|Animation|Bottom To Top Sine Rows", meta = (DisplayName = "Sine Rows Loop Delay", EditCondition = "ConeAnimationType == EConeStructureAnimationType::BottomToTopSineRows && bLoopConeAnimation", EditConditionHides, ClampMin = "0.0", Units = "s"))
-	float SineRowsLoopDelay = 0.35f;
-
 	virtual bool CalculateLayout() override;
 	virtual bool ShouldCellExistInGeneratedShape(FIntPoint Cell) const override;
 	virtual void BuildChunkMesh(int32 ChunkIndex, UE::Geometry::FDynamicMesh3& OutMesh) const override;
+	virtual FTransform GetMusicEqualizerTransform(FIntPoint Cell) const override;
 	virtual void BuildChunkSimpleCollision(int32 ChunkIndex, FKAggregateGeom& OutCollision) const override;
 	virtual void ConfigureChunkComponent(UDynamicMeshComponent* Component) const override;
 	virtual void ClearAdditionalRuntimeEffects() override;
 	virtual FVector GetCellLocalCenter(FIntPoint Cell) const override;
 	virtual FTransform GetCellFlashTransform(FIntPoint Cell) const override;
 	virtual void SpawnCellFlash(FIntPoint Cell, double CurrentTime) override;
+	virtual void FinalizeDestructionBatch(double CurrentTime) override;
 	virtual bool ResolveExistingCellFromHit(const FHitResult& Hit, FIntPoint& OutCell) const override;
 	virtual int32 EvaluatePatternMaterial(FIntPoint Cell) const override;
 	virtual int32 SelectCellsInRadius(
@@ -564,6 +452,11 @@ protected:
 		EChunkedFloorBlastShape Shape,
 		TFunctionRef<void(int32, float)> CellFunction) override;
 	virtual void MarkCellChunksDirty(FIntPoint Cell) override;
+	virtual bool SupportsFixedAnimation() const override { return true; }
+	virtual bool CreateFixedAnimationResources() override;
+	virtual bool HasFixedAnimationResources() const override;
+	virtual void DestroyFixedAnimationResources() override;
+	virtual void RenderFixedAnimation(TConstArrayView<float> AnimationAlphas) override;
 
 private:
 	int32 GridDiameterBlocks = 1;
@@ -596,14 +489,11 @@ private:
 	double CurrentSurfaceFlashTime = -TNumericLimits<double>::Max();
 	mutable TSet<FIntPoint> SurfaceFlashCellFilter;
 	FTimerHandle CharacterSpeedBoostTimerHandle;
-	FTimerHandle ConeAnimationTimerHandle;
 	TMap<TWeakObjectPtr<ACharacter>, float> CharacterBaseWalkSpeeds;
 	TMap<TWeakObjectPtr<ACharacter>, float> CharacterAppliedWalkSpeeds;
 	TSet<int32> DestroyedSpiralSegmentIndices;
 	TSet<int32> DestroyedSpiralTriangleSliceIndices;
 	bool bSpiralCollisionReadyForAsyncUpdates = false;
-	double ConeAnimationStartTime = 0.0;
-	bool bConeAnimationPlaying = false;
 	bool bConeAnimationGeometryDirty = false;
 	TArray<int32> ConeAnimationRowAssignments;
 
@@ -714,14 +604,9 @@ private:
 	void RestoreCharacterWalkSpeed(TWeakObjectPtr<ACharacter> Character);
 	void CreateConeAnimationComponent();
 	void CreateSineRowAnimationComponents();
-	UMaterialInstanceDynamic* CreateConeAnimationMaterialInstance();
-	void ApplyConeAnimationMaterialParameters(
-		UMaterialInstanceDynamic* MaterialInstance,
-		float NormalizedIntensity) const;
-	void UpdateConeAnimation();
-	void UpdateBottomToTopGlowWaves(const TArray<float>& AnimationAlphas);
-	void UpdateBottomToTopSineRows(const TArray<float>& AnimationAlphas);
-	void UpdateRisingSpiralGlowWaves(const TArray<float>& AnimationAlphas);
+	void UpdateBottomToTopGlowWaves(TConstArrayView<float> AnimationAlphas);
+	void UpdateBottomToTopSineRows(TConstArrayView<float> AnimationAlphas);
+	void UpdateRisingSpiralGlowWaves(TConstArrayView<float> AnimationAlphas);
 	int32 GetEffectiveConeChunkSideLength() const;
 	int32 GetEffectiveCircularSegments() const;
 	int32 GetEffectiveDebrisLimit() const;

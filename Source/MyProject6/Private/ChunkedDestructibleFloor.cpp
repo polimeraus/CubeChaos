@@ -12,6 +12,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "MusicReactionWorldSubsystem.h"
 #include "PhysicsEngine/AggregateGeom.h"
 #include "PhysicsEngine/BoxElem.h"
 #include "Sound/SoundAttenuation.h"
@@ -235,8 +236,8 @@ void AChunkedDestructibleFloor::AppendMeshTriangle(
 AChunkedDestructibleFloor::AChunkedDestructibleFloor()
 {
 	PrimaryActorTick.bCanEverTick = true;
-	// The floor only needs an Actor tick while a delayed destruction ripple is active. Flash
-	// expiry is timer-driven, so idle floors should contribute no per-frame tick overhead.
+	// Tick only while a delayed destruction ripple or equalizer column is active. Flash expiry is
+	// timer-driven, so idle structures still contribute no per-frame actor-tick overhead.
 	PrimaryActorTick.bStartWithTickEnabled = false;
 
 	FloorRoot = CreateDefaultSubobject<USceneComponent>(TEXT("FloorRoot"));
@@ -277,6 +278,14 @@ AChunkedDestructibleFloor::AChunkedDestructibleFloor()
 	if (FlashMaterialFinder.Succeeded())
 	{
 		FlashMaterial = FlashMaterialFinder.Object;
+	}
+	GlowWaveMaterial = FlashMaterial;
+
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> CrispAnimationMaterialFinder(
+		TEXT("/Game/LevelPrototyping/Materials/M_FlatCol.M_FlatCol"));
+	if (CrispAnimationMaterialFinder.Succeeded())
+	{
+		CrispSpiralMaterial = CrispAnimationMaterialFinder.Object;
 	}
 
 	static ConstructorHelpers::FObjectFinder<USoundBase> DestroySoundFinder(
@@ -331,6 +340,10 @@ void AChunkedDestructibleFloor::PostEditChangeProperty(
 	FPropertyChangedEvent& PropertyChangedEvent)
 {
 	SyncLegacyFieldsFromSpiralSettings();
+	if (PropertyChangedEvent.GetPropertyName() == GET_MEMBER_NAME_CHECKED(AChunkedDestructibleFloor, bReactToMusic))
+	{
+		SetReactToMusic(bReactToMusic);
+	}
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 }
 #endif
@@ -360,12 +373,27 @@ void AChunkedDestructibleFloor::BeginPlay()
 	Super::BeginPlay();
 
 	// Runtime-spawned and cooked actors both get a clean authoritative grid here.
+	MusicReactionRandomStream.Initialize(HashCombineFast(
+		static_cast<uint32>(MusicReactionRandomSeed),
+		static_cast<uint32>(GetUniqueID())));
 	GenerateFloor(false);
 	SetActorTickEnabled(false);
+	if (!bFixedAnimationPlaying && bAutoPlayConeAnimation &&
+		ConeAnimationType != EConeStructureAnimationType::None)
+	{
+		PlayFixedAnimation();
+	}
 }
 
 void AChunkedDestructibleFloor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (UWorld* World = GetWorld())
+	{
+		if (UMusicReactionWorldSubsystem* Music = World->GetSubsystem<UMusicReactionWorldSubsystem>())
+		{
+			Music->UnregisterReactionActor(this);
+		}
+	}
 	ClearRuntimeEffects();
 	Super::EndPlay(EndPlayReason);
 }
@@ -376,6 +404,10 @@ void AChunkedDestructibleFloor::Tick(float DeltaSeconds)
 
 	const double CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
 	ProcessQueuedDestructions(CurrentTime);
+	if (HasActiveMusicEqualizer())
+	{
+		UpdateMusicEqualizer(CurrentTime);
+	}
 }
 
 bool AChunkedDestructibleFloor::CalculateLayout()
@@ -460,6 +492,7 @@ bool AChunkedDestructibleFloor::CalculateLayout()
 
 void AChunkedDestructibleFloor::GenerateFloor(bool bPreserveCellState)
 {
+	const bool bRestartFixedAnimation = bFixedAnimationPlaying;
 	const FIntPoint PreviousCellCount = CellCount;
 	TArray<FFloorCellData> PreviousCells;
 	if (bPreserveCellState)
@@ -514,7 +547,23 @@ void AChunkedDestructibleFloor::GenerateFloor(bool bPreserveCellState)
 	ClearChunkComponents();
 	CreateChunkComponents();
 	RefreshFlashMaterial();
+	RefreshMusicReactionMaterial();
 	RebuildAllChunks();
+	if (HasActorBegunPlay() && bReactToMusic)
+	{
+		BuildMusicEqualizerLayout();
+		InitializeMusicEqualizerPool();
+		if (UMusicReactionWorldSubsystem* Music = GetWorld()->GetSubsystem<UMusicReactionWorldSubsystem>())
+		{
+			Music->RegisterReactionActor(this);
+		}
+	}
+	if (HasActorBegunPlay() && SupportsFixedAnimation() &&
+		(bRestartFixedAnimation || bAutoPlayConeAnimation) &&
+		ConeAnimationType != EConeStructureAnimationType::None)
+	{
+		PlayFixedAnimation();
+	}
 	OnFloorRegenerated.Broadcast();
 }
 
@@ -611,6 +660,347 @@ void AChunkedDestructibleFloor::ConfigureDestructionFlash(
 	FlashIntensity = FMath::Max(NewFlashIntensity, 0.0f);
 	FlashDuration = FMath::Max(NewFlashDuration, 0.0f);
 	RefreshFlashMaterial();
+	RefreshMusicReactionMaterial();
+}
+
+void AChunkedDestructibleFloor::ClampFixedAnimationSettings()
+{
+	GlowWaveDuration = FMath::Max(GlowWaveDuration, 0.05f);
+	GlowWaveBandHeightBlocks = FMath::Clamp(GlowWaveBandHeightBlocks, 0.05f, 64.0f);
+	GlowWaveLoopDelay = FMath::Max(GlowWaveLoopDelay, 0.0f);
+	SpiralGlowDuration = FMath::Max(SpiralGlowDuration, 0.05f);
+	SpiralGlowTurns = FMath::Clamp(SpiralGlowTurns, 0.1f, 32.0f);
+	SpiralGlowStripeWidthDegrees = FMath::Clamp(
+		SpiralGlowStripeWidthDegrees, 1.0f, 350.0f);
+	SpiralGlowStrandCount = FMath::Clamp(SpiralGlowStrandCount, 1, 8);
+	SpiralGlowStartAngleDegrees = FMath::UnwindDegrees(SpiralGlowStartAngleDegrees);
+	SpiralGlowSurfaceOffset = FMath::Clamp(SpiralGlowSurfaceOffset, 0.5f, 20.0f);
+	SpiralGlowLoopDelay = FMath::Max(SpiralGlowLoopDelay, 0.0f);
+	SineRowsDuration = FMath::Max(SineRowsDuration, 0.05f);
+	SineRowsSimultaneousRowCount = FMath::Clamp(SineRowsSimultaneousRowCount, 2, 32);
+	SineRowsLoopDelay = FMath::Max(SineRowsLoopDelay, 0.0f);
+	ConeWaveStartInterval = FMath::Max(ConeWaveStartInterval, 0.05f);
+	MaxConcurrentConeWaves = FMath::Clamp(MaxConcurrentConeWaves, 1, 32);
+}
+
+void AChunkedDestructibleFloor::PlayFixedAnimation()
+{
+	StopFixedAnimation();
+	if (!SupportsFixedAnimation() || !GetWorld() ||
+		ConeAnimationType == EConeStructureAnimationType::None)
+	{
+		return;
+	}
+
+	ClampFixedAnimationSettings();
+	if (!CreateFixedAnimationResources() || !HasFixedAnimationResources())
+	{
+		DestroyFixedAnimationResources();
+		return;
+	}
+
+	bFixedAnimationPlaying = true;
+	FixedAnimationStartTime = GetWorld()->GetTimeSeconds();
+	GetWorld()->GetTimerManager().SetTimer(
+		FixedAnimationTimerHandle,
+		this,
+		&AChunkedDestructibleFloor::UpdateFixedAnimation,
+		ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow
+			? 1.0f / 20.0f
+			: 1.0f / 30.0f,
+		true);
+	UpdateFixedAnimation();
+}
+
+void AChunkedDestructibleFloor::StopFixedAnimation()
+{
+	bFixedAnimationPlaying = false;
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(FixedAnimationTimerHandle);
+	}
+	DestroyFixedAnimationResources();
+}
+
+void AChunkedDestructibleFloor::UpdateFixedAnimation()
+{
+	if (!bFixedAnimationPlaying || !GetWorld() || !HasFixedAnimationResources() ||
+		ConeAnimationType == EConeStructureAnimationType::None)
+	{
+		StopFixedAnimation();
+		return;
+	}
+
+	float AnimationDuration = GlowWaveDuration;
+	float AnimationLoopDelay = GlowWaveLoopDelay;
+	switch (ConeAnimationType)
+	{
+	case EConeStructureAnimationType::BottomToTopSineRows:
+		AnimationDuration = SineRowsDuration;
+		AnimationLoopDelay = SineRowsLoopDelay;
+		break;
+	case EConeStructureAnimationType::RisingSpiralGlow:
+		AnimationDuration = SpiralGlowDuration;
+		AnimationLoopDelay = SpiralGlowLoopDelay;
+		break;
+	case EConeStructureAnimationType::BottomToTopGlowWave:
+	case EConeStructureAnimationType::None:
+	default:
+		break;
+	}
+
+	const float SafeDuration = FMath::Max(AnimationDuration, 0.05f);
+	const double ElapsedTime = FMath::Max(
+		GetWorld()->GetTimeSeconds() - FixedAnimationStartTime,
+		0.0);
+	TArray<float, TInlineAllocator<32>> AnimationAlphas;
+	if (bLoopConeAnimation && bAllowOverlappingConeWaves &&
+		ConeAnimationType != EConeStructureAnimationType::RisingSpiralGlow)
+	{
+		const float SafeStartInterval = FMath::Max(ConeWaveStartInterval, 0.05f);
+		const int32 LatestWaveIndex = FMath::Max(
+			FMath::FloorToInt(static_cast<float>(ElapsedTime) / SafeStartInterval), 0);
+		const int32 FirstWaveIndex = FMath::Max(
+			LatestWaveIndex - FMath::Clamp(MaxConcurrentConeWaves, 1, 32) + 1, 0);
+		for (int32 WaveIndex = FirstWaveIndex; WaveIndex <= LatestWaveIndex; ++WaveIndex)
+		{
+			const double WaveAge = ElapsedTime - WaveIndex * SafeStartInterval;
+			if (WaveAge >= 0.0 && WaveAge < SafeDuration)
+			{
+				AnimationAlphas.Add(FMath::Clamp(
+					static_cast<float>(WaveAge) / SafeDuration, 0.0f, 1.0f));
+			}
+		}
+	}
+	else if (bLoopConeAnimation)
+	{
+		const float CycleDuration = SafeDuration + FMath::Max(AnimationLoopDelay, 0.0f);
+		const float CycleTime = FMath::Fmod(static_cast<float>(ElapsedTime), CycleDuration);
+		if (CycleTime < SafeDuration)
+		{
+			AnimationAlphas.Add(FMath::Clamp(CycleTime / SafeDuration, 0.0f, 1.0f));
+		}
+	}
+	else
+	{
+		if (ElapsedTime >= SafeDuration)
+		{
+			StopFixedAnimation();
+			return;
+		}
+		AnimationAlphas.Add(FMath::Clamp(
+			static_cast<float>(ElapsedTime) / SafeDuration, 0.0f, 1.0f));
+	}
+
+	if (!AnimationAlphas.IsEmpty())
+	{
+		// At exactly zero both the clipped glow band and sin(0) can be completely invisible.
+		// Starting a fraction into the first row removes that blank frame without changing timing.
+		AnimationAlphas[0] = FMath::Max(AnimationAlphas[0], 0.01f);
+	}
+	RenderFixedAnimation(MakeArrayView(AnimationAlphas));
+}
+
+UMaterialInstanceDynamic* AChunkedDestructibleFloor::CreateFixedAnimationMaterialInstance()
+{
+	UMaterialInterface* ParentMaterial = nullptr;
+	if (ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow &&
+		bUseCrispOpaqueSpiralMaterial && CrispSpiralMaterial)
+	{
+		ParentMaterial = CrispSpiralMaterial.Get();
+	}
+	if (!ParentMaterial)
+	{
+		ParentMaterial = GlowWaveMaterial
+			? GlowWaveMaterial.Get()
+			: (FlashMaterial ? FlashMaterial.Get() : UMaterial::GetDefaultMaterial(MD_Surface));
+	}
+	UMaterialInstanceDynamic* MaterialInstance = UMaterialInstanceDynamic::Create(ParentMaterial, this);
+	ApplyFixedAnimationMaterialParameters(MaterialInstance, 1.0f);
+	return MaterialInstance;
+}
+
+void AChunkedDestructibleFloor::ApplyFixedAnimationMaterialParameters(
+	UMaterialInstanceDynamic* MaterialInstance,
+	float NormalizedIntensity) const
+{
+	if (!MaterialInstance)
+	{
+		return;
+	}
+	const float EffectiveIntensity = FMath::Max(GlowWaveIntensity, 0.0f) *
+		FMath::Clamp(NormalizedIntensity, 0.0f, 1.0f);
+	const FLinearColor EmissiveColor = GlowWaveColor * EffectiveIntensity;
+	MaterialInstance->SetVectorParameterValue(TEXT("Color"), EmissiveColor);
+	MaterialInstance->SetVectorParameterValue(TEXT("Base Color"), GlowWaveColor);
+	MaterialInstance->SetVectorParameterValue(TEXT("BaseColor"), GlowWaveColor);
+	MaterialInstance->SetVectorParameterValue(TEXT("GlowColor"), EmissiveColor);
+	MaterialInstance->SetVectorParameterValue(TEXT("EmissiveColor"), EmissiveColor);
+	MaterialInstance->SetScalarParameterValue(TEXT("Alpha"), NormalizedIntensity);
+	MaterialInstance->SetScalarParameterValue(TEXT("Intensity"), EffectiveIntensity);
+	MaterialInstance->SetScalarParameterValue(TEXT("GlowIntensity"), EffectiveIntensity);
+	MaterialInstance->SetScalarParameterValue(TEXT("EmissiveIntensity"), EffectiveIntensity);
+	if (!GlowWaveColorParameterName.IsNone())
+	{
+		MaterialInstance->SetVectorParameterValue(GlowWaveColorParameterName, GlowWaveColor);
+	}
+	if (!GlowWaveIntensityParameterName.IsNone())
+	{
+		MaterialInstance->SetScalarParameterValue(
+			GlowWaveIntensityParameterName, EffectiveIntensity);
+	}
+}
+
+int32 AChunkedDestructibleFloor::CalculateFixedSineComponentCount(
+	int32 AvailableRowCount) const
+{
+	int32 ConcurrentWaveBudget = 1;
+	if (bLoopConeAnimation && bAllowOverlappingConeWaves)
+	{
+		ConcurrentWaveBudget = FMath::Clamp(
+			FMath::CeilToInt(FMath::Max(SineRowsDuration, 0.05f) /
+				FMath::Max(ConeWaveStartInterval, 0.05f)) + 1,
+			1,
+			FMath::Clamp(MaxConcurrentConeWaves, 1, 32));
+	}
+	return FMath::Clamp(
+		SineRowsSimultaneousRowCount * ConcurrentWaveBudget,
+		2,
+		FMath::Max(AvailableRowCount, 2));
+}
+
+void AChunkedDestructibleFloor::SetReactToMusic(bool bEnabled)
+{
+	bReactToMusic = bEnabled;
+	if (!bEnabled)
+	{
+		ClearMusicEqualizer();
+	}
+	else if (HasActorBegunPlay())
+	{
+		InitializeMusicEqualizerPool();
+		BuildMusicEqualizerLayout();
+	}
+	if (HasActorBegunPlay() && GetWorld())
+	{
+		if (UMusicReactionWorldSubsystem* Music = GetWorld()->GetSubsystem<UMusicReactionWorldSubsystem>())
+		{
+			if (bEnabled)
+			{
+				Music->RegisterReactionActor(this);
+			}
+			else
+			{
+				Music->UnregisterReactionActor(this);
+			}
+		}
+	}
+}
+
+void AChunkedDestructibleFloor::TriggerMusicReaction(
+	float NormalizedStrength,
+	bool bIsOnset)
+{
+	if (!bReactToMusic || Cells.IsEmpty() || !GetWorld() ||
+		(bIsOnset && !bReactToOnsets) || (!bIsOnset && !bReactToBPM))
+	{
+		return;
+	}
+
+	const float ClampedStrength = FMath::Clamp(NormalizedStrength, 0.0f, 1.0f);
+	float Response = ClampedStrength;
+	int32 RequestedColumnCount = FMath::Clamp(BPMBeatCellCount, 1, 16);
+	if (bIsOnset)
+	{
+		const float Threshold = FMath::Clamp(MusicOnsetThreshold, 0.0f, 0.99f);
+		if (ClampedStrength < Threshold)
+		{
+			return;
+		}
+		Response = FMath::Clamp(
+			(ClampedStrength - Threshold) / FMath::Max(1.0f - Threshold, KINDA_SMALL_NUMBER),
+			0.0f,
+			1.0f);
+		const int32 MinimumCount = FMath::Clamp(WeakOnsetCellCount, 1, 32);
+		const int32 MaximumCount = FMath::Clamp(
+			StrongOnsetCellCount, MinimumCount, 32);
+		RequestedColumnCount = FMath::RoundToInt(FMath::Lerp(
+			static_cast<float>(MinimumCount),
+			static_cast<float>(MaximumCount),
+			FMath::Pow(Response, 0.7f)));
+	}
+
+	const int32 DesiredColumns = FMath::Clamp(MusicEqualizerColumnCount, 4, 32);
+	const int32 DesiredRows = FMath::Clamp(MusicEqualizerRowCount, 8, 48);
+	if (MusicEqualizerSlots.IsEmpty() ||
+		CachedMusicEqualizerColumnCount != DesiredColumns ||
+		CachedMusicEqualizerRowCount != DesiredRows)
+	{
+		BuildMusicEqualizerLayout();
+	}
+	InitializeMusicEqualizerPool();
+	if (MusicEqualizerSlots.IsEmpty() || (!UsesMusicPieceMaterials() && !MusicEqualizerInstances))
+	{
+		return;
+	}
+
+	const double CurrentTime = GetWorld()->GetTimeSeconds();
+	TSet<int32> ColumnsAddedThisEvent;
+	const int32 AttemptLimit = DesiredColumns * 3;
+	for (int32 Attempt = 0;
+		Attempt < AttemptLimit && ColumnsAddedThisEvent.Num() < RequestedColumnCount;
+		++Attempt)
+	{
+		const int32 ColumnIndex = MusicReactionRandomStream.RandRange(0, DesiredColumns - 1);
+		if (ColumnsAddedThisEvent.Contains(ColumnIndex))
+		{
+			continue;
+		}
+
+		bool bHasIntactCell = false;
+		for (int32 RowIndex = 0; RowIndex < DesiredRows; ++RowIndex)
+		{
+			const FMusicEqualizerSlot& Slot =
+				MusicEqualizerSlots[ColumnIndex * DesiredRows + RowIndex];
+			if (Cells.IsValidIndex(Slot.CellIndex) && Cells[Slot.CellIndex].bExists &&
+				!PendingCellIndices.Contains(Slot.CellIndex))
+			{
+				bHasIntactCell = true;
+				break;
+			}
+		}
+		if (!bHasIntactCell)
+		{
+			continue;
+		}
+
+		ColumnsAddedThisEvent.Add(ColumnIndex);
+		FActiveMusicEqualizerColumn& Column = ActiveMusicEqualizerColumns.Emplace_GetRef();
+		Column.ColumnIndex = ColumnIndex;
+		Column.StartTime = CurrentTime + (ColumnsAddedThisEvent.Num() == 1
+			? 0.0f
+			: MusicReactionRandomStream.FRandRange(0.0f, bIsOnset ? 0.055f : 0.025f));
+		Column.Strength = bIsOnset ? FMath::Lerp(0.30f, 1.0f, Response) : 0.38f;
+		Column.Duration = FMath::Clamp(MusicReactionDuration, 0.15f, 3.0f) *
+			FMath::Lerp(0.9f, 1.2f, Response);
+		Column.PeakHeight = bIsOnset ? FMath::Lerp(0.48f, 1.0f, Response) : 0.58f;
+	}
+
+	const int32 ActiveColumnLimit = FMath::Clamp(MaxSimultaneousMusicPulses, 4, 48);
+	if (ActiveMusicEqualizerColumns.Num() > ActiveColumnLimit)
+	{
+		ActiveMusicEqualizerColumns.RemoveAt(
+			0,
+			ActiveMusicEqualizerColumns.Num() - ActiveColumnLimit,
+			EAllowShrinking::No);
+	}
+	if (!ActiveMusicEqualizerColumns.IsEmpty())
+	{
+		SetActorTickEnabled(true);
+		// Let the actor's next tick perform the single batched render update. Onset dispatch can
+		// coincide with a projectile hit, so it must remain render-thread-allocation free.
+		NextMusicEqualizerUpdateTime = FMath::Min(NextMusicEqualizerUpdateTime, CurrentTime);
+	}
 }
 
 void AChunkedDestructibleFloor::ConfigureDestroyTickSound(
@@ -627,7 +1017,9 @@ void AChunkedDestructibleFloor::ConfigureDestroyTickSound(
 
 void AChunkedDestructibleFloor::ClearRuntimeEffects()
 {
+	StopFixedAnimation();
 	ClearAdditionalRuntimeEffects();
+	ClearMusicEqualizer();
 	QueuedDestructions.Reset();
 	PendingCellIndices.Reset();
 	DirtyChunkIndices.Reset();
@@ -1865,9 +2257,10 @@ void AChunkedDestructibleFloor::ProcessQueuedDestructions(double CurrentTime)
 
 	if (bDestroyedAnyCell)
 	{
+		FinalizeDestructionBatch(CurrentTime);
 		FlushDirtyChunks();
 	}
-	if (QueuedDestructions.IsEmpty())
+	if (QueuedDestructions.IsEmpty() && !HasActiveMusicEqualizer())
 	{
 		SetActorTickEnabled(false);
 	}
@@ -1901,6 +2294,361 @@ void AChunkedDestructibleFloor::FlushDirtyChunks()
 		RebuildChunk(ChunkIndex);
 	}
 	DirtyChunkIndices.Reset();
+}
+
+FTransform AChunkedDestructibleFloor::GetMusicEqualizerTransform(FIntPoint Cell) const
+{
+	return GetCellFlashTransform(Cell);
+}
+
+void AChunkedDestructibleFloor::BuildMusicEqualizerLayout()
+{
+	MusicEqualizerSlots.Reset();
+	CachedMusicEqualizerColumnCount = FMath::Clamp(MusicEqualizerColumnCount, 4, 32);
+	CachedMusicEqualizerRowCount = FMath::Clamp(MusicEqualizerRowCount, 8, 48);
+	if (Cells.IsEmpty())
+	{
+		return;
+	}
+
+	const int32 SlotCount = CachedMusicEqualizerColumnCount * CachedMusicEqualizerRowCount;
+	MusicEqualizerSlots.SetNum(SlotCount);
+
+	// Sample a bounded pool once. Even a very dense cone therefore has constant music-setup cost,
+	// and hit events never scan its complete cell array.
+	const int32 MaximumCandidateCount = FMath::Clamp(SlotCount * 12, 2048, 8192);
+	TSet<int32> CandidateIndices;
+	CandidateIndices.Reserve(MaximumCandidateCount);
+	if (Cells.Num() <= MaximumCandidateCount)
+	{
+		for (int32 CellIndex = 0; CellIndex < Cells.Num(); ++CellIndex)
+		{
+			if (Cells[CellIndex].bBelongsToGeneratedShape)
+			{
+				CandidateIndices.Add(CellIndex);
+			}
+		}
+	}
+	else
+	{
+		const int32 AttemptLimit = MaximumCandidateCount * 10;
+		for (int32 Attempt = 0;
+			Attempt < AttemptLimit && CandidateIndices.Num() < MaximumCandidateCount;
+			++Attempt)
+		{
+			const int32 CellIndex = MusicReactionRandomStream.RandRange(0, Cells.Num() - 1);
+			if (Cells[CellIndex].bBelongsToGeneratedShape)
+			{
+				CandidateIndices.Add(CellIndex);
+			}
+		}
+	}
+
+	struct FCandidate
+	{
+		int32 CellIndex = INDEX_NONE;
+		FVector Center = FVector::ZeroVector;
+		FTransform Transform = FTransform::Identity;
+	};
+	TArray<FCandidate> Candidates;
+	Candidates.Reserve(CandidateIndices.Num());
+	float MinimumZ = TNumericLimits<float>::Max();
+	float MaximumZ = TNumericLimits<float>::Lowest();
+	for (const int32 CellIndex : CandidateIndices)
+	{
+		const FIntPoint Cell = FromCellIndex(CellIndex);
+		const FTransform Transform = GetMusicEqualizerTransform(Cell);
+		if (Transform.GetScale3D().GetAbsMin() <= KINDA_SMALL_NUMBER)
+		{
+			continue;
+		}
+		FCandidate& Candidate = Candidates.Emplace_GetRef();
+		Candidate.CellIndex = CellIndex;
+		Candidate.Center = GetCellLocalCenter(Cell);
+		Candidate.Transform = Transform;
+		MinimumZ = FMath::Min(MinimumZ, static_cast<float>(Candidate.Center.Z));
+		MaximumZ = FMath::Max(MaximumZ, static_cast<float>(Candidate.Center.Z));
+	}
+	if (Candidates.IsEmpty())
+	{
+		MusicEqualizerSlots.Reset();
+		return;
+	}
+
+	TArray<float> SlotScores;
+	SlotScores.Init(TNumericLimits<float>::Max(), SlotCount);
+	const float HeightRange = FMath::Max(MaximumZ - MinimumZ, 1.0f);
+	for (const FCandidate& Candidate : Candidates)
+	{
+		float Angle = FMath::Atan2(
+			static_cast<float>(Candidate.Center.Y),
+			static_cast<float>(Candidate.Center.X));
+		if (FMath::IsNearlyZero(Candidate.Center.X) && FMath::IsNearlyZero(Candidate.Center.Y))
+		{
+			Angle = UE_TWO_PI * static_cast<float>(Candidate.CellIndex % CachedMusicEqualizerColumnCount) /
+				CachedMusicEqualizerColumnCount - UE_PI;
+		}
+		const float ColumnAlpha = (Angle + UE_PI) / UE_TWO_PI;
+		const int32 ColumnIndex = FMath::Clamp(
+			FMath::FloorToInt(ColumnAlpha * CachedMusicEqualizerColumnCount),
+			0,
+			CachedMusicEqualizerColumnCount - 1);
+		const float HeightAlpha = FMath::Clamp(
+			(static_cast<float>(Candidate.Center.Z) - MinimumZ) / HeightRange,
+			0.0f,
+			1.0f);
+		const int32 RowIndex = FMath::Clamp(
+			FMath::RoundToInt(HeightAlpha * (CachedMusicEqualizerRowCount - 1)),
+			0,
+			CachedMusicEqualizerRowCount - 1);
+		const float RowCenterAlpha = CachedMusicEqualizerRowCount > 1
+			? static_cast<float>(RowIndex) / (CachedMusicEqualizerRowCount - 1)
+			: 0.0f;
+		const float Score = FMath::Abs(HeightAlpha - RowCenterAlpha);
+		const int32 SlotIndex = ColumnIndex * CachedMusicEqualizerRowCount + RowIndex;
+		if (Score < SlotScores[SlotIndex])
+		{
+			SlotScores[SlotIndex] = Score;
+			MusicEqualizerSlots[SlotIndex].CellIndex = Candidate.CellIndex;
+			MusicEqualizerSlots[SlotIndex].Transform = Candidate.Transform;
+		}
+	}
+}
+
+void AChunkedDestructibleFloor::InitializeMusicEqualizerPool()
+{
+	if (!bReactToMusic)
+	{
+		return;
+	}
+	if (!UsesMusicPieceMaterials() && !MusicEqualizerInstances)
+	{
+		MusicEqualizerInstances = NewObject<UInstancedStaticMeshComponent>(this, NAME_None, RF_Transient);
+		AddInstanceComponent(MusicEqualizerInstances);
+		MusicEqualizerInstances->SetupAttachment(FloorRoot);
+		MusicEqualizerInstances->SetMobility(EComponentMobility::Movable);
+		MusicEqualizerInstances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		MusicEqualizerInstances->SetGenerateOverlapEvents(false);
+		MusicEqualizerInstances->SetCastShadow(false);
+		MusicEqualizerInstances->SetCanEverAffectNavigation(false);
+		MusicEqualizerInstances->SetReceivesDecals(false);
+		MusicEqualizerInstances->SetTranslucentSortPriority(50);
+		MusicEqualizerInstances->ComponentTags.Add(TEXT("MusicEqualizer"));
+		MusicEqualizerInstances->SetVisibility(false);
+		MusicEqualizerInstances->SetStaticMesh(FlashInstances->GetStaticMesh());
+		MusicEqualizerInstances->RegisterComponent();
+	}
+	if (!MusicReactionMaterialInstance)
+	{
+		RefreshMusicReactionMaterial();
+	}
+	if (UsesMusicPieceMaterials())
+	{
+		return;
+	}
+	const int32 PoolSize = FMath::Clamp(MaxMusicEqualizerInstances, 16, 256);
+	if (MusicEqualizerInstances->GetInstanceCount() == PoolSize)
+	{
+		return;
+	}
+
+	MusicEqualizerInstances->ClearInstances();
+	MusicEqualizerInstances->PreAllocateInstancesMemory(PoolSize);
+	const FTransform HiddenTransform(FQuat::Identity, FVector::ZeroVector, FVector::ZeroVector);
+	for (int32 InstanceIndex = 0; InstanceIndex < PoolSize; ++InstanceIndex)
+	{
+		MusicEqualizerInstances->AddInstance(HiddenTransform, false);
+	}
+	MusicEqualizerTransformBuffer.Reserve(PoolSize);
+	MusicEqualizerUsedCellBuffer.Reserve(PoolSize);
+	MusicEqualizerInstances->SetVisibility(false, true);
+}
+
+void AChunkedDestructibleFloor::RefreshMusicReactionMaterial()
+{
+	if (!bReactToMusic || (!UsesMusicPieceMaterials() && !MusicEqualizerInstances))
+	{
+		return;
+	}
+
+	UMaterialInterface* ParentMaterial = MusicReactionMaterial
+		? MusicReactionMaterial.Get()
+		: FlashMaterial.Get();
+	// Replacing an existing piece requires an opaque material to preserve its solid surface.
+	if (UsesMusicPieceMaterials() && (!ParentMaterial || ParentMaterial->GetBlendMode() != BLEND_Opaque))
+	{
+		ParentMaterial = CrispSpiralMaterial.Get();
+	}
+	if (!UsesMusicPieceMaterials() &&
+		(!ParentMaterial || !ParentMaterial->GetUsageByFlag(MATUSAGE_InstancedStaticMeshes)))
+	{
+		ParentMaterial = LoadObject<UMaterialInterface>(
+			nullptr,
+			TEXT("/Game/LevelPrototyping/Interactable/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+	}
+	if (!ParentMaterial)
+	{
+		ParentMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
+	}
+
+	MusicReactionMaterialInstance =
+		UMaterialInstanceDynamic::Create(ParentMaterial, this);
+	if (MusicEqualizerInstances)
+	{
+		MusicEqualizerInstances->SetMaterial(
+			0, MusicReactionMaterialInstance ? MusicReactionMaterialInstance.Get() : ParentMaterial);
+	}
+}
+
+void AChunkedDestructibleFloor::UpdateMusicEqualizer(double CurrentTime)
+{
+	if (!bReactToMusic)
+	{
+		SetReactToMusic(false);
+		return;
+	}
+	const double UpdateInterval = 1.0 / FMath::Clamp(MusicEqualizerUpdateRate, 10.0f, 60.0f);
+	if (CurrentTime < NextMusicEqualizerUpdateTime)
+	{
+		return;
+	}
+	NextMusicEqualizerUpdateTime = CurrentTime + UpdateInterval;
+
+	ActiveMusicEqualizerColumns.RemoveAll(
+		[CurrentTime](const FActiveMusicEqualizerColumn& Column)
+		{
+			return CurrentTime >= Column.StartTime + FMath::Max(Column.Duration, 0.01f);
+		});
+	if (ActiveMusicEqualizerColumns.IsEmpty())
+	{
+		RenderMusicEqualizerCells(TConstArrayView<int32>());
+		if (MusicEqualizerInstances)
+		{
+			MusicEqualizerInstances->SetVisibility(false, true);
+		}
+		if (QueuedDestructions.IsEmpty())
+		{
+			SetActorTickEnabled(false);
+		}
+		return;
+	}
+
+	InitializeMusicEqualizerPool();
+	const int32 PoolSize = FMath::Clamp(MaxMusicEqualizerInstances, 16, 256);
+	const FTransform HiddenTransform(FQuat::Identity, FVector::ZeroVector, FVector::ZeroVector);
+	if (!UsesMusicPieceMaterials())
+	{
+		MusicEqualizerTransformBuffer.Init(HiddenTransform, PoolSize);
+	}
+	MusicEqualizerUsedCellBuffer.Reset();
+	int32 VisibleInstanceCount = 0;
+	float MaximumVisualStrength = 0.0f;
+	const int32 TailLength = FMath::Clamp(MusicEqualizerTailLength, 1, 8);
+	const float BlockScale = FMath::Clamp(MusicReactionSurfaceScale, 0.2f, 1.2f);
+
+	for (const FActiveMusicEqualizerColumn& Column : ActiveMusicEqualizerColumns)
+	{
+		const float Progress = static_cast<float>(
+			(CurrentTime - Column.StartTime) / FMath::Max(Column.Duration, 0.01f));
+		if (Progress < 0.0f || Progress >= 1.0f ||
+			Column.ColumnIndex < 0 || Column.ColumnIndex >= CachedMusicEqualizerColumnCount)
+		{
+			continue;
+		}
+
+		const float Envelope = FMath::Sin(Progress * UE_PI);
+		MaximumVisualStrength = FMath::Max(MaximumVisualStrength, Column.Strength * Envelope);
+		const int32 PeakRowCount = FMath::Max(
+			1,
+			FMath::RoundToInt(CachedMusicEqualizerRowCount * Column.PeakHeight));
+		const int32 HeadRow = FMath::FloorToInt(Progress * (PeakRowCount + TailLength));
+		for (int32 TailIndex = 0;
+			TailIndex < TailLength && VisibleInstanceCount < PoolSize;
+			++TailIndex)
+		{
+			const int32 RowIndex = HeadRow - TailIndex;
+			if (RowIndex < 0 || RowIndex >= PeakRowCount ||
+				RowIndex >= CachedMusicEqualizerRowCount)
+			{
+				continue;
+			}
+			const FMusicEqualizerSlot& Slot = MusicEqualizerSlots[
+				Column.ColumnIndex * CachedMusicEqualizerRowCount + RowIndex];
+			if (!Cells.IsValidIndex(Slot.CellIndex) || !Cells[Slot.CellIndex].bExists ||
+				PendingCellIndices.Contains(Slot.CellIndex) ||
+				MusicEqualizerUsedCellBuffer.Contains(Slot.CellIndex))
+			{
+				continue;
+			}
+
+			MusicEqualizerUsedCellBuffer.Add(Slot.CellIndex);
+			++VisibleInstanceCount;
+			if (UsesMusicPieceMaterials())
+			{
+				continue;
+			}
+			FTransform& InstanceTransform = MusicEqualizerTransformBuffer[VisibleInstanceCount - 1];
+			InstanceTransform = Slot.Transform;
+			const float TailScale = FMath::Lerp(
+				0.58f,
+				1.0f,
+				1.0f - static_cast<float>(TailIndex) / FMath::Max(TailLength, 1));
+			InstanceTransform.SetScale3D(
+				InstanceTransform.GetScale3D() * BlockScale * TailScale);
+		}
+	}
+
+	if (MusicReactionMaterialInstance)
+	{
+		const float Intensity = FMath::Lerp(
+			FMath::Max(WeakMusicGlowIntensity, 0.0f),
+			FMath::Max(StrongMusicGlowIntensity, WeakMusicGlowIntensity),
+			FMath::Pow(FMath::Clamp(MaximumVisualStrength, 0.0f, 1.0f), 0.75f));
+		const FLinearColor EmissiveColor = MusicReactionColor * Intensity;
+		MusicReactionMaterialInstance->SetVectorParameterValue(TEXT("Color"), EmissiveColor);
+		MusicReactionMaterialInstance->SetVectorParameterValue(TEXT("BaseColor"), MusicReactionColor);
+		MusicReactionMaterialInstance->SetVectorParameterValue(TEXT("GlowColor"), EmissiveColor);
+		MusicReactionMaterialInstance->SetVectorParameterValue(TEXT("EmissiveColor"), EmissiveColor);
+		MusicReactionMaterialInstance->SetScalarParameterValue(TEXT("Intensity"), Intensity);
+		MusicReactionMaterialInstance->SetScalarParameterValue(TEXT("GlowIntensity"), Intensity);
+		MusicReactionMaterialInstance->SetScalarParameterValue(TEXT("EmissiveIntensity"), Intensity);
+	}
+
+	if (UsesMusicPieceMaterials())
+	{
+		RenderMusicEqualizerCells(MusicEqualizerUsedCellBuffer);
+		return;
+	}
+	MusicEqualizerInstances->BatchUpdateInstancesTransforms(
+		0,
+		MusicEqualizerTransformBuffer,
+		false,
+		true,
+		true);
+	MusicEqualizerInstances->SetVisibility(VisibleInstanceCount > 0, true);
+}
+
+void AChunkedDestructibleFloor::ClearMusicEqualizer()
+{
+	ClearMusicPieceMaterials();
+	ActiveMusicEqualizerColumns.Reset();
+	MusicEqualizerSlots.Reset();
+	CachedMusicEqualizerColumnCount = 0;
+	CachedMusicEqualizerRowCount = 0;
+	NextMusicEqualizerUpdateTime = 0.0;
+	if (MusicEqualizerInstances)
+	{
+		RemoveInstanceComponent(MusicEqualizerInstances);
+		MusicEqualizerInstances->DestroyComponent();
+		MusicEqualizerInstances = nullptr;
+	}
+	MusicReactionMaterialInstance = nullptr;
+	MusicEqualizerTransformBuffer.Empty();
+	MusicEqualizerUsedCellBuffer.Empty();
+	if (QueuedDestructions.IsEmpty())
+	{
+		SetActorTickEnabled(false);
+	}
 }
 
 void AChunkedDestructibleFloor::RefreshFlashMaterial()

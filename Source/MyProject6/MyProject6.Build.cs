@@ -24,7 +24,8 @@ public class MyProject6 : ModuleRules
 			"GeometryCore",
 			"GeometryFramework",
 			"GeometryScriptingCore",
-			"Text3D"
+			"Text3D",
+			"AudioSynesthesia"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] {

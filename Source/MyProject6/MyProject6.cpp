@@ -4,8 +4,10 @@
 #include "Modules/ModuleManager.h"
 
 #if WITH_EDITOR
+#include "ChunkedDestructibleFloor.h"
 #include "ChunkedDestructibleDecorativeFloor.h"
 #include "ChunkedFloorDetailsCustomization.h"
+#include "DestructibleAnimationDetailsCustomization.h"
 #include "PropertyEditorModule.h"
 #endif
 
@@ -19,6 +21,10 @@ public:
 #if WITH_EDITOR
 		FPropertyEditorModule& PropertyEditorModule =
 			FModuleManager::LoadModuleChecked<FPropertyEditorModule>(TEXT("PropertyEditor"));
+		PropertyEditorModule.RegisterCustomClassLayout(
+			AChunkedDestructibleFloor::StaticClass()->GetFName(),
+			FOnGetDetailCustomizationInstance::CreateStatic(
+				&FDestructibleAnimationDetailsCustomization::MakeInstance));
 		PropertyEditorModule.RegisterCustomClassLayout(
 			AChunkedDestructibleDecorativeFloor::StaticClass()->GetFName(),
 			FOnGetDetailCustomizationInstance::CreateStatic(
@@ -34,6 +40,8 @@ public:
 		{
 			FPropertyEditorModule& PropertyEditorModule =
 				FModuleManager::GetModuleChecked<FPropertyEditorModule>(TEXT("PropertyEditor"));
+			PropertyEditorModule.UnregisterCustomClassLayout(
+				AChunkedDestructibleFloor::StaticClass()->GetFName());
 			PropertyEditorModule.UnregisterCustomClassLayout(
 				AChunkedDestructibleDecorativeFloor::StaticClass()->GetFName());
 			PropertyEditorModule.NotifyCustomizationModuleChanged();

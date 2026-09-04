@@ -5,9 +5,13 @@
 #include "Components/DynamicMeshComponent.h"
 #include "DynamicMesh/DynamicMesh3.h"
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
+#include "Math/RotationMatrix.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "PhysicsEngine/AggregateGeom.h"
 #include "PhysicsEngine/BoxElem.h"
 #include "PhysicsEngine/ConvexElem.h"
+#include "UDynamicMesh.h"
 
 using namespace UE::Geometry;
 
@@ -985,10 +989,15 @@ void AChunkedDestructiblePyramid::BuildChunkMesh(
 	const int32 LastCellIndex = FMath::Min(FirstCellIndex + SafeChunkSide, PieceGeometry.Num());
 	for (int32 CellIndex = FirstCellIndex; CellIndex < LastCellIndex; ++CellIndex)
 	{
+		if (bReactToMusic)
+		{
+			MusicPieceTriangles.Remove(CellIndex);
+		}
 		if (!Cells.IsValidIndex(CellIndex) || !Cells[CellIndex].bExists)
 		{
 			continue;
 		}
+		const int32 FirstTriangle = OutMesh.MaxTriangleID();
 		const FPyramidPieceGeometry& Piece = PieceGeometry[CellIndex];
 		const int32 PieceMaterialIndex = Piece.bBelongsToTopSlice &&
 			bTopSlice && TopSliceMaterial
@@ -1006,6 +1015,22 @@ void AChunkedDestructiblePyramid::BuildChunkMesh(
 		{
 			AppendBoxPieceMesh(OutMesh, Piece, PieceMaterialIndex);
 		}
+		if (bReactToMusic)
+		{
+			FMusicPieceTriangles& Mapping = MusicPieceTriangles.Add(CellIndex);
+			Mapping.FirstTriangle = FirstTriangle;
+			auto* MaterialIDs = OutMesh.Attributes()->GetMaterialID();
+			const bool bHighlighted = MusicHighlightedCells.Contains(CellIndex) &&
+				!PendingCellIndices.Contains(CellIndex);
+			for (int32 TriangleID = FirstTriangle; TriangleID < OutMesh.MaxTriangleID(); ++TriangleID)
+			{
+				Mapping.OriginalMaterials.Add(MaterialIDs->GetValue(TriangleID));
+				if (bHighlighted)
+				{
+					MaterialIDs->SetValue(TriangleID, GetMusicMaterialSlot());
+				}
+			}
+		}
 	}
 }
 
@@ -1013,14 +1038,23 @@ void AChunkedDestructiblePyramid::ConfigureChunkComponent(
 	UDynamicMeshComponent* Component) const
 {
 	Super::ConfigureChunkComponent(Component);
-	if (!Component || !bTopSlice || !TopSliceMaterial)
+	if (!Component)
 	{
 		return;
 	}
 
-	const int32 TopSliceMaterialSlot = GetTopSliceMaterialSlot();
-	Component->SetNumMaterials(TopSliceMaterialSlot + 1);
-	Component->SetMaterial(TopSliceMaterialSlot, TopSliceMaterial);
+	if (bTopSlice && TopSliceMaterial)
+	{
+		const int32 TopSliceMaterialSlot = GetTopSliceMaterialSlot();
+		Component->SetNumMaterials(TopSliceMaterialSlot + 1);
+		Component->SetMaterial(TopSliceMaterialSlot, TopSliceMaterial);
+	}
+	if (bReactToMusic && MusicReactionMaterialInstance)
+	{
+		const int32 MusicSlot = GetMusicMaterialSlot();
+		Component->SetNumMaterials(MusicSlot + 1);
+		Component->SetMaterial(MusicSlot, MusicReactionMaterialInstance);
+	}
 }
 
 void AChunkedDestructiblePyramid::BuildChunkSimpleCollision(
@@ -1082,6 +1116,136 @@ void AChunkedDestructiblePyramid::BuildChunkSimpleCollision(
 		{
 			OutCollision.ConvexElems.Pop(EAllowShrinking::No);
 		}
+	}
+}
+
+FTransform AChunkedDestructiblePyramid::GetMusicEqualizerTransform(FIntPoint Cell) const
+{
+	if (Cell.Y != 0 || !PieceGeometry.IsValidIndex(Cell.X))
+	{
+		return FTransform(FQuat::Identity, FVector::ZeroVector, FVector::ZeroVector);
+	}
+	// Used only to place logical equalizer slots. The existing piece mesh renders the effect.
+	return FTransform(PieceGeometry[Cell.X].Center);
+}
+
+int32 AChunkedDestructiblePyramid::GetMusicMaterialSlot() const
+{
+	return GetTopSliceMaterialSlot() + (bTopSlice && TopSliceMaterial ? 1 : 0);
+}
+
+void AChunkedDestructiblePyramid::RenderMusicEqualizerCells(TConstArrayView<int32> CellIndices)
+{
+	TSet<int32> NewHighlights;
+	for (const int32 CellIndex : CellIndices)
+	{
+		if (Cells.IsValidIndex(CellIndex) && Cells[CellIndex].bExists &&
+			!PendingCellIndices.Contains(CellIndex))
+		{
+			NewHighlights.Add(CellIndex);
+		}
+	}
+
+	const int32 SafeChunkSide = FMath::Clamp(ChunkSideLength, 4, 128);
+	TSet<int32> ChangedChunks;
+	for (const int32 CellIndex : MusicHighlightedCells)
+	{
+		if (!NewHighlights.Contains(CellIndex))
+		{
+			ChangedChunks.Add(CellIndex / SafeChunkSide);
+		}
+	}
+	for (const int32 CellIndex : NewHighlights)
+	{
+		const int32 ChunkIndex = CellIndex / SafeChunkSide;
+		const bool bMaterialChanged = ChunkComponents.IsValidIndex(ChunkIndex) &&
+			ChunkComponents[ChunkIndex] &&
+			ChunkComponents[ChunkIndex]->GetMaterial(GetMusicMaterialSlot()) != MusicReactionMaterialInstance;
+		if (!MusicHighlightedCells.Contains(CellIndex) || !MusicPieceTriangles.Contains(CellIndex) || bMaterialChanged)
+		{
+			ChangedChunks.Add(ChunkIndex);
+		}
+	}
+	MusicHighlightedCells = MoveTemp(NewHighlights);
+
+	for (const int32 ChunkIndex : ChangedChunks)
+	{
+		if (!ChunkComponents.IsValidIndex(ChunkIndex) || !ChunkComponents[ChunkIndex])
+		{
+			continue;
+		}
+		const int32 FirstCell = ChunkIndex * SafeChunkSide;
+		const int32 LastCell = FMath::Min(FirstCell + SafeChunkSide, Cells.Num());
+		bool bNeedsTriangleMapping = false;
+		for (int32 CellIndex = FirstCell; CellIndex < LastCell; ++CellIndex)
+		{
+			if (MusicHighlightedCells.Contains(CellIndex) && !MusicPieceTriangles.Contains(CellIndex))
+			{
+				bNeedsTriangleMapping = true;
+				break;
+			}
+		}
+		if (bNeedsTriangleMapping)
+		{
+			// Music may have been enabled after this chunk was built without animation data.
+			RebuildChunk(ChunkIndex);
+			continue;
+		}
+
+		UDynamicMeshComponent* Component = ChunkComponents[ChunkIndex];
+		FDynamicMesh3* Mesh = Component->GetMesh();
+		if (!Mesh || !Mesh->HasAttributes() || !Mesh->Attributes()->HasMaterialID())
+		{
+			continue;
+		}
+		const int32 MusicSlot = GetMusicMaterialSlot();
+		if (MusicReactionMaterialInstance)
+		{
+			Component->SetMaterial(MusicSlot, MusicReactionMaterialInstance);
+		}
+		auto* MaterialIDs = Mesh->Attributes()->GetMaterialID();
+		bool bChanged = false;
+		for (int32 CellIndex = FirstCell; CellIndex < LastCell; ++CellIndex)
+		{
+			const FMusicPieceTriangles* Piece = MusicPieceTriangles.Find(CellIndex);
+			if (!Piece)
+			{
+				continue;
+			}
+			for (int32 Offset = 0; Offset < Piece->OriginalMaterials.Num(); ++Offset)
+			{
+				const int32 TriangleID = Piece->FirstTriangle + Offset;
+				const int32 MaterialID = MusicHighlightedCells.Contains(CellIndex)
+					? MusicSlot : Piece->OriginalMaterials[Offset];
+				if (Mesh->IsTriangle(TriangleID) && MaterialIDs->GetValue(TriangleID) != MaterialID)
+				{
+					MaterialIDs->SetValue(TriangleID, MaterialID);
+					bChanged = true;
+				}
+			}
+		}
+		if (bChanged)
+		{
+			// Material sections changed; positions, topology and collision stay intact.
+			Component->NotifyMeshUpdated();
+		}
+	}
+}
+
+void AChunkedDestructiblePyramid::ClearMusicPieceMaterials()
+{
+	RenderMusicEqualizerCells(TConstArrayView<int32>());
+	if (!MusicPieceTriangles.IsEmpty() || MusicReactionMaterialInstance)
+	{
+		const int32 MusicSlot = GetMusicMaterialSlot();
+		for (UDynamicMeshComponent* Component : ChunkComponents)
+		{
+			if (Component && Component->GetNumMaterials() > MusicSlot)
+			{
+				Component->SetNumMaterials(MusicSlot);
+			}
+		}
+		MusicPieceTriangles.Empty();
 	}
 }
 
@@ -1220,4 +1384,592 @@ void AChunkedDestructiblePyramid::MarkCellChunksDirty(FIntPoint Cell)
 	}
 	const int32 SafeChunkSide = FMath::Clamp(ChunkSideLength, 4, 128);
 	DirtyChunkIndices.Add(Cell.X / SafeChunkSide);
+	// A cached sine-row mesh may still contain this piece. Force row geometry to refresh.
+	for (int32& AssignedRow : PyramidAnimationRowAssignments)
+	{
+		AssignedRow = INDEX_NONE;
+	}
+}
+
+bool AChunkedDestructiblePyramid::CreateFixedAnimationResources()
+{
+	if (PieceGeometry.IsEmpty())
+	{
+		return false;
+	}
+
+	switch (ConeAnimationType)
+	{
+	case EConeStructureAnimationType::BottomToTopGlowWave:
+	case EConeStructureAnimationType::RisingSpiralGlow:
+		CreatePyramidAnimationComponent();
+		break;
+	case EConeStructureAnimationType::BottomToTopSineRows:
+		BuildPyramidAnimationRows();
+		CreatePyramidSineRowAnimationComponents();
+		break;
+	case EConeStructureAnimationType::None:
+	default:
+		break;
+	}
+	return HasFixedAnimationResources();
+}
+
+bool AChunkedDestructiblePyramid::HasFixedAnimationResources() const
+{
+	return PyramidAnimationComponent || !PyramidAnimationRowComponents.IsEmpty();
+}
+
+void AChunkedDestructiblePyramid::DestroyFixedAnimationResources()
+{
+	if (PyramidAnimationComponent)
+	{
+		RemoveInstanceComponent(PyramidAnimationComponent);
+		PyramidAnimationComponent->DestroyComponent();
+		PyramidAnimationComponent = nullptr;
+	}
+	PyramidAnimationMaterialInstance = nullptr;
+
+	for (UDynamicMeshComponent* RowComponent : PyramidAnimationRowComponents)
+	{
+		if (RowComponent)
+		{
+			RemoveInstanceComponent(RowComponent);
+			RowComponent->DestroyComponent();
+		}
+	}
+	PyramidAnimationRowComponents.Reset();
+	PyramidAnimationRowMaterialInstances.Reset();
+	PyramidAnimationCellsByRow.Reset();
+	PyramidAnimationRowAssignments.Reset();
+}
+
+void AChunkedDestructiblePyramid::RenderFixedAnimation(
+	TConstArrayView<float> AnimationAlphas)
+{
+	if (AnimationAlphas.IsEmpty())
+	{
+		if (PyramidAnimationComponent)
+		{
+			PyramidAnimationComponent->SetVisibility(false, true);
+		}
+		for (int32 ComponentIndex = 0;
+			ComponentIndex < PyramidAnimationRowComponents.Num();
+			++ComponentIndex)
+		{
+			if (PyramidAnimationRowComponents[ComponentIndex])
+			{
+				PyramidAnimationRowComponents[ComponentIndex]->SetVisibility(false, true);
+			}
+			if (PyramidAnimationRowMaterialInstances.IsValidIndex(ComponentIndex))
+			{
+				ApplyFixedAnimationMaterialParameters(
+					PyramidAnimationRowMaterialInstances[ComponentIndex], 0.0f);
+			}
+		}
+		return;
+	}
+
+	switch (ConeAnimationType)
+	{
+	case EConeStructureAnimationType::BottomToTopGlowWave:
+		UpdatePyramidBottomToTopGlowWaves(AnimationAlphas);
+		break;
+	case EConeStructureAnimationType::BottomToTopSineRows:
+		UpdatePyramidBottomToTopSineRows(AnimationAlphas);
+		break;
+	case EConeStructureAnimationType::RisingSpiralGlow:
+		UpdatePyramidRisingSpiralGlow(AnimationAlphas);
+		break;
+	case EConeStructureAnimationType::None:
+	default:
+		break;
+	}
+}
+
+void AChunkedDestructiblePyramid::CreatePyramidAnimationComponent()
+{
+	if (PyramidAnimationComponent || !GetRootComponent())
+	{
+		return;
+	}
+
+	const FName ComponentName = MakeUniqueObjectName(
+		this,
+		UDynamicMeshComponent::StaticClass(),
+		TEXT("PyramidFixedAnimation"));
+	PyramidAnimationComponent = NewObject<UDynamicMeshComponent>(
+		this,
+		ComponentName,
+		RF_Transient);
+	AddInstanceComponent(PyramidAnimationComponent);
+	PyramidAnimationComponent->SetupAttachment(GetRootComponent());
+	PyramidAnimationComponent->SetRelativeTransform(FTransform::Identity);
+	PyramidAnimationComponent->SetMobility(EComponentMobility::Movable);
+	PyramidAnimationComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	PyramidAnimationComponent->SetGenerateOverlapEvents(false);
+	PyramidAnimationComponent->SetCastShadow(false);
+	PyramidAnimationComponent->SetCanEverAffectNavigation(false);
+	PyramidAnimationComponent->SetTranslucentSortPriority(10);
+	PyramidAnimationComponent->SetNumMaterials(1);
+	PyramidAnimationComponent->RegisterComponent();
+	PyramidAnimationComponent->SetDynamicMesh(NewObject<UDynamicMesh>(PyramidAnimationComponent));
+	PyramidAnimationMaterialInstance = CreateFixedAnimationMaterialInstance();
+	UMaterialInterface* AnimationMaterial = PyramidAnimationMaterialInstance
+		? static_cast<UMaterialInterface*>(PyramidAnimationMaterialInstance.Get())
+		: UMaterial::GetDefaultMaterial(MD_Surface);
+	PyramidAnimationComponent->SetMaterial(0, AnimationMaterial);
+	PyramidAnimationComponent->SetVisibility(false, true);
+}
+
+void AChunkedDestructiblePyramid::BuildPyramidAnimationRows()
+{
+	PyramidAnimationCellsByRow.Reset();
+	const int32 StepRowCount = Steps.bGenerateSteps ? Steps.StepCount : 0;
+	int32 MaximumFaceRow = INDEX_NONE;
+	for (const FPyramidPieceGeometry& Piece : PieceGeometry)
+	{
+		if (Piece.Kind == EPyramidPieceKind::Face)
+		{
+			MaximumFaceRow = FMath::Max(MaximumFaceRow, Piece.RowIndex);
+		}
+	}
+
+	const int32 FaceRowCount = MaximumFaceRow + 1;
+	const int32 ApexRow = StepRowCount + FaceRowCount;
+	PyramidAnimationCellsByRow.SetNum(FMath::Max(ApexRow + 1, 1));
+	for (int32 CellIndex = 0; CellIndex < PieceGeometry.Num(); ++CellIndex)
+	{
+		const FPyramidPieceGeometry& Piece = PieceGeometry[CellIndex];
+		int32 RowIndex = INDEX_NONE;
+		switch (Piece.Kind)
+		{
+		case EPyramidPieceKind::Step:
+			RowIndex = FMath::Clamp(
+				FMath::FloorToInt(Piece.BoxCenter.Z / FMath::Max(Steps.StepHeight, 1.0f)),
+				0,
+				FMath::Max(StepRowCount - 1, 0));
+			break;
+		case EPyramidPieceKind::Face:
+			RowIndex = StepRowCount + FMath::Max(Piece.RowIndex, 0);
+			break;
+		case EPyramidPieceKind::Apex:
+			RowIndex = ApexRow;
+			break;
+		case EPyramidPieceKind::InteriorFloor:
+		default:
+			break;
+		}
+
+		if (PyramidAnimationCellsByRow.IsValidIndex(RowIndex))
+		{
+			PyramidAnimationCellsByRow[RowIndex].Add(CellIndex);
+		}
+	}
+}
+
+void AChunkedDestructiblePyramid::CreatePyramidSineRowAnimationComponents()
+{
+	if (!PyramidAnimationRowComponents.IsEmpty() || !GetRootComponent() ||
+		PyramidAnimationCellsByRow.IsEmpty())
+	{
+		return;
+	}
+
+	const int32 ComponentCount = CalculateFixedSineComponentCount(
+		PyramidAnimationCellsByRow.Num());
+	PyramidAnimationRowComponents.Reserve(ComponentCount);
+	PyramidAnimationRowMaterialInstances.Reserve(ComponentCount);
+	PyramidAnimationRowAssignments.Init(INDEX_NONE, ComponentCount);
+	for (int32 ComponentIndex = 0; ComponentIndex < ComponentCount; ++ComponentIndex)
+	{
+		const FName BaseName(*FString::Printf(
+			TEXT("PyramidSineRowAnimation_%d"),
+			ComponentIndex));
+		const FName ComponentName = MakeUniqueObjectName(
+			this,
+			UDynamicMeshComponent::StaticClass(),
+			BaseName);
+		UDynamicMeshComponent* RowComponent = NewObject<UDynamicMeshComponent>(
+			this,
+			ComponentName,
+			RF_Transient);
+		AddInstanceComponent(RowComponent);
+		RowComponent->SetupAttachment(GetRootComponent());
+		RowComponent->SetRelativeTransform(FTransform::Identity);
+		RowComponent->SetMobility(EComponentMobility::Movable);
+		RowComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		RowComponent->SetGenerateOverlapEvents(false);
+		RowComponent->SetCastShadow(false);
+		RowComponent->SetCanEverAffectNavigation(false);
+		RowComponent->SetTranslucentSortPriority(10 + ComponentIndex);
+		RowComponent->SetNumMaterials(1);
+		RowComponent->RegisterComponent();
+		RowComponent->SetDynamicMesh(NewObject<UDynamicMesh>(RowComponent));
+		UMaterialInstanceDynamic* RowMaterial = CreateFixedAnimationMaterialInstance();
+		if (RowMaterial)
+		{
+			ApplyFixedAnimationMaterialParameters(RowMaterial, 0.0f);
+			RowComponent->SetMaterial(0, RowMaterial);
+		}
+		else
+		{
+			RowComponent->SetMaterial(0, UMaterial::GetDefaultMaterial(MD_Surface));
+		}
+		RowComponent->SetVisibility(false, true);
+		PyramidAnimationRowComponents.Add(RowComponent);
+		PyramidAnimationRowMaterialInstances.Add(RowMaterial);
+	}
+}
+
+void AChunkedDestructiblePyramid::AppendPyramidAnimationPieceSurface(
+	FDynamicMesh3& Mesh,
+	int32 CellIndex,
+	float SurfaceOffset) const
+{
+	if (!PieceGeometry.IsValidIndex(CellIndex) || !Cells.IsValidIndex(CellIndex) ||
+		!Cells[CellIndex].bExists || PendingCellIndices.Contains(CellIndex))
+	{
+		return;
+	}
+
+	const FPyramidPieceGeometry& Piece = PieceGeometry[CellIndex];
+	const float SafeUVScale = FMath::Max(UVWorldUnits, 1.0f);
+	auto MakeUV = [SafeUVScale](const FVector& Point)
+	{
+		return FVector2f(
+			static_cast<float>((Point.X + Point.Y) / SafeUVScale),
+			static_cast<float>(Point.Z / SafeUVScale));
+	};
+
+	if (Piece.Kind == EPyramidPieceKind::Face && Piece.OuterPolygon.Num() >= 3)
+	{
+		const FVector Normal = GetPyramidFaceNormal(Piece.FaceIndex);
+		const FVector Offset = Normal * SurfaceOffset;
+		for (int32 PointIndex = 1; PointIndex + 1 < Piece.OuterPolygon.Num(); ++PointIndex)
+		{
+			const FVector A = Piece.OuterPolygon[0] + Offset;
+			const FVector B = Piece.OuterPolygon[PointIndex] + Offset;
+			const FVector C = Piece.OuterPolygon[PointIndex + 1] + Offset;
+			AppendMeshTriangle(
+				Mesh,
+				FVector3d(A),
+				FVector3d(B),
+				FVector3d(C),
+				FVector3f(Normal),
+				0,
+				MakeUV(A),
+				MakeUV(B),
+				MakeUV(C));
+		}
+		return;
+	}
+
+	if (Piece.Kind == EPyramidPieceKind::Apex && Piece.OuterPolygon.Num() == 5)
+	{
+		for (int32 FaceIndex = 0; FaceIndex < 4; ++FaceIndex)
+		{
+			const FVector Normal = GetPyramidFaceNormal(FaceIndex);
+			const FVector Offset = Normal * SurfaceOffset;
+			const FVector A = Piece.OuterPolygon[FaceIndex] + Offset;
+			const FVector B = Piece.OuterPolygon[(FaceIndex + 1) % 4] + Offset;
+			const FVector C = Piece.OuterPolygon[4] + Offset;
+			AppendMeshTriangle(
+				Mesh,
+				FVector3d(A),
+				FVector3d(B),
+				FVector3d(C),
+				FVector3f(Normal),
+				0,
+				MakeUV(A),
+				MakeUV(B),
+				MakeUV(C));
+		}
+		return;
+	}
+
+	if (Piece.Kind == EPyramidPieceKind::Step)
+	{
+		const FVector Extent = Piece.BoxSize * 0.5f;
+		const double MinX = Piece.BoxCenter.X - Extent.X;
+		const double MaxX = Piece.BoxCenter.X + Extent.X;
+		const double MinY = Piece.BoxCenter.Y - Extent.Y;
+		const double MaxY = Piece.BoxCenter.Y + Extent.Y;
+		const double TopZ = Piece.BoxCenter.Z + Extent.Z + SurfaceOffset;
+		AppendMeshQuad(
+			Mesh,
+			FVector3d(MinX, MinY, TopZ),
+			FVector3d(MaxX, MinY, TopZ),
+			FVector3d(MaxX, MaxY, TopZ),
+			FVector3d(MinX, MaxY, TopZ),
+			FVector3f::UnitZ(),
+			0,
+			Piece.BoxSize.X,
+			Piece.BoxSize.Y,
+			UVWorldUnits);
+	}
+}
+
+void AChunkedDestructiblePyramid::UpdatePyramidBottomToTopGlowWaves(
+	TConstArrayView<float> AnimationAlphas)
+{
+	if (!PyramidAnimationComponent || !PyramidAnimationComponent->GetDynamicMesh())
+	{
+		return;
+	}
+
+	float MinimumZ = TNumericLimits<float>::Max();
+	float MaximumZ = TNumericLimits<float>::Lowest();
+	for (const FPyramidPieceGeometry& Piece : PieceGeometry)
+	{
+		if (Piece.Kind != EPyramidPieceKind::InteriorFloor)
+		{
+			MinimumZ = FMath::Min(MinimumZ, Piece.Bounds.Min.Z);
+			MaximumZ = FMath::Max(MaximumZ, Piece.Bounds.Max.Z);
+		}
+	}
+	if (MinimumZ > MaximumZ)
+	{
+		return;
+	}
+
+	const float BandHeight = FMath::Max(
+		GlowWaveBandHeightBlocks * Shape.PieceSize,
+		1.0f);
+	TBitArray<> SelectedPieces(false, PieceGeometry.Num());
+	for (const float AnimationAlpha : AnimationAlphas)
+	{
+		const float BandTop = FMath::Lerp(
+			MinimumZ,
+			MaximumZ + BandHeight,
+			FMath::Clamp(AnimationAlpha, 0.0f, 1.0f));
+		const float BandBottom = BandTop - BandHeight;
+		for (int32 CellIndex = 0; CellIndex < PieceGeometry.Num(); ++CellIndex)
+		{
+			const FPyramidPieceGeometry& Piece = PieceGeometry[CellIndex];
+			if (Piece.Kind != EPyramidPieceKind::InteriorFloor &&
+				Piece.Bounds.Max.Z >= BandBottom && Piece.Bounds.Min.Z <= BandTop)
+			{
+				SelectedPieces[CellIndex] = true;
+			}
+		}
+	}
+
+	FDynamicMesh3 AnimationMesh;
+	AnimationMesh.EnableVertexNormals(FVector3f::UnitZ());
+	AnimationMesh.EnableAttributes();
+	AnimationMesh.Attributes()->SetNumUVLayers(1);
+	AnimationMesh.Attributes()->EnableMaterialID();
+	const float SurfaceOffset = FMath::Clamp(Shape.ShellThickness * 0.015f, 0.3f, 2.0f);
+	for (TConstSetBitIterator It(SelectedPieces); It; ++It)
+	{
+		AppendPyramidAnimationPieceSurface(AnimationMesh, It.GetIndex(), SurfaceOffset);
+	}
+
+	const bool bVisible = AnimationMesh.TriangleCount() > 0;
+	PyramidAnimationComponent->GetDynamicMesh()->SetMesh(MoveTemp(AnimationMesh));
+	PyramidAnimationComponent->NotifyMeshUpdated();
+	PyramidAnimationComponent->SetVisibility(bVisible, true);
+	PyramidAnimationComponent->MarkRenderStateDirty();
+}
+
+void AChunkedDestructiblePyramid::UpdatePyramidBottomToTopSineRows(
+	TConstArrayView<float> AnimationAlphas)
+{
+	const int32 RowCount = PyramidAnimationCellsByRow.Num();
+	const int32 ComponentCount = PyramidAnimationRowComponents.Num();
+	if (RowCount <= 0 || ComponentCount <= 0)
+	{
+		return;
+	}
+
+	TArray<float> RowIntensities;
+	RowIntensities.Init(0.0f, RowCount);
+	const int32 RowsPerWave = FMath::Clamp(
+		SineRowsSimultaneousRowCount,
+		2,
+		FMath::Max(RowCount, 2));
+	const float TravelSpan = FMath::Max(
+		static_cast<float>(RowCount - 1 + RowsPerWave),
+		1.0f);
+	for (const float AnimationAlpha : AnimationAlphas)
+	{
+		const float WaveHead = FMath::Clamp(AnimationAlpha, 0.0f, 1.0f) * TravelSpan;
+		const int32 LastRow = FMath::Min(FMath::FloorToInt(WaveHead), RowCount - 1);
+		const int32 FirstRow = FMath::Max(LastRow - RowsPerWave + 1, 0);
+		for (int32 RowIndex = FirstRow; RowIndex <= LastRow; ++RowIndex)
+		{
+			const float RowAge = WaveHead - RowIndex;
+			if (RowAge < 0.0f || RowAge > RowsPerWave)
+			{
+				continue;
+			}
+			const float Intensity = FMath::Sin(
+				UE_PI * FMath::Clamp(RowAge / RowsPerWave, 0.0f, 1.0f));
+			RowIntensities[RowIndex] = 1.0f -
+				(1.0f - RowIntensities[RowIndex]) * (1.0f - Intensity);
+		}
+	}
+
+	TArray<bool> ActiveRows;
+	ActiveRows.Init(false, RowCount);
+	for (int32 RowIndex = 0; RowIndex < RowCount; ++RowIndex)
+	{
+		ActiveRows[RowIndex] = RowIntensities[RowIndex] > KINDA_SMALL_NUMBER;
+	}
+	TArray<bool> UsedComponents;
+	UsedComponents.Init(false, ComponentCount);
+	for (int32 ComponentIndex = 0; ComponentIndex < ComponentCount; ++ComponentIndex)
+	{
+		if (PyramidAnimationRowComponents[ComponentIndex])
+		{
+			PyramidAnimationRowComponents[ComponentIndex]->SetVisibility(false, true);
+		}
+	}
+
+	const float SurfaceOffset = FMath::Clamp(Shape.ShellThickness * 0.015f, 0.3f, 2.0f);
+	for (int32 RowIndex = 0; RowIndex < RowCount; ++RowIndex)
+	{
+		if (!ActiveRows[RowIndex])
+		{
+			continue;
+		}
+
+		int32 ComponentIndex = PyramidAnimationRowAssignments.Find(RowIndex);
+		if (!PyramidAnimationRowComponents.IsValidIndex(ComponentIndex) ||
+			!PyramidAnimationRowComponents[ComponentIndex] || UsedComponents[ComponentIndex])
+		{
+			ComponentIndex = INDEX_NONE;
+		}
+		if (ComponentIndex == INDEX_NONE)
+		{
+			for (int32 CandidateIndex = 0; CandidateIndex < ComponentCount; ++CandidateIndex)
+			{
+				const int32 AssignedRow = PyramidAnimationRowAssignments[CandidateIndex];
+				if (!UsedComponents[CandidateIndex] &&
+					(AssignedRow == INDEX_NONE || !ActiveRows.IsValidIndex(AssignedRow) ||
+						!ActiveRows[AssignedRow]))
+				{
+					ComponentIndex = CandidateIndex;
+					break;
+				}
+			}
+		}
+		if (!PyramidAnimationRowComponents.IsValidIndex(ComponentIndex) ||
+			!PyramidAnimationRowComponents[ComponentIndex] ||
+			!PyramidAnimationRowComponents[ComponentIndex]->GetDynamicMesh())
+		{
+			continue;
+		}
+
+		UsedComponents[ComponentIndex] = true;
+		UDynamicMeshComponent* RowComponent = PyramidAnimationRowComponents[ComponentIndex];
+		if (PyramidAnimationRowAssignments[ComponentIndex] != RowIndex)
+		{
+			FDynamicMesh3 RowMesh;
+			RowMesh.EnableVertexNormals(FVector3f::UnitZ());
+			RowMesh.EnableAttributes();
+			RowMesh.Attributes()->SetNumUVLayers(1);
+			RowMesh.Attributes()->EnableMaterialID();
+			for (const int32 CellIndex : PyramidAnimationCellsByRow[RowIndex])
+			{
+				AppendPyramidAnimationPieceSurface(RowMesh, CellIndex, SurfaceOffset);
+			}
+			RowComponent->GetDynamicMesh()->SetMesh(MoveTemp(RowMesh));
+			RowComponent->NotifyMeshUpdated();
+			RowComponent->MarkRenderStateDirty();
+			PyramidAnimationRowAssignments[ComponentIndex] = RowIndex;
+		}
+		if (PyramidAnimationRowMaterialInstances.IsValidIndex(ComponentIndex))
+		{
+			ApplyFixedAnimationMaterialParameters(
+				PyramidAnimationRowMaterialInstances[ComponentIndex],
+				RowIntensities[RowIndex]);
+		}
+		RowComponent->SetVisibility(true, true);
+	}
+}
+
+void AChunkedDestructiblePyramid::UpdatePyramidRisingSpiralGlow(
+	TConstArrayView<float> AnimationAlphas)
+{
+	if (!PyramidAnimationComponent || !PyramidAnimationComponent->GetDynamicMesh() ||
+		AnimationAlphas.IsEmpty())
+	{
+		return;
+	}
+
+	const int32 StrandCount = FMath::Clamp(SpiralGlowStrandCount, 1, 8);
+	const float Direction = bReverseSpiralGlowDirection ? -1.0f : 1.0f;
+	const float DynamicPhase = -Direction *
+		FMath::Clamp(AnimationAlphas[0], 0.0f, 1.0f) / StrandCount;
+	const float StartPhase = SpiralGlowStartAngleDegrees / 360.0f;
+	const float HalfStripeWidth = FMath::Min(
+		SpiralGlowStripeWidthDegrees / 720.0f,
+		0.49f / StrandCount);
+	const FVector HorizontalAxes[] = {
+		FVector(1.0f, 0.0f, 0.0f),
+		FVector(0.0f, 1.0f, 0.0f),
+		FVector(-1.0f, 0.0f, 0.0f),
+		FVector(0.0f, -1.0f, 0.0f)
+	};
+
+	FDynamicMesh3 AnimationMesh;
+	AnimationMesh.EnableVertexNormals(FVector3f::UnitZ());
+	AnimationMesh.EnableAttributes();
+	AnimationMesh.Attributes()->SetNumUVLayers(1);
+	AnimationMesh.Attributes()->EnableMaterialID();
+	for (int32 CellIndex = 0; CellIndex < PieceGeometry.Num(); ++CellIndex)
+	{
+		const FPyramidPieceGeometry& Piece = PieceGeometry[CellIndex];
+		if (Piece.Kind != EPyramidPieceKind::Face &&
+			Piece.Kind != EPyramidPieceKind::Apex)
+		{
+			continue;
+		}
+
+		const float LocalBodyZ = FMath::Clamp(
+			Piece.Center.Z - CachedBodyBaseZ - Piece.TopSliceVerticalOffset,
+			0.0f,
+			Shape.Height);
+		const float HeightAlpha = LocalBodyZ / FMath::Max(Shape.Height, 1.0f);
+		bool bPieceInsideStripe = false;
+		const int32 FirstFace = Piece.Kind == EPyramidPieceKind::Face ? Piece.FaceIndex : 0;
+		const int32 LastFace = Piece.Kind == EPyramidPieceKind::Face ? Piece.FaceIndex : 3;
+		for (int32 FaceIndex = FirstFace; FaceIndex <= LastFace; ++FaceIndex)
+		{
+			const float HalfWidth = Shape.BaseWidth * 0.5f * (1.0f - HeightAlpha);
+			const float FaceAlpha = HalfWidth > KINDA_SMALL_NUMBER
+				? FMath::Clamp(
+					(FVector::DotProduct(Piece.Center, HorizontalAxes[FaceIndex]) + HalfWidth) /
+						(2.0f * HalfWidth),
+					0.0f,
+					1.0f)
+				: 0.5f;
+			const float PerimeterPhase = (FaceIndex + FaceAlpha) * 0.25f;
+			const float StripeCenter = StartPhase + DynamicPhase +
+				Direction * SpiralGlowTurns * HeightAlpha;
+			const float StrandSpace = (PerimeterPhase - StripeCenter) * StrandCount;
+			const float DistanceToStrand =
+				FMath::Abs(StrandSpace - FMath::RoundToFloat(StrandSpace)) / StrandCount;
+			if (DistanceToStrand <= HalfStripeWidth)
+			{
+				bPieceInsideStripe = true;
+				break;
+			}
+		}
+		if (bPieceInsideStripe)
+		{
+			AppendPyramidAnimationPieceSurface(
+				AnimationMesh,
+				CellIndex,
+				FMath::Clamp(SpiralGlowSurfaceOffset, 0.5f, 20.0f));
+		}
+	}
+
+	const bool bVisible = AnimationMesh.TriangleCount() > 0;
+	PyramidAnimationComponent->GetDynamicMesh()->SetMesh(MoveTemp(AnimationMesh));
+	PyramidAnimationComponent->NotifyMeshUpdated();
+	PyramidAnimationComponent->SetVisibility(bVisible, true);
+	PyramidAnimationComponent->MarkRenderStateDirty();
 }
