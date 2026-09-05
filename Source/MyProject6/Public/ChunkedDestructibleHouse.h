@@ -41,6 +41,8 @@ class MYPROJECT6_API AChunkedDestructibleHouse : public AChunkedDestructibleFloo
 	friend class FDestructibleStructureTest;
 
 public:
+	virtual bool UsesPlanarAnimation() const override { return false; }
+
 	AChunkedDestructibleHouse();
 	virtual void OnConstruction(const FTransform& Transform) override;
 

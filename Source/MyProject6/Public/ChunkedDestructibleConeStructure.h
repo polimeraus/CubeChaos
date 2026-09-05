@@ -80,6 +80,8 @@ class MYPROJECT6_API AChunkedDestructibleConeStructure : public AChunkedDestruct
 	GENERATED_BODY()
 
 public:
+	virtual bool UsesPlanarAnimation() const override { return false; }
+
 	AChunkedDestructibleConeStructure();
 	virtual void OnConstruction(const FTransform& Transform) override;
 

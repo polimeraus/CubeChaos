@@ -15,6 +15,7 @@ public class MyProject6 : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
+			"DeveloperSettings",
 			"InputCore",
 			"EnhancedInput",
 			"AIModule",
@@ -30,7 +31,8 @@ public class MyProject6 : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[] {
 			"Slate",
-			"SlateCore"
+			"SlateCore",
+			"RHI"
 		});
 
 		if (Target.bBuildEditor)

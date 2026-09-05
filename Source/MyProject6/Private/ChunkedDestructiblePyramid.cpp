@@ -989,7 +989,7 @@ void AChunkedDestructiblePyramid::BuildChunkMesh(
 	const int32 LastCellIndex = FMath::Min(FirstCellIndex + SafeChunkSide, PieceGeometry.Num());
 	for (int32 CellIndex = FirstCellIndex; CellIndex < LastCellIndex; ++CellIndex)
 	{
-		if (bReactToMusic)
+		if (IsMusicReactionEnabled())
 		{
 			MusicPieceTriangles.Remove(CellIndex);
 		}
@@ -1015,7 +1015,7 @@ void AChunkedDestructiblePyramid::BuildChunkMesh(
 		{
 			AppendBoxPieceMesh(OutMesh, Piece, PieceMaterialIndex);
 		}
-		if (bReactToMusic)
+		if (IsMusicReactionEnabled())
 		{
 			FMusicPieceTriangles& Mapping = MusicPieceTriangles.Add(CellIndex);
 			Mapping.FirstTriangle = FirstTriangle;
@@ -1049,7 +1049,7 @@ void AChunkedDestructiblePyramid::ConfigureChunkComponent(
 		Component->SetNumMaterials(TopSliceMaterialSlot + 1);
 		Component->SetMaterial(TopSliceMaterialSlot, TopSliceMaterial);
 	}
-	if (bReactToMusic && MusicReactionMaterialInstance)
+	if (IsMusicReactionEnabled() && MusicReactionMaterialInstance)
 	{
 		const int32 MusicSlot = GetMusicMaterialSlot();
 		Component->SetNumMaterials(MusicSlot + 1);

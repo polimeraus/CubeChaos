@@ -63,9 +63,9 @@ bool FDestructibleMusicAnimationTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Subsystem is excluded from ticking"), Music->GetTickableTickType() == ETickableTickType::Never);
 		TestTrue(TEXT("No registered music actors"), Music->ReactionActors.IsEmpty());
 		TestNull(TEXT("No audio component"), Music->MusicComponent.Get());
-		TestNull(TEXT("No music asset reference"), Music->MusicSound.Get());
-		TestNull(TEXT("No onset asset reference"), Music->OnsetAnalysis.Get());
-		TestTrue(TEXT("No onset timeline"), Music->OnsetTimes.IsEmpty());
+		TestNull(TEXT("No music track reference"), Music->ActiveTrack.Get());
+		TestFalse(TEXT("No pending asset load"), Music->LoadHandle.IsValid());
+		TestTrue(TEXT("No key point timeline"), Music->KeyPointTimeline.IsEmpty());
 	};
 	CheckIdle();
 	Pyramid->TriggerMusicReaction(1.0f, true);

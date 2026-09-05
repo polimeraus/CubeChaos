@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "DestructiblePlanarAnimation.h"
 #include "ChunkedDestructibleFloor.generated.h"
 
 class UDynamicMeshComponent;
@@ -145,6 +146,9 @@ class MYPROJECT6_API AChunkedDestructibleFloor : public AActor
 {
 	GENERATED_BODY()
 	friend class FDestructibleMusicAnimationTest;
+	friend class FDestructiblePlanarAnimationTest;
+	friend class UDestructiblePlanarAnimation;
+	friend class FMusicReactionTimelineTest;
 	friend class FDestructibleQueueTest;
 	friend class FDestructibleCollisionTest;
 	friend class FDestructibleStructureTest;
@@ -221,12 +225,21 @@ public:
 	/** Called by the project music director for an onset or metronome beat. Only intact cells glow. */
 	UFUNCTION(BlueprintCallable, Category = "Animation|Music")
 	void TriggerMusicReaction(float NormalizedStrength, bool bIsOnset);
+	void ApplyMusicEvent(const struct FMusicReactionEvent& Event, double CurrentTime);
+	void ResetMusicPlayback();
+	double GetMusicAnimationTime() const;
 
 	/** Cheap shared query used by the music director; derived destructibles need no duplicate glue. */
-	bool IsMusicReactionEnabled() const { return bReactToMusic; }
+	bool IsMusicReactionEnabled() const { return bReactToMusic && (bReactToOnsets || bReactToBPM || bReactToKeyPoints); }
 
 	UFUNCTION(BlueprintCallable, Category = "Animation|Music")
 	void SetReactToMusic(bool bEnabled);
+	UFUNCTION(BlueprintCallable, Category = "Animation|Music")
+	void SetReactToOnsets(bool bEnabled);
+	UFUNCTION(BlueprintCallable, Category = "Animation|Music")
+	void SetReactToBPM(bool bEnabled);
+	UFUNCTION(BlueprintCallable, Category = "Animation|Music")
+	void SetReactToKeyPoints(bool bEnabled);
 
 	/** Starts the selected reusable material animation on a structure that supports fixed animation. */
 	UFUNCTION(BlueprintCallable, Category = "Animation|Fixed")
@@ -238,6 +251,27 @@ public:
 
 	/** Used by the Details customization to hide fixed settings on unsupported destructibles. */
 	bool IsFixedAnimationSupported() const { return SupportsFixedAnimation(); }
+
+	UFUNCTION(BlueprintCallable, Category = "Animation")
+	void SetPlanarAnimationType(EPlanarAnimationType Type);
+
+	UFUNCTION(BlueprintPure, Category = "Animation")
+	EConeStructureAnimationType GetFixedAnimationType() const;
+
+	UFUNCTION(BlueprintPure, Category = "Animation")
+	bool HasFixedAnimationSelected() const { return GetFixedAnimationType() != EConeStructureAnimationType::None; }
+	UFUNCTION(BlueprintPure, Category = "Animation")
+	bool IsFixedWaveAnimation() const { return GetFixedAnimationType() == EConeStructureAnimationType::BottomToTopGlowWave; }
+	UFUNCTION(BlueprintPure, Category = "Animation")
+	bool IsFixedSineAnimation() const { return GetFixedAnimationType() == EConeStructureAnimationType::BottomToTopSineRows; }
+	UFUNCTION(BlueprintPure, Category = "Animation")
+	bool IsFixedSpiralAnimation() const { return GetFixedAnimationType() == EConeStructureAnimationType::RisingSpiralGlow; }
+
+	UFUNCTION(BlueprintCallable, Category = "Animation")
+	void SetPlanarFlow(FDestructiblePlanarFlow Flow);
+
+	virtual bool UsesPlanarAnimation() const { return true; }
+
 
 	/** Replaces the default tick and its most commonly tuned settings at runtime. */
 	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Sound")
@@ -456,98 +490,119 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed", meta = (DisplayName = "Animation Type"))
 	EConeStructureAnimationType ConeAnimationType = EConeStructureAnimationType::BottomToTopGlowWave;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed", meta = (DisplayName = "Auto Play Fixed Animation", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None"))
+	/** Separate selection preserves previously idle horizontal actors in existing maps. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, BlueprintSetter = SetPlanarAnimationType, Category = "Animation|Fixed", meta = (DisplayName = "Animation Type"))
+	EPlanarAnimationType PlanarAnimationType = EPlanarAnimationType::None;
+
+	/** Shared by fixed waves and music reactions. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, BlueprintSetter = SetPlanarFlow, Category = "Animation|Flow")
+	FDestructiblePlanarFlow PlanarFlow;
+
+	/** Surface material with the shared planar-mask parameter contract. Loaded only on activation. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Flow")
+	TSoftObjectPtr<UMaterialInterface> PlanarAnimationMaterial = TSoftObjectPtr<UMaterialInterface>(
+		FSoftObjectPath(TEXT("/Game/Destructible/Materials/M_PlanarAnimation.M_PlanarAnimation")));
+
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed", meta = (DisplayName = "Auto Play Fixed Animation", EditCondition = "HasFixedAnimationSelected"))
 	bool bAutoPlayConeAnimation = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed", meta = (DisplayName = "Loop Fixed Animation", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed", meta = (DisplayName = "Loop Fixed Animation", EditCondition = "HasFixedAnimationSelected"))
 	bool bLoopConeAnimation = true;
 
 	/** Allows a new wave to start before earlier waves have finished. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed", meta = (DisplayName = "Allow Overlapping Waves", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None && ConeAnimationType != EConeStructureAnimationType::RisingSpiralGlow && bLoopConeAnimation"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed", meta = (DisplayName = "Allow Overlapping Waves", EditCondition = "HasFixedAnimationSelected && !IsFixedSpiralAnimation && bLoopConeAnimation"))
 	bool bAllowOverlappingConeWaves = true;
 
 	/** Time between wave starts. Set this below the animation duration to overlap multiple waves. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed", meta = (DisplayName = "Wave Start Interval", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None && ConeAnimationType != EConeStructureAnimationType::RisingSpiralGlow && bLoopConeAnimation && bAllowOverlappingConeWaves", EditConditionHides, ClampMin = "0.05", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed", meta = (DisplayName = "Wave Start Interval", EditCondition = "HasFixedAnimationSelected && !IsFixedSpiralAnimation && bLoopConeAnimation && bAllowOverlappingConeWaves", EditConditionHides, ClampMin = "0.05", Units = "s"))
 	float ConeWaveStartInterval = 1.0f;
 
 	/** Safety and performance cap for simultaneously active waves. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Fixed", meta = (DisplayName = "Maximum Concurrent Waves", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None && ConeAnimationType != EConeStructureAnimationType::RisingSpiralGlow && bLoopConeAnimation && bAllowOverlappingConeWaves", EditConditionHides, ClampMin = "1", ClampMax = "32"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Fixed", meta = (DisplayName = "Maximum Concurrent Waves", EditCondition = "HasFixedAnimationSelected && !IsFixedSpiralAnimation && bLoopConeAnimation && bAllowOverlappingConeWaves", EditConditionHides, ClampMin = "1", ClampMax = "32"))
 	int32 MaxConcurrentConeWaves = 8;
 
 	/** Time taken by the glow band to travel completely from the base to the apex. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Bottom To Top Glow Wave", meta = (DisplayName = "Wave Duration", EditCondition = "ConeAnimationType == EConeStructureAnimationType::BottomToTopGlowWave", EditConditionHides, ClampMin = "0.05", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Bottom To Top Glow Wave", meta = (DisplayName = "Wave Duration", EditCondition = "IsFixedWaveAnimation", EditConditionHides, ClampMin = "0.05", Units = "s"))
 	float GlowWaveDuration = 2.5f;
 
 	/** Vertical height of the glowing band, measured using the structure's layer pitch. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Bottom To Top Glow Wave", meta = (DisplayName = "Wave Band Height (Blocks)", EditCondition = "ConeAnimationType == EConeStructureAnimationType::BottomToTopGlowWave", EditConditionHides, ClampMin = "0.05", ClampMax = "64.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Bottom To Top Glow Wave", meta = (DisplayName = "Wave Band Height (Blocks)", EditCondition = "IsFixedWaveAnimation", EditConditionHides, ClampMin = "0.05", ClampMax = "64.0"))
 	float GlowWaveBandHeightBlocks = 3.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Bottom To Top Glow Wave", meta = (DisplayName = "Wave Loop Delay", EditCondition = "ConeAnimationType == EConeStructureAnimationType::BottomToTopGlowWave && bLoopConeAnimation", EditConditionHides, ClampMin = "0.0", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Bottom To Top Glow Wave", meta = (DisplayName = "Wave Loop Delay", EditCondition = "IsFixedWaveAnimation && bLoopConeAnimation", EditConditionHides, ClampMin = "0.0", Units = "s"))
 	float GlowWaveLoopDelay = 0.35f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Spiral Duration", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides, ClampMin = "0.05", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Spiral Duration", EditCondition = "IsFixedSpiralAnimation", EditConditionHides, ClampMin = "0.05", Units = "s"))
 	float SpiralGlowDuration = 4.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Spiral Turns", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides, ClampMin = "0.1", ClampMax = "32.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Spiral Turns", EditCondition = "IsFixedSpiralAnimation", EditConditionHides, ClampMin = "0.1", ClampMax = "32.0"))
 	float SpiralGlowTurns = 5.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Stripe Width (Degrees)", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides, ClampMin = "1.0", ClampMax = "350.0", Units = "deg"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Stripe Width (Degrees)", EditCondition = "IsFixedSpiralAnimation", EditConditionHides, ClampMin = "1.0", ClampMax = "350.0", Units = "deg"))
 	float SpiralGlowStripeWidthDegrees = 90.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Spiral Strands Per Wave", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides, ClampMin = "1", ClampMax = "8"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Spiral Strands Per Wave", EditCondition = "IsFixedSpiralAnimation", EditConditionHides, ClampMin = "1", ClampMax = "8"))
 	int32 SpiralGlowStrandCount = 1;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Start Angle", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides, ClampMin = "-360.0", ClampMax = "360.0", Units = "deg"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Start Angle", EditCondition = "IsFixedSpiralAnimation", EditConditionHides, ClampMin = "-360.0", ClampMax = "360.0", Units = "deg"))
 	float SpiralGlowStartAngleDegrees = 0.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Reverse Spiral Direction", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Reverse Spiral Direction", EditCondition = "IsFixedSpiralAnimation", EditConditionHides))
 	bool bReverseSpiralGlowDirection = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Surface Offset", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides, ClampMin = "0.5", ClampMax = "20.0", Units = "cm"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Surface Offset", EditCondition = "IsFixedSpiralAnimation", EditConditionHides, ClampMin = "0.5", ClampMax = "20.0", Units = "cm"))
 	float SpiralGlowSurfaceOffset = 3.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Use Crisp Opaque Material", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Use Crisp Opaque Material", EditCondition = "IsFixedSpiralAnimation", EditConditionHides))
 	bool bUseCrispOpaqueSpiralMaterial = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Crisp Opaque Material", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow && bUseCrispOpaqueSpiralMaterial", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Crisp Opaque Material", EditCondition = "IsFixedSpiralAnimation && bUseCrispOpaqueSpiralMaterial", EditConditionHides))
 	TObjectPtr<UMaterialInterface> CrispSpiralMaterial;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Spiral Loop Delay", EditCondition = "ConeAnimationType == EConeStructureAnimationType::RisingSpiralGlow && bLoopConeAnimation", EditConditionHides, ClampMin = "0.0", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Rising Candy Cane Spiral Glow", meta = (DisplayName = "Spiral Loop Delay", EditCondition = "IsFixedSpiralAnimation && bLoopConeAnimation", EditConditionHides, ClampMin = "0.0", Units = "s"))
 	float SpiralGlowLoopDelay = 0.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Glow Material", meta = (DisplayName = "Animation Glow Material", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Glow Material", meta = (DisplayName = "Animation Glow Material", EditCondition = "HasFixedAnimationSelected", EditConditionHides))
 	TObjectPtr<UMaterialInterface> GlowWaveMaterial;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Glow Material", meta = (DisplayName = "Animation Glow Color", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None", EditConditionHides, HideAlphaChannel))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Glow Material", meta = (DisplayName = "Animation Glow Color", EditCondition = "HasFixedAnimationSelected", EditConditionHides, HideAlphaChannel))
 	FLinearColor GlowWaveColor = FLinearColor(0.05f, 0.55f, 1.0f, 1.0f);
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Glow Material", meta = (DisplayName = "Peak Glow Intensity", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None", EditConditionHides, ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Glow Material", meta = (DisplayName = "Peak Glow Intensity", EditCondition = "HasFixedAnimationSelected", EditConditionHides, ClampMin = "0.0"))
 	float GlowWaveIntensity = 25.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Fixed|Glow Material", meta = (DisplayName = "Color Parameter Name", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Fixed|Glow Material", meta = (DisplayName = "Color Parameter Name", EditCondition = "HasFixedAnimationSelected", EditConditionHides))
 	FName GlowWaveColorParameterName = TEXT("WaveColor");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Fixed|Glow Material", meta = (DisplayName = "Intensity Parameter Name", EditCondition = "ConeAnimationType != EConeStructureAnimationType::None", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Fixed|Glow Material", meta = (DisplayName = "Intensity Parameter Name", EditCondition = "HasFixedAnimationSelected", EditConditionHides))
 	FName GlowWaveIntensityParameterName = TEXT("WaveIntensity");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Bottom To Top Sine Rows", meta = (DisplayName = "Sine Rows Duration", EditCondition = "ConeAnimationType == EConeStructureAnimationType::BottomToTopSineRows", EditConditionHides, ClampMin = "0.05", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Bottom To Top Sine Rows", meta = (DisplayName = "Sine Rows Duration", EditCondition = "IsFixedSineAnimation", EditConditionHides, ClampMin = "0.05", Units = "s"))
 	float SineRowsDuration = 3.5f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Bottom To Top Sine Rows", meta = (DisplayName = "Simultaneous Glowing Rows", EditCondition = "ConeAnimationType == EConeStructureAnimationType::BottomToTopSineRows", EditConditionHides, ClampMin = "2", ClampMax = "32"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Bottom To Top Sine Rows", meta = (DisplayName = "Simultaneous Glowing Rows", EditCondition = "IsFixedSineAnimation", EditConditionHides, ClampMin = "2", ClampMax = "32"))
 	int32 SineRowsSimultaneousRowCount = 5;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Bottom To Top Sine Rows", meta = (DisplayName = "Sine Rows Loop Delay", EditCondition = "ConeAnimationType == EConeStructureAnimationType::BottomToTopSineRows && bLoopConeAnimation", EditConditionHides, ClampMin = "0.0", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed|Bottom To Top Sine Rows", meta = (DisplayName = "Sine Rows Loop Delay", EditCondition = "IsFixedSineAnimation && bLoopConeAnimation", EditConditionHides, ClampMin = "0.0", Units = "s"))
 	float SineRowsLoopDelay = 0.35f;
 
 	/** Enables the shared onset/BPM animation. Disabled by default for every destructible actor. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, BlueprintSetter = SetReactToMusic, Category = "Animation|Music", meta = (DisplayName = "React To Music"))
 	bool bReactToMusic = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (EditCondition = "bReactToMusic"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, BlueprintSetter = SetReactToOnsets, Category = "Animation|Music", meta = (EditCondition = "bReactToMusic"))
 	bool bReactToOnsets = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (EditCondition = "bReactToMusic"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, BlueprintSetter = SetReactToBPM, Category = "Animation|Music", meta = (EditCondition = "bReactToMusic"))
 	bool bReactToBPM = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, BlueprintSetter = SetReactToKeyPoints, Category = "Animation|Music", meta = (EditCondition = "bReactToMusic"))
+	bool bReactToKeyPoints = true;
+
+	/** Key points with a target group only affect actors in that group. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (EditCondition = "bReactToMusic"))
+	FName MusicReactionGroup;
 
 	/** Onsets weaker than this normalized Audio Synesthesia value are ignored. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (EditCondition = "bReactToMusic && bReactToOnsets", ClampMin = "0.0", ClampMax = "1.0"))
@@ -668,7 +723,10 @@ protected:
 		float Strength = 0.0f;
 		float Duration = 0.72f;
 		float PeakHeight = 1.0f;
+		int32 Priority = 0;
 	};
+	double LastMusicEventTime = -1.0e30;
+	int32 LastMusicEventPriority = -1;
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UDynamicMeshComponent>> ChunkComponents;
@@ -773,11 +831,11 @@ protected:
 	virtual void ClearAdditionalRuntimeEffects() {}
 
 	/** Fixed-animation controller hooks. Geometry remains polymorphic and lives in each shape. */
-	virtual bool SupportsFixedAnimation() const { return false; }
-	virtual bool CreateFixedAnimationResources() { return false; }
-	virtual bool HasFixedAnimationResources() const { return false; }
-	virtual void DestroyFixedAnimationResources() {}
-	virtual void RenderFixedAnimation(TConstArrayView<float> AnimationAlphas) {}
+	virtual bool SupportsFixedAnimation() const { return UsesPlanarAnimation(); }
+	virtual bool CreateFixedAnimationResources();
+	virtual bool HasFixedAnimationResources() const;
+	virtual void DestroyFixedAnimationResources();
+	virtual void RenderFixedAnimation(TConstArrayView<float> AnimationAlphas);
 	UMaterialInstanceDynamic* CreateFixedAnimationMaterialInstance();
 	void ApplyFixedAnimationMaterialParameters(
 		UMaterialInstanceDynamic* MaterialInstance,
@@ -785,8 +843,8 @@ protected:
 	int32 CalculateFixedSineComponentCount(int32 AvailableRowCount) const;
 	virtual FTransform GetMusicEqualizerTransform(FIntPoint Cell) const;
 	virtual bool UsesMusicPieceMaterials() const { return false; }
-	virtual void RenderMusicEqualizerCells(TConstArrayView<int32> CellIndices) {}
-	virtual void ClearMusicPieceMaterials() {}
+	virtual void RenderMusicEqualizerCells(TConstArrayView<int32> CellIndices);
+	virtual void ClearMusicPieceMaterials();
 	void BuildMusicEqualizerLayout();
 	void InitializeMusicEqualizerPool();
 	void RefreshMusicReactionMaterial();
@@ -827,6 +885,12 @@ protected:
 	void ClampFixedAnimationSettings();
 
 private:
+	bool EnsurePlanarAnimationResources();
+	void ReleasePlanarAnimationIfUnused();
+	void UpdatePlanarMusic(double CurrentTime);
+	FVector2D GetPlanarAnimationCoordinates(FVector LocalPosition) const;
+	UPROPERTY(Transient) TObjectPtr<UDestructiblePlanarAnimation> PlanarAnimation;
+	TArray<uint8> PlanarMusicMask;
 	FTimerHandle FixedAnimationTimerHandle;
 	double FixedAnimationStartTime = 0.0;
 	bool bFixedAnimationPlaying = false;

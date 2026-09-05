@@ -146,8 +146,11 @@ class MYPROJECT6_API AChunkedDestructiblePyramid : public AChunkedDestructibleFl
 {
 	GENERATED_BODY()
 	friend class FDestructibleMusicAnimationTest;
+	friend class FMusicReactionTimelineTest;
 
 public:
+	virtual bool UsesPlanarAnimation() const override { return false; }
+
 	AChunkedDestructiblePyramid();
 
 #if WITH_EDITOR

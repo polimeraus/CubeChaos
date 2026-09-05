@@ -1,0 +1,53 @@
+// Shared actor-local surface mask; no vertex displacement.
+
+float2 size = max(Footprint.xy, 1.0);
+float2 delta = (UV - 0.5) * size;
+float2 radial = (UV - Footprint.zw) * size;
+float radius = max(length(max(Footprint.zw, 1.0 - Footprint.zw) * size), 1.0);
+float2 span = max(float2(dot(abs(Flow.xy), size), dot(abs(Flow.yx), size)), 1.0);
+float travel = 0.5 + dot(delta, Flow.xy) / span.x;
+float across = 0.5 + dot(delta, float2(-Flow.y, Flow.x)) / span.y;
+float angle = atan2(radial.y, radial.x) / 6.28318530718;
+if (Flow.z > 0.5)
+{
+    travel = length(radial) / radius;
+    across = frac(angle - atan2(Flow.y, Flow.x) / 6.28318530718);
+}
+travel = saturate(Flow.w > 0.5 ? 1.0 - travel : travel);
+across = saturate(across);
+float4 waves[8] = { Waves0, Waves1, Waves2, Waves3, Waves4, Waves5, Waves6, Waves7 };
+float glow = 0.0;
+[loop] for (int i = 0; i < min((int)Fixed.y, 32); ++i)
+{
+    float alpha = waves[i / 4][i % 4];
+    float band = max(Fixed.z, 0.001);
+    float head = alpha * (1.0 + band);
+    float phase = (head - travel) / band;
+    float value = 0.0;
+    if (Fixed.x < 1.5)
+    {
+        value = saturate(1.0 - abs(phase * 2.0 - 1.0));
+    }
+    else if (Fixed.x < 2.5)
+    {
+        // Several soft bands move together across the chosen coordinate field.
+        value = pow(saturate(0.5 + 0.5 * cos((travel - alpha) * 6.28318530718 * Fixed.w)), 6.0);
+        value *= saturate(alpha * 12.0) * saturate((1.0 - alpha) * 12.0);
+    }
+    else
+    {
+        float distance = length(radial) / radius;
+        distance = Flow.w > 0.5 ? 1.0 - distance : distance;
+        float stripe = frac((angle - Spiral.w - distance * Spiral.x - alpha * SpiralDirection) * Spiral.z);
+        float width = clamp(Spiral.y, 0.003, 0.97);
+        float edge = min(fwidth(stripe), width * 0.25);
+        value = 1.0 - smoothstep(width - edge, width + edge, stripe);
+    }
+    glow = max(glow, value);
+}
+float music = 0.0;
+if (MusicEnabled > 0.5)
+{
+    music = Texture2DSample(MusicMask, MusicMaskSampler, float2(across, travel)).r;
+}
+return WaveColor.rgb * glow + MusicColor.rgb * music;

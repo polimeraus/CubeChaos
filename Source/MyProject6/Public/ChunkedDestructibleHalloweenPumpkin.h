@@ -41,6 +41,8 @@ class MYPROJECT6_API AChunkedDestructibleHalloweenPumpkin : public AChunkedDestr
 	GENERATED_BODY()
 
 public:
+	virtual bool UsesPlanarAnimation() const override { return false; }
+
 	AChunkedDestructibleHalloweenPumpkin();
 	virtual void OnConstruction(const FTransform& Transform) override;
 

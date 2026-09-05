@@ -74,11 +74,13 @@ bool FDestructibleQueueTest::RunTest(const FString& Parameters)
 	Floor->QueueCellDestruction(Index, 1.0f, true);
 	Floor->SetAllCellsDestructible(false);
 	TestFalse(TEXT("SetAllCellsDestructible stops an empty queue"), Floor->IsActorTickEnabled());
-	// Flash cleanup detaches its cube. Music must acquire its own mesh after this cleanup.
+	// Flash cleanup must not affect music on the actual planar surface.
 	Floor->FlashInstances->SetStaticMesh(nullptr);
 	Floor->SetReactToMusic(true);
 	Floor->TriggerMusicReaction(1.0f, true);
-	TestTrue(TEXT("Music still has a cube after flash expiry"), Floor->MusicEqualizerInstances->GetStaticMesh() != nullptr);
+	Floor->UpdateMusicEqualizer(Floor->GetMusicAnimationTime() + 0.05);
+	TestNull(TEXT("Planar music never uses flash cubes"), Floor->MusicEqualizerInstances.Get());
+	TestNotNull(TEXT("Planar music still renders after flash expiry"), Floor->PlanarAnimation.Get());
 	Floor->SetReactToMusic(false);
 	return true;
 }

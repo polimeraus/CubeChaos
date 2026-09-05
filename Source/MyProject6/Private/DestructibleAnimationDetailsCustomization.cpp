@@ -107,6 +107,8 @@ namespace
 			return 0;
 		}
 
+		const AChunkedDestructibleFloor* Defaults = Cast<AChunkedDestructibleFloor>(ObjectClass->GetDefaultObject());
+		const bool bPlanar = Defaults && Defaults->UsesPlanarAnimation();
 		int32 AddedPropertyCount = 0;
 		TMap<FString, IDetailGroup*> ChildGroups;
 		const FString ChildPrefix = CategoryPrefix + TEXT("|");
@@ -134,7 +136,18 @@ namespace
 			}
 
 			DetailBuilder.HideProperty(PropertyHandle);
-			if (!bAddProperties)
+			if (!bAddProperties ||
+				(bPlanar && (Property->GetFName() == TEXT("ConeAnimationType") ||
+					Property->GetFName() == TEXT("SpiralGlowSurfaceOffset") ||
+					Property->GetFName() == TEXT("bUseCrispOpaqueSpiralMaterial") ||
+					Property->GetFName() == TEXT("CrispSpiralMaterial") ||
+					Property->GetFName() == TEXT("GlowWaveMaterial") ||
+					Property->GetFName() == TEXT("GlowWaveColorParameterName") ||
+					Property->GetFName() == TEXT("GlowWaveIntensityParameterName") ||
+					Property->GetFName() == TEXT("MusicReactionMaterial") ||
+					Property->GetFName() == TEXT("MusicReactionSurfaceScale") ||
+					Property->GetFName() == TEXT("MaxMusicEqualizerInstances"))) ||
+				(!bPlanar && Property->GetFName() == TEXT("PlanarAnimationType")))
 			{
 				continue;
 			}
@@ -142,7 +155,13 @@ namespace
 			IDetailGroup* DestinationGroup = &TargetGroup;
 			if (PropertyCategory.Len() > ChildPrefix.Len())
 			{
-				const FString ChildCategory = PropertyCategory.RightChop(ChildPrefix.Len());
+				FString ChildCategory = PropertyCategory.RightChop(ChildPrefix.Len());
+				if (bPlanar)
+				{
+					ChildCategory.ReplaceInline(TEXT("Bottom To Top Glow Wave"), TEXT("Flowing Wave"));
+					ChildCategory.ReplaceInline(TEXT("Bottom To Top Sine Rows"), TEXT("Sine Bands"));
+					ChildCategory.ReplaceInline(TEXT("Rising Candy Cane Spiral Glow"), TEXT("Spiral"));
+				}
 				IDetailGroup*& ChildGroup = ChildGroups.FindOrAdd(ChildCategory);
 				if (!ChildGroup)
 				{
@@ -215,6 +234,14 @@ void FDestructibleAnimationDetailsCustomization::CustomizeDetails(IDetailLayoutB
 				.AutoWrapText(true)
 			];
 	}
+
+	const bool bPlanar = DestructibleDefaults && DestructibleDefaults->UsesPlanarAnimation();
+	IDetailGroup& FlowGroup = bPlanar
+		? AnimationGroup.AddGroup(TEXT("DestructiblePlanarFlow"), LOCTEXT("PlanarFlowGroup", "Flow Direction (Fixed And Music)"), true)
+		: AnimationGroup;
+	if (bPlanar) { FlowGroup.SetDisplayMode(EDetailGroupDisplayMode::Category); }
+	MoveAnimationProperties(DetailBuilder, ObjectClass, TEXT("Animation|Flow"), FlowGroup,
+		TEXT("DestructiblePlanarFlow"), bPlanar);
 
 	IDetailGroup& MusicGroup = AnimationGroup.AddGroup(
 		TEXT("DestructibleMusicAnimation"),
