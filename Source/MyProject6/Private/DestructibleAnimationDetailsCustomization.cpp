@@ -147,7 +147,8 @@ namespace
 					Property->GetFName() == TEXT("MusicReactionMaterial") ||
 					Property->GetFName() == TEXT("MusicReactionSurfaceScale") ||
 					Property->GetFName() == TEXT("MaxMusicEqualizerInstances"))) ||
-				(!bPlanar && Property->GetFName() == TEXT("PlanarAnimationType")))
+				(!bPlanar && (Property->GetFName() == TEXT("PlanarAnimationType") ||
+					Property->GetFName() == TEXT("MusicEqualizerBaseEdge"))))
 			{
 				continue;
 			}

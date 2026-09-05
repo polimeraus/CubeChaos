@@ -48,6 +48,16 @@ float glow = 0.0;
 float music = 0.0;
 if (MusicEnabled > 0.5)
 {
-    music = Texture2DSample(MusicMask, MusicMaskSampler, float2(across, travel)).r;
+    float2 musicUV = float2(across, travel);
+    float segments = 1.0;
+    if (Equalizer.w > 0.5)
+    {
+        // A fixed edge anchors filled bars, independently of the fixed animation's flow.
+        musicUV = Equalizer.z < 1.5 ? UV.yx : UV.xy;
+        if (Equalizer.z == 1.0 || Equalizer.z == 3.0) { musicUV.y = 1.0 - musicUV.y; }
+        float2 block = frac(saturate(musicUV) * Equalizer.xy);
+        segments = step(0.035, block.x) * step(block.x, 0.965) * step(0.07, block.y) * step(block.y, 0.93);
+    }
+    music = Texture2DSample(MusicMask, MusicMaskSampler, musicUV).r * segments;
 }
 return WaveColor.rgb * glow + MusicColor.rgb * music;

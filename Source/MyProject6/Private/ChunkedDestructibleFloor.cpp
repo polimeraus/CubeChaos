@@ -902,6 +902,41 @@ void AChunkedDestructibleFloor::SetReactToOnsets(bool bEnabled)
 	SetReactToMusic(bReactToMusic);
 }
 
+void AChunkedDestructibleFloor::SetMusicAnimationType(EMusicAnimationType Type)
+{
+	if (MusicAnimationType == Type) { return; }
+	ResetMusicPlayback();
+	MusicAnimationType = Type;
+	if (IsMusicReactionEnabled() && HasActorBegunPlay())
+	{
+		BuildMusicEqualizerLayout();
+		InitializeMusicEqualizerPool();
+	}
+}
+
+void AChunkedDestructibleFloor::SetMusicEqualizerBaseEdge(EMusicEqualizerBaseEdge Edge)
+{
+	if (MusicEqualizerBaseEdge == Edge) { return; }
+	MusicEqualizerBaseEdge = Edge;
+	if (UsesPlanarAnimation() && MusicAnimationType == EMusicAnimationType::Equalizer)
+	{
+		ResetMusicPlayback();
+		if (IsMusicReactionEnabled() && HasActorBegunPlay()) { BuildMusicEqualizerLayout(); }
+	}
+}
+
+float AChunkedDestructibleFloor::FActiveMusicEqualizerColumn::GetEqualizerHeight(double CurrentTime) const
+{
+	const float Progress = (CurrentTime - StartTime) / FMath::Max(Duration, 0.01f);
+	if (Progress < 0.0f || Progress >= 1.0f) { return 0.0f; }
+	constexpr float AttackFraction = 0.12f;
+	if (Progress < AttackFraction)
+	{
+		return FMath::Lerp(StartHeight, PeakHeight, FMath::SmoothStep(0.0f, AttackFraction, Progress));
+	}
+	return PeakHeight * (1.0f - FMath::SmoothStep(AttackFraction, 1.0f, Progress));
+}
+
 void AChunkedDestructibleFloor::SetReactToBPM(bool bEnabled)
 {
 	bReactToBPM = bEnabled;
@@ -996,6 +1031,33 @@ void AChunkedDestructibleFloor::ApplyMusicEvent(const FMusicReactionEvent& Event
 		FMath::Clamp(MusicReactionDuration, 0.15f, 3.0f) * FMath::Lerp(0.9f, 1.2f, Response);
 	// Ambient visuals retain the actual event age. A missed key point gets a visible catch-up pulse.
 	const double StartTime = bKeyPoint && CurrentTime - Event.TimeSeconds > 0.08 ? CurrentTime : Event.TimeSeconds;
+	if (MusicAnimationType == EMusicAnimationType::Equalizer)
+	{
+		if (Response <= 0.0f || CurrentTime >= StartTime + Duration) { return; }
+		// Every fixed column responds, with its own level. Re-trigger from its current height
+		// so a new beat cannot open a gap at the base or reset the bar to zero.
+		for (int32 ColumnIndex = 0; ColumnIndex < DesiredColumns; ++ColumnIndex)
+		{
+			FActiveMusicEqualizerColumn* Existing = ActiveMusicEqualizerColumns.FindByPredicate(
+				[ColumnIndex](const auto& Column) { return Column.ColumnIndex == ColumnIndex; });
+			const float Height = Existing ? Existing->GetEqualizerHeight(CurrentTime) : 0.0f;
+			if (Existing && Height > 0.0f && Existing->Priority > Event.Priority) { continue; }
+			const float PreviousStrength = Existing && Height > 0.0f ? Existing->Strength : 0.0f;
+			FActiveMusicEqualizerColumn& Column = Existing ? *Existing : ActiveMusicEqualizerColumns.Emplace_GetRef();
+			Column.ColumnIndex = ColumnIndex;
+			Column.StartTime = Height > 0.0f ? CurrentTime : StartTime;
+			Column.StartHeight = Height;
+			Column.Duration = Duration;
+			Column.Strength = FMath::Max(PreviousStrength, Response);
+			Column.PeakHeight = FMath::Max(Height, Response * MusicReactionRandomStream.FRandRange(0.3f, 1.0f));
+			Column.Priority = Event.Priority;
+		}
+		LastMusicEventTime = Event.TimeSeconds;
+		LastMusicEventPriority = Event.Priority;
+		SetActorTickEnabled(true);
+		NextMusicEqualizerUpdateTime = FMath::Min(NextMusicEqualizerUpdateTime, CurrentTime);
+		return;
+	}
 	ActiveMusicEqualizerColumns.RemoveAll([CurrentTime](const auto& Column) { return CurrentTime >= Column.StartTime + Column.Duration; });
 	// A stronger onset arriving just after a beat replaces that beat's visual contribution.
 	ActiveMusicEqualizerColumns.RemoveAll([&Event](const auto& Column)
@@ -2390,6 +2452,7 @@ FTransform AChunkedDestructibleFloor::GetMusicEqualizerTransform(FIntPoint Cell)
 void AChunkedDestructibleFloor::BuildMusicEqualizerLayout()
 {
 	MusicEqualizerSlots.Reset();
+	MusicEqualizerSlotCells.Reset();
 	CachedMusicEqualizerColumnCount = FMath::Clamp(MusicEqualizerColumnCount, 4, 32);
 	CachedMusicEqualizerRowCount = FMath::Clamp(MusicEqualizerRowCount, 8, 48);
 	if (Cells.IsEmpty())
@@ -2399,13 +2462,15 @@ void AChunkedDestructibleFloor::BuildMusicEqualizerLayout()
 
 	const int32 SlotCount = CachedMusicEqualizerColumnCount * CachedMusicEqualizerRowCount;
 	MusicEqualizerSlots.SetNum(SlotCount);
+	const bool bFillRealPieces = MusicAnimationType == EMusicAnimationType::Equalizer && UsesMusicPieceMaterials();
+	if (bFillRealPieces) { MusicEqualizerSlotCells.SetNum(SlotCount); }
 
 	// Sample a bounded pool once. Even a very dense cone therefore has constant music-setup cost,
 	// and hit events never scan its complete cell array.
 	const int32 MaximumCandidateCount = FMath::Clamp(SlotCount * 12, 2048, 8192);
 	TSet<int32> CandidateIndices;
 	CandidateIndices.Reserve(MaximumCandidateCount);
-	if (Cells.Num() <= MaximumCandidateCount)
+	if (bFillRealPieces || Cells.Num() <= MaximumCandidateCount)
 	{
 		for (int32 CellIndex = 0; CellIndex < Cells.Num(); ++CellIndex)
 		{
@@ -2475,7 +2540,7 @@ void AChunkedDestructibleFloor::BuildMusicEqualizerLayout()
 				CachedMusicEqualizerColumnCount - UE_PI;
 		}
 		const FVector2D PlanarCoordinates = UsesPlanarAnimation()
-			? GetPlanarAnimationCoordinates(Candidate.Center) : FVector2D::ZeroVector;
+			? GetMusicEqualizerCoordinates(Candidate.Center) : FVector2D::ZeroVector;
 		const float ColumnAlpha = UsesPlanarAnimation() ? PlanarCoordinates.Y : (Angle + UE_PI) / UE_TWO_PI;
 		const int32 ColumnIndex = FMath::Clamp(
 			FMath::FloorToInt(ColumnAlpha * CachedMusicEqualizerColumnCount),
@@ -2495,6 +2560,7 @@ void AChunkedDestructibleFloor::BuildMusicEqualizerLayout()
 			: 0.0f;
 		const float Score = FMath::Abs(HeightAlpha - RowCenterAlpha);
 		const int32 SlotIndex = ColumnIndex * CachedMusicEqualizerRowCount + RowIndex;
+		if (bFillRealPieces) { MusicEqualizerSlotCells[SlotIndex].Add(Candidate.CellIndex); }
 		if (Score < SlotScores[SlotIndex])
 		{
 			SlotScores[SlotIndex] = Score;
@@ -2502,6 +2568,14 @@ void AChunkedDestructibleFloor::BuildMusicEqualizerLayout()
 			MusicEqualizerSlots[SlotIndex].Transform = Candidate.Transform;
 		}
 	}
+}
+
+int32 AChunkedDestructibleFloor::GetMusicEqualizerPoolSize() const
+{
+	// A filled column needs every row simultaneously; the traveling-tail budget would clip bars.
+	return MusicAnimationType == EMusicAnimationType::Equalizer
+		? FMath::Clamp(MusicEqualizerColumnCount, 4, 32) * FMath::Clamp(MusicEqualizerRowCount, 8, 48)
+		: FMath::Clamp(MaxMusicEqualizerInstances, 16, 256);
 }
 
 void AChunkedDestructibleFloor::InitializeMusicEqualizerPool()
@@ -2537,7 +2611,7 @@ void AChunkedDestructibleFloor::InitializeMusicEqualizerPool()
 	{
 		return;
 	}
-	const int32 PoolSize = FMath::Clamp(MaxMusicEqualizerInstances, 16, 256);
+	const int32 PoolSize = GetMusicEqualizerPoolSize();
 	if (MusicEqualizerInstances->GetInstanceCount() == PoolSize)
 	{
 		return;
@@ -2631,7 +2705,7 @@ void AChunkedDestructibleFloor::UpdateMusicEqualizer(double CurrentTime)
 		return;
 	}
 	InitializeMusicEqualizerPool();
-	const int32 PoolSize = FMath::Clamp(MaxMusicEqualizerInstances, 16, 256);
+	const int32 PoolSize = GetMusicEqualizerPoolSize();
 	const FTransform HiddenTransform(FQuat::Identity, FVector::ZeroVector, FVector::ZeroVector);
 	if (!UsesMusicPieceMaterials())
 	{
@@ -2642,6 +2716,7 @@ void AChunkedDestructibleFloor::UpdateMusicEqualizer(double CurrentTime)
 	float MaximumVisualStrength = 0.0f;
 	const int32 TailLength = FMath::Clamp(MusicEqualizerTailLength, 1, 8);
 	const float BlockScale = FMath::Clamp(MusicReactionSurfaceScale, 0.2f, 1.2f);
+	const bool bFilled = MusicAnimationType == EMusicAnimationType::Equalizer;
 
 	for (const FActiveMusicEqualizerColumn& Column : ActiveMusicEqualizerColumns)
 	{
@@ -2654,24 +2729,38 @@ void AChunkedDestructibleFloor::UpdateMusicEqualizer(double CurrentTime)
 		}
 
 		// The transient is the brightest instant; the travel then decays smoothly.
-		const float Envelope = FMath::Square(1.0f - Progress);
+		const float Envelope = bFilled ? 1.0f : FMath::Square(1.0f - Progress);
 		MaximumVisualStrength = FMath::Max(MaximumVisualStrength, Column.Strength * Envelope);
 		const int32 PeakRowCount = FMath::Max(
 			1,
 			FMath::RoundToInt(CachedMusicEqualizerRowCount * Column.PeakHeight));
 		const int32 HeadRow = FMath::FloorToInt(Progress * (PeakRowCount + TailLength));
+		const int32 FilledRows = FMath::Clamp(FMath::RoundToInt(
+			Column.GetEqualizerHeight(CurrentTime) * CachedMusicEqualizerRowCount), 0, CachedMusicEqualizerRowCount);
 		for (int32 TailIndex = 0;
-			TailIndex < TailLength && VisibleInstanceCount < PoolSize;
+			TailIndex < (bFilled ? FilledRows : TailLength) && (bFilled || VisibleInstanceCount < PoolSize);
 			++TailIndex)
 		{
-			const int32 RowIndex = HeadRow - TailIndex;
+			const int32 RowIndex = bFilled ? TailIndex : HeadRow - TailIndex;
 			if (RowIndex < 0 || RowIndex >= PeakRowCount ||
 				RowIndex >= CachedMusicEqualizerRowCount)
 			{
 				continue;
 			}
-			const FMusicEqualizerSlot& Slot = MusicEqualizerSlots[
-				Column.ColumnIndex * CachedMusicEqualizerRowCount + RowIndex];
+			const int32 SlotIndex = Column.ColumnIndex * CachedMusicEqualizerRowCount + RowIndex;
+			if (bFilled && UsesMusicPieceMaterials() && MusicEqualizerSlotCells.IsValidIndex(SlotIndex))
+			{
+				for (const int32 CellIndex : MusicEqualizerSlotCells[SlotIndex])
+				{
+					if (Cells.IsValidIndex(CellIndex) && Cells[CellIndex].bExists && !PendingCellIndices.Contains(CellIndex))
+					{
+						MusicEqualizerUsedCellBuffer.Add(CellIndex);
+					}
+				}
+				continue;
+			}
+			if (!MusicEqualizerSlots.IsValidIndex(SlotIndex)) { continue; }
+			const FMusicEqualizerSlot& Slot = MusicEqualizerSlots[SlotIndex];
 			if (!Cells.IsValidIndex(Slot.CellIndex) || !Cells[Slot.CellIndex].bExists ||
 				PendingCellIndices.Contains(Slot.CellIndex) ||
 				MusicEqualizerUsedCellBuffer.Contains(Slot.CellIndex))
@@ -2685,14 +2774,15 @@ void AChunkedDestructibleFloor::UpdateMusicEqualizer(double CurrentTime)
 			{
 				continue;
 			}
-			FTransform& InstanceTransform = MusicEqualizerTransformBuffer[VisibleInstanceCount - 1];
+			// Equalizer instances have a permanent slot; only their visibility changes.
+			FTransform& InstanceTransform = MusicEqualizerTransformBuffer[bFilled ? SlotIndex : VisibleInstanceCount - 1];
 			InstanceTransform = Slot.Transform;
 			const float TailScale = FMath::Lerp(
 				0.58f,
 				1.0f,
 				1.0f - static_cast<float>(TailIndex) / FMath::Max(TailLength, 1));
 			InstanceTransform.SetScale3D(
-				InstanceTransform.GetScale3D() * BlockScale * TailScale);
+				InstanceTransform.GetScale3D() * BlockScale * (bFilled ? 1.0f : TailScale));
 		}
 	}
 
@@ -2733,6 +2823,7 @@ void AChunkedDestructibleFloor::ClearMusicEqualizer()
 	ClearMusicPieceMaterials();
 	ActiveMusicEqualizerColumns.Reset();
 	MusicEqualizerSlots.Reset();
+	MusicEqualizerSlotCells.Empty();
 	CachedMusicEqualizerColumnCount = 0;
 	CachedMusicEqualizerRowCount = 0;
 	NextMusicEqualizerUpdateTime = 0.0;

@@ -38,6 +38,7 @@ for name, default in {
     "Flow": (1, 0, 0, 0), "Footprint": (1000, 1000, .5, .5),
     "Fixed": (0, 0, .1, 5), "Spiral": (5, .25, 1, 0),
     "WaveColor": (0, 0, 0, 0), "MusicColor": (0, 0, 0, 0),
+    "Equalizer": (16, 24, 0, 0),
     **{f"Waves{i}": (-1, -1, -1, -1) for i in range(8)},
 }.items():
     expression = node(unreal.MaterialExpressionVectorParameter)

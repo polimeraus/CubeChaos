@@ -36,6 +36,20 @@ FVector2D AChunkedDestructibleFloor::GetPlanarAnimationCoordinates(FVector Posit
 		FVector2D(FMath::Max(EffectiveGridSize.X, 1.0), FMath::Max(EffectiveGridSize.Y, 1.0)), EffectiveGridSize);
 }
 
+FVector2D AChunkedDestructibleFloor::GetMusicEqualizerCoordinates(FVector Position) const
+{
+	if (MusicAnimationType != EMusicAnimationType::Equalizer) { return GetPlanarAnimationCoordinates(Position); }
+	const FVector2D UV = (FVector2D(Position.X, Position.Y) - GridLocalMin) /
+		FVector2D(FMath::Max(EffectiveGridSize.X, 1.0), FMath::Max(EffectiveGridSize.Y, 1.0));
+	switch (MusicEqualizerBaseEdge)
+	{
+	case EMusicEqualizerBaseEdge::MaxX: return FVector2D(1.0 - UV.X, UV.Y);
+	case EMusicEqualizerBaseEdge::MinY: return FVector2D(UV.Y, UV.X);
+	case EMusicEqualizerBaseEdge::MaxY: return FVector2D(1.0 - UV.Y, UV.X);
+	default: return UV;
+	}
+}
+
 bool AChunkedDestructibleFloor::EnsurePlanarAnimationResources()
 {
 	if (!UsesPlanarAnimation()) { return false; }
@@ -101,6 +115,7 @@ void AChunkedDestructibleFloor::UpdatePlanarMusic(double CurrentTime)
 	PlanarMusicMask.Init(0, Columns * Rows);
 	const int32 TailLength = FMath::Clamp(MusicEqualizerTailLength, 1, 8);
 	const float PeakIntensity = FMath::Max(StrongMusicGlowIntensity, WeakMusicGlowIntensity);
+	const bool bFilled = MusicAnimationType == EMusicAnimationType::Equalizer;
 	for (const FActiveMusicEqualizerColumn& Column : ActiveMusicEqualizerColumns)
 	{
 		const float Progress = (CurrentTime - Column.StartTime) / FMath::Max(Column.Duration, 0.01f);
@@ -108,12 +123,13 @@ void AChunkedDestructibleFloor::UpdatePlanarMusic(double CurrentTime)
 		const int32 PeakRows = FMath::Clamp(FMath::RoundToInt(Rows * Column.PeakHeight), 1, Rows);
 		const int32 Head = FMath::FloorToInt(Progress * (PeakRows + TailLength));
 		const float Intensity = FMath::Lerp(FMath::Max(WeakMusicGlowIntensity, 0.0f), PeakIntensity,
-			FMath::Pow(FMath::Clamp(Column.Strength, 0.0f, 1.0f), 0.75f)) * FMath::Square(1.0f - Progress);
-		for (int32 Tail = 0; Tail < TailLength; ++Tail)
+			FMath::Pow(FMath::Clamp(Column.Strength, 0.0f, 1.0f), 0.75f)) * (bFilled ? 1.0f : FMath::Square(1.0f - Progress));
+		const int32 FilledRows = FMath::Clamp(FMath::RoundToInt(Column.GetEqualizerHeight(CurrentTime) * Rows), 0, Rows);
+		for (int32 Tail = 0; Tail < (bFilled ? FilledRows : TailLength); ++Tail)
 		{
-			const int32 Row = Head - Tail;
+			const int32 Row = bFilled ? Tail : Head - Tail;
 			if (Row < 0 || Row >= PeakRows) { continue; }
-			const float Fade = 1.0f - static_cast<float>(Tail) / TailLength;
+			const float Fade = bFilled ? 1.0f : 1.0f - static_cast<float>(Tail) / TailLength;
 			uint8& Value = PlanarMusicMask[Row * Columns + Column.ColumnIndex];
 			Value = FMath::Max(Value, static_cast<uint8>(FMath::Clamp(
 				FMath::RoundToInt(255.0f * Intensity * Fade / FMath::Max(PeakIntensity, 0.001f)), 0, 255)));

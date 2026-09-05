@@ -152,6 +152,8 @@ void UDestructiblePlanarAnimation::SetFixedAnimation(TConstArrayView<float> Alph
 void UDestructiblePlanarAnimation::SetMusicMask(TConstArrayView<uint8> Mask, int32 Columns, int32 Rows)
 {
 	if (!Material || Columns < 1 || Rows < 1 || Mask.Num() != Columns * Rows) { return; }
+	Material->SetVectorParameterValue(TEXT("Equalizer"), FLinearColor(Columns, Rows,
+		static_cast<float>(Owner->MusicEqualizerBaseEdge), Owner->MusicAnimationType == EMusicAnimationType::Equalizer ? 1.0f : 0.0f));
 	bMusicVisible = Mask.ContainsByPredicate([](uint8 Value) { return Value != 0; });
 	if (bMusicVisible)
 	{

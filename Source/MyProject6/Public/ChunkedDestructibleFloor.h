@@ -16,6 +16,22 @@ class USoundAttenuation;
 class USoundBase;
 struct FKAggregateGeom;
 
+UENUM(BlueprintType)
+enum class EMusicAnimationType : uint8
+{
+	TravelingColumns UMETA(DisplayName = "Traveling Columns"),
+	Equalizer UMETA(DisplayName = "Equalizer")
+};
+
+UENUM(BlueprintType)
+enum class EMusicEqualizerBaseEdge : uint8
+{
+	MinX UMETA(DisplayName = "Min X (Grow Along +X)"),
+	MaxX UMETA(DisplayName = "Max X (Grow Along -X)"),
+	MinY UMETA(DisplayName = "Min Y (Grow Along +Y)"),
+	MaxY UMETA(DisplayName = "Max Y (Grow Along -Y)")
+};
+
 namespace UE::Geometry
 {
 	class FDynamicMesh3;
@@ -146,6 +162,7 @@ class MYPROJECT6_API AChunkedDestructibleFloor : public AActor
 {
 	GENERATED_BODY()
 	friend class FDestructibleMusicAnimationTest;
+	friend class FDestructibleEqualizerTest;
 	friend class FDestructiblePlanarAnimationTest;
 	friend class UDestructiblePlanarAnimation;
 	friend class FMusicReactionTimelineTest;
@@ -234,6 +251,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Animation|Music")
 	void SetReactToMusic(bool bEnabled);
+	UFUNCTION(BlueprintCallable, Category = "Animation|Music")
+	void SetMusicAnimationType(EMusicAnimationType Type);
+	UFUNCTION(BlueprintCallable, Category = "Animation|Music")
+	void SetMusicEqualizerBaseEdge(EMusicEqualizerBaseEdge Edge);
 	UFUNCTION(BlueprintCallable, Category = "Animation|Music")
 	void SetReactToOnsets(bool bEnabled);
 	UFUNCTION(BlueprintCallable, Category = "Animation|Music")
@@ -591,6 +612,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, BlueprintSetter = SetReactToMusic, Category = "Animation|Music", meta = (DisplayName = "React To Music"))
 	bool bReactToMusic = false;
 
+	/** Equalizer fills stationary columns from the base, with a fast rise and a slower fall. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, BlueprintSetter = SetMusicAnimationType, Category = "Animation|Music", meta = (DisplayName = "Music Animation Type", EditCondition = "bReactToMusic"))
+	EMusicAnimationType MusicAnimationType = EMusicAnimationType::TravelingColumns;
+
+	/** Base edge for planar equalizers. Volume shapes always fill from bottom to top in local Z. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, BlueprintSetter = SetMusicEqualizerBaseEdge, Category = "Animation|Music", meta = (DisplayName = "Equalizer Base Edge", EditCondition = "bReactToMusic && MusicAnimationType == EMusicAnimationType::Equalizer", EditConditionHides))
+	EMusicEqualizerBaseEdge MusicEqualizerBaseEdge = EMusicEqualizerBaseEdge::MinX;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, BlueprintSetter = SetReactToOnsets, Category = "Animation|Music", meta = (EditCondition = "bReactToMusic"))
 	bool bReactToOnsets = true;
 
@@ -608,13 +637,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (EditCondition = "bReactToMusic && bReactToOnsets", ClampMin = "0.0", ClampMax = "1.0"))
 	float MusicOnsetThreshold = 0.18f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (DisplayName = "Weak Onset Column Count", EditCondition = "bReactToMusic && bReactToOnsets", ClampMin = "1", ClampMax = "32"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (DisplayName = "Weak Onset Column Count", EditCondition = "bReactToMusic && bReactToOnsets && MusicAnimationType == EMusicAnimationType::TravelingColumns", EditConditionHides, ClampMin = "1", ClampMax = "32"))
 	int32 WeakOnsetCellCount = 2;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (DisplayName = "Strong Onset Column Count", EditCondition = "bReactToMusic && bReactToOnsets", ClampMin = "1", ClampMax = "32"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (DisplayName = "Strong Onset Column Count", EditCondition = "bReactToMusic && bReactToOnsets && MusicAnimationType == EMusicAnimationType::TravelingColumns", EditConditionHides, ClampMin = "1", ClampMax = "32"))
 	int32 StrongOnsetCellCount = 8;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (DisplayName = "BPM Beat Column Count", EditCondition = "bReactToMusic && bReactToBPM", ClampMin = "1", ClampMax = "16"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (DisplayName = "BPM Beat Column Count", EditCondition = "bReactToMusic && bReactToBPM && MusicAnimationType == EMusicAnimationType::TravelingColumns", EditConditionHides, ClampMin = "1", ClampMax = "16"))
 	int32 BPMBeatCellCount = 2;
 
 	/** Optional dedicated material. When empty, the actor's destruction flash material is reused. */
@@ -630,7 +659,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (EditCondition = "bReactToMusic", ClampMin = "0.0"))
 	float StrongMusicGlowIntensity = 42.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (DisplayName = "Column Travel Duration", EditCondition = "bReactToMusic", ClampMin = "0.15", ClampMax = "3.0", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (DisplayName = "Music Reaction Duration", EditCondition = "bReactToMusic", ClampMin = "0.15", ClampMax = "3.0", Units = "s"))
 	float MusicReactionDuration = 0.72f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (DisplayName = "Equalizer Column Count", EditCondition = "bReactToMusic", ClampMin = "4", ClampMax = "32"))
@@ -640,20 +669,20 @@ protected:
 	int32 MusicEqualizerRowCount = 24;
 
 	/** Number of glowing cells following the head of each upward-moving column. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (DisplayName = "Column Tail Length", EditCondition = "bReactToMusic", ClampMin = "1", ClampMax = "8"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Music", meta = (DisplayName = "Column Tail Length", EditCondition = "bReactToMusic && MusicAnimationType == EMusicAnimationType::TravelingColumns", EditConditionHides, ClampMin = "1", ClampMax = "8"))
 	int32 MusicEqualizerTailLength = 4;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Music", meta = (DisplayName = "Equalizer Block Scale", EditCondition = "bReactToMusic", ClampMin = "0.2", ClampMax = "1.2"))
 	float MusicReactionSurfaceScale = 0.82f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Music", meta = (DisplayName = "Maximum Active Columns", EditCondition = "bReactToMusic", ClampMin = "4", ClampMax = "48"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Music", meta = (DisplayName = "Maximum Active Columns", EditCondition = "bReactToMusic && MusicAnimationType == EMusicAnimationType::TravelingColumns", EditConditionHides, ClampMin = "4", ClampMax = "48"))
 	int32 MaxSimultaneousMusicPulses = 24;
 
 	/** Visual updates are intentionally capped below the game frame rate. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Music", meta = (DisplayName = "Equalizer Update Rate", EditCondition = "bReactToMusic", ClampMin = "10.0", ClampMax = "60.0", Units = "Hz"))
 	float MusicEqualizerUpdateRate = 30.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Music", meta = (DisplayName = "Maximum Equalizer Instances", EditCondition = "bReactToMusic", ClampMin = "16", ClampMax = "256"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Music", meta = (DisplayName = "Maximum Equalizer Instances", EditCondition = "bReactToMusic && MusicAnimationType == EMusicAnimationType::TravelingColumns", EditConditionHides, ClampMin = "16", ClampMax = "256"))
 	int32 MaxMusicEqualizerInstances = 96;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Music", meta = (EditCondition = "bReactToMusic"))
@@ -723,7 +752,9 @@ protected:
 		float Strength = 0.0f;
 		float Duration = 0.72f;
 		float PeakHeight = 1.0f;
+		float StartHeight = 0.0f;
 		int32 Priority = 0;
+		float GetEqualizerHeight(double CurrentTime) const;
 	};
 	double LastMusicEventTime = -1.0e30;
 	int32 LastMusicEventPriority = -1;
@@ -743,6 +774,8 @@ protected:
 	TSet<int32> DirtyChunkIndices;
 	TArray<FActiveFlash> ActiveFlashes;
 	TArray<FMusicEqualizerSlot> MusicEqualizerSlots;
+	// Real-piece renderers fill every piece in a bin, including lower pieces sharing a row.
+	TArray<TArray<int32>> MusicEqualizerSlotCells;
 	TArray<FActiveMusicEqualizerColumn> ActiveMusicEqualizerColumns;
 	TArray<FTransform> MusicEqualizerTransformBuffer;
 	TArray<int32> MusicEqualizerUsedCellBuffer;
@@ -846,6 +879,8 @@ protected:
 	virtual void RenderMusicEqualizerCells(TConstArrayView<int32> CellIndices);
 	virtual void ClearMusicPieceMaterials();
 	void BuildMusicEqualizerLayout();
+	int32 GetMusicEqualizerPoolSize() const;
+	FVector2D GetMusicEqualizerCoordinates(FVector Position) const;
 	void InitializeMusicEqualizerPool();
 	void RefreshMusicReactionMaterial();
 	void UpdateMusicEqualizer(double CurrentTime);
