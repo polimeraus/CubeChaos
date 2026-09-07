@@ -1,7 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 #include "MusicReactionWorldSubsystem.h"
 #include "Algo/BinarySearch.h"
-#include "ChunkedDestructibleFloor.h"
+#include "MusicReactionListener.h"
+#include "GameFramework/Actor.h"
 #include "Components/AudioComponent.h"
 #include "Engine/AssetManager.h"
 #include "Engine/Engine.h"
@@ -21,14 +22,15 @@ bool UMusicReactionWorldSubsystem::DoesSupportWorldType(EWorldType::Type WorldTy
 	return WorldType == EWorldType::Game || WorldType == EWorldType::PIE;
 }
 
-void UMusicReactionWorldSubsystem::RegisterReactionActor(AChunkedDestructibleFloor* Actor)
+void UMusicReactionWorldSubsystem::RegisterReactionActor(AActor* Actor)
 {
-	if (!Actor || Actor->GetWorld() != GetWorld() || !Actor->IsMusicReactionEnabled()) { return; }
+	const auto* Listener = Cast<IMusicReactionListener>(Actor);
+	if (!Listener || Actor->GetWorld() != GetWorld() || !Listener->IsMusicReactionEnabled()) { return; }
 	ReactionActors.AddUnique(Actor);
 	if (!MusicComponent && !LoadHandle) { StartMusic(); }
 }
 
-void UMusicReactionWorldSubsystem::UnregisterReactionActor(AChunkedDestructibleFloor* Actor)
+void UMusicReactionWorldSubsystem::UnregisterReactionActor(AActor* Actor)
 {
 	ReactionActors.RemoveAll([Actor](const auto& Entry) { return !Entry.IsValid() || Entry.Get() == Actor; });
 	if (ReactionActors.IsEmpty()) { StopMusic(); }
@@ -176,7 +178,7 @@ void UMusicReactionWorldSubsystem::ResetTimeline(float StartSeconds)
 	NextKeyPointIndex = Algo::LowerBoundBy(KeyPointTimeline, StartSeconds, &FMusicReactionEvent::TimeSeconds);
 	for (const auto& Entry : ReactionActors)
 	{
-		if (auto* Actor = Entry.Get()) { Actor->ResetMusicPlayback(); }
+		if (auto* Listener = Cast<IMusicReactionListener>(Entry.Get())) { Listener->ResetMusicPlayback(); }
 	}
 }
 
@@ -228,7 +230,11 @@ void UMusicReactionWorldSubsystem::HandlePlaybackPercent(const USoundWave* Playi
 void UMusicReactionWorldSubsystem::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-	ReactionActors.RemoveAll([](const auto& Entry) { return !Entry.IsValid() || !Entry->IsMusicReactionEnabled(); });
+	ReactionActors.RemoveAll([](const auto& Entry)
+	{
+		const auto* Listener = Cast<IMusicReactionListener>(Entry.Get());
+		return !Listener || !Listener->IsMusicReactionEnabled();
+	});
 	if (ReactionActors.IsEmpty()) { StopMusic(); return; }
 	if (!MusicComponent || !ActiveTrack) { return; }
 	RefreshPauseState();
@@ -260,7 +266,7 @@ void UMusicReactionWorldSubsystem::ProcessTimeline(double Position)
 		VisualEvent.TimeSeconds = static_cast<float>(Position);
 		for (const auto& Entry : ReactionActors)
 		{
-			if (auto* Actor = Entry.Get()) { Actor->ApplyMusicEvent(VisualEvent, Position); }
+			if (auto* Listener = Cast<IMusicReactionListener>(Entry.Get())) { Listener->ApplyMusicEvent(VisualEvent, Position); }
 		}
 		OnKeyPoint.Broadcast(Event);
 		--CueBudget;
@@ -310,7 +316,7 @@ void UMusicReactionWorldSubsystem::DispatchReaction(const FMusicReactionEvent& E
 {
 	for (const auto& Entry : ReactionActors)
 	{
-		if (auto* Actor = Entry.Get()) { Actor->ApplyMusicEvent(Event, Position); }
+		if (auto* Listener = Cast<IMusicReactionListener>(Entry.Get())) { Listener->ApplyMusicEvent(Event, Position); }
 	}
 	if (Event.IsKeyPoint()) { OnKeyPoint.Broadcast(Event); }
 }

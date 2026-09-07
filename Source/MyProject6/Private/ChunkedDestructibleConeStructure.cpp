@@ -2363,6 +2363,10 @@ void AChunkedDestructibleConeStructure::ConfigureChunkComponent(
 	Component->SetNumMaterials(2);
 	Component->SetMaterial(0, ResolvedConeMaterial);
 	Component->SetMaterial(1, ResolvedPlatformMaterial);
+	if (MusicReactionMaterialInstance)
+	{
+		Component->SetMaterial(MusicMaterialSlot, MusicReactionMaterialInstance);
+	}
 	const UDynamicMesh *DynamicMesh = Component->GetDynamicMesh();
 	const int32 TriangleCount = DynamicMesh ? DynamicMesh->GetTriangleCount() : 0;
 	const bool bUseComplexCollisionForComponent =
@@ -2474,9 +2478,21 @@ void AChunkedDestructibleConeStructure::AppendClippedSurfaceTriangle(
 							   ? FVector2f(Point.Y / SafeUVScale, Point.Z / SafeUVScale)
 							   : FVector2f(Point.X / SafeUVScale, Point.Z / SafeUVScale);
 				};
+				const int32 FirstTriangle = Mesh.MaxTriangleID();
 				AppendMeshTriangle(
 					Mesh, PointA, PointB, PointC, Normal, MaterialIndex,
 					MakeUV(PointA), MakeUV(PointB), MakeUV(PointC));
+				SetMusicTriangleCells(Mesh, FirstTriangle, Cell);
+				// Record only the outer cone skin. Platform, caps, inner walls and cut faces
+				// must not become part of a traveling square, even when they share a cell.
+				if (IsMusicReactionEnabled() && ChunkIndex != INDEX_NONE && MaterialIndex == 0 &&
+					Normal.X * (PointA.X + PointB.X + PointC.X) + Normal.Y * (PointA.Y + PointB.Y + PointC.Y) > 0.001)
+				{
+					for (int32 Triangle = FirstTriangle; Triangle < Mesh.MaxTriangleID(); ++Triangle)
+					{
+						if (Mesh.IsTriangle(Triangle)) { MusicChunkShellTriangles.FindOrAdd(ChunkIndex).Add(Triangle); }
+					}
+				}
 			}
 		}
 	}
@@ -3891,45 +3907,57 @@ void AChunkedDestructibleConeStructure::AppendDestroyedCellCutFaces(
 
 	if (BlockSpacing.X <= ConeSpacingTolerance && CellExists3D(X - 1, Y, Z))
 	{
+		const int32 FirstTriangle = Mesh.MaxTriangleID();
 		AppendClippedDestructionCutFace(Mesh,
 										FVector3d(MinX, MaxY, MinZ), FVector3d(MinX, MaxY, MaxZ),
 										FVector3d(MinX, MinY, MaxZ), FVector3d(MinX, MinY, MinZ),
 										FVector3f::UnitX(), MaterialIndex);
+		SetMusicTriangleCells(Mesh, FirstTriangle, EncodeCell(X - 1, Y, Z));
 	}
 	if (BlockSpacing.X <= ConeSpacingTolerance && CellExists3D(X + 1, Y, Z))
 	{
+		const int32 FirstTriangle = Mesh.MaxTriangleID();
 		AppendClippedDestructionCutFace(Mesh,
 										FVector3d(MaxX, MinY, MinZ), FVector3d(MaxX, MinY, MaxZ),
 										FVector3d(MaxX, MaxY, MaxZ), FVector3d(MaxX, MaxY, MinZ),
 										-FVector3f::UnitX(), MaterialIndex);
+		SetMusicTriangleCells(Mesh, FirstTriangle, EncodeCell(X + 1, Y, Z));
 	}
 	if (BlockSpacing.Y <= ConeSpacingTolerance && CellExists3D(X, Y - 1, Z))
 	{
+		const int32 FirstTriangle = Mesh.MaxTriangleID();
 		AppendClippedDestructionCutFace(Mesh,
 										FVector3d(MinX, MinY, MinZ), FVector3d(MinX, MinY, MaxZ),
 										FVector3d(MaxX, MinY, MaxZ), FVector3d(MaxX, MinY, MinZ),
 										FVector3f::UnitY(), MaterialIndex);
+		SetMusicTriangleCells(Mesh, FirstTriangle, EncodeCell(X, Y - 1, Z));
 	}
 	if (BlockSpacing.Y <= ConeSpacingTolerance && CellExists3D(X, Y + 1, Z))
 	{
+		const int32 FirstTriangle = Mesh.MaxTriangleID();
 		AppendClippedDestructionCutFace(Mesh,
 										FVector3d(MaxX, MaxY, MinZ), FVector3d(MaxX, MaxY, MaxZ),
 										FVector3d(MinX, MaxY, MaxZ), FVector3d(MinX, MaxY, MinZ),
 										-FVector3f::UnitY(), MaterialIndex);
+		SetMusicTriangleCells(Mesh, FirstTriangle, EncodeCell(X, Y + 1, Z));
 	}
 	if (BlockSpacing.Z <= ConeSpacingTolerance && CellExists3D(X, Y, Z - 1))
 	{
+		const int32 FirstTriangle = Mesh.MaxTriangleID();
 		AppendClippedDestructionCutFace(Mesh,
 										FVector3d(MinX, MinY, MinZ), FVector3d(MaxX, MinY, MinZ),
 										FVector3d(MaxX, MaxY, MinZ), FVector3d(MinX, MaxY, MinZ),
 										FVector3f::UnitZ(), MaterialIndex);
+		SetMusicTriangleCells(Mesh, FirstTriangle, EncodeCell(X, Y, Z - 1));
 	}
 	if (BlockSpacing.Z <= ConeSpacingTolerance && CellExists3D(X, Y, Z + 1))
 	{
+		const int32 FirstTriangle = Mesh.MaxTriangleID();
 		AppendClippedDestructionCutFace(Mesh,
 										FVector3d(MinX, MaxY, MaxZ), FVector3d(MaxX, MaxY, MaxZ),
 										FVector3d(MaxX, MinY, MaxZ), FVector3d(MinX, MinY, MaxZ),
 										-FVector3f::UnitZ(), MaterialIndex);
+		SetMusicTriangleCells(Mesh, FirstTriangle, EncodeCell(X, Y, Z + 1));
 	}
 }
 
@@ -4016,10 +4044,12 @@ void AChunkedDestructibleConeStructure::BuildChunkMesh(
 	int32 ChunkIndex,
 	FDynamicMesh3 &OutMesh) const
 {
+	MusicChunkShellTriangles.Remove(ChunkIndex);
 	OutMesh.EnableVertexNormals(FVector3f::UnitZ());
 	OutMesh.EnableAttributes();
 	OutMesh.Attributes()->SetNumUVLayers(1);
 	OutMesh.Attributes()->EnableMaterialID();
+	if (IsMusicReactionEnabled()) { OutMesh.EnableTriangleGroups(INDEX_NONE); }
 
 	AppendConeSurfaces(OutMesh, ChunkIndex);
 	AppendPlatformSurfaces(OutMesh, ChunkIndex);
@@ -4050,6 +4080,7 @@ void AChunkedDestructibleConeStructure::BuildChunkMesh(
 					continue;
 				}
 				const int32 DecodedZ = Z;
+				const int32 FirstCellTriangle = OutMesh.MaxTriangleID();
 				const FVector Center = GetPhysicalCellLocalCenter(X, Y, Z);
 				const double MinX = Center.X - BlockDimensions.X * 0.5;
 				const double MaxX = Center.X + BlockDimensions.X * 0.5;
@@ -4106,9 +4137,11 @@ void AChunkedDestructibleConeStructure::BuildChunkMesh(
 								   FVector3d(MaxX, MaxY, MaxCellZ), FVector3d(MinX, MaxY, MaxCellZ),
 								   FVector3f::UnitZ(), MaterialIndex, BlockDimensions.X, BlockDimensions.Y, UVWorldUnits);
 				}
+				SetMusicTriangleCells(OutMesh, FirstCellTriangle, Cell);
 			}
 		}
 	}
+	CacheMusicChunkMaterials(ChunkIndex, OutMesh);
 }
 
 void AChunkedDestructibleConeStructure::BuildChunkSimpleCollision(
@@ -4378,68 +4411,6 @@ FTransform AChunkedDestructibleConeStructure::GetCellFlashTransform(FIntPoint Ce
 
 	// A zero-sized instance is preferable to a visible cuboid outside an exceptionally thin solid.
 	return FTransform(FQuat::Identity, CellCenter, FVector::ZeroVector);
-}
-
-FTransform AChunkedDestructibleConeStructure::GetMusicEqualizerTransform(FIntPoint Cell) const
-{
-	int32 X;
-	int32 Y;
-	int32 Z;
-	const int32 CellIndex = ToCellIndex(Cell);
-	if (!DecodeCell(Cell, X, Y, Z) || !Cells.IsValidIndex(CellIndex))
-	{
-		return FTransform(FQuat::Identity, FVector::ZeroVector, FVector::ZeroVector);
-	}
-
-	const FVector CellCenter = GetPhysicalCellLocalCenter(X, Y, Z);
-	const float TileEdge = FMath::Max(
-		FMath::Min3(
-			static_cast<float>(BlockDimensions.X),
-			static_cast<float>(BlockDimensions.Y),
-			static_cast<float>(BlockDimensions.Z)) *
-			0.62f,
-		3.0f);
-	if (Cells[CellIndex].MaterialIndex == 1)
-	{
-		const FVector TileSize(TileEdge, TileEdge, FMath::Clamp(TileEdge * 0.10f, 2.0f, 6.0f));
-		return FTransform(
-			FQuat::Identity,
-			CellCenter + FVector::UpVector * (BlockDimensions.Z * 0.5f + TileSize.Z * 0.5f),
-			TileSize / 100.0f);
-	}
-
-	const FVector2D Radial2D(CellCenter.X, CellCenter.Y);
-	const FVector2D RadialDirection = Radial2D.IsNearlyZero()
-										  ? FVector2D(1.0f, 0.0f)
-										  : Radial2D.GetSafeNormal();
-	const float TotalHeight = BlockDimensions.Z * GridHeightBlocks +
-							  BlockSpacing.Z * FMath::Max(GridHeightBlocks - 1, 0);
-	const float RadiusDerivative =
-		(TopRadiusBlocks - BottomRadiusBlocks) * CachedRadialBlockUnit /
-		FMath::Max(TotalHeight, MinimumConeDimension);
-	const FVector SurfaceNormal = FVector(
-									  RadialDirection.X,
-									  RadialDirection.Y,
-									  -RadiusDerivative)
-									  .GetSafeNormal();
-	const FVector HorizontalAxis(-RadialDirection.Y, RadialDirection.X, 0.0f);
-	const FQuat TileRotation = FRotationMatrix::MakeFromXZ(
-								   HorizontalAxis,
-								   SurfaceNormal)
-								   .ToQuat();
-	const float SurfaceRadius = GetConeOuterRadiusAtHeight(CellCenter.Z);
-	const FVector SurfaceCenter(
-		RadialDirection.X * SurfaceRadius,
-		RadialDirection.Y * SurfaceRadius,
-		CellCenter.Z);
-	const FVector TileSize(
-		TileEdge,
-		FMath::Max(static_cast<float>(BlockDimensions.Z) * 0.72f, 3.0f),
-		FMath::Clamp(TileEdge * 0.10f, 2.0f, 6.0f));
-	return FTransform(
-		TileRotation,
-		SurfaceCenter + SurfaceNormal * (TileSize.Z * 0.55f),
-		TileSize / 100.0f);
 }
 
 void AChunkedDestructibleConeStructure::SpawnCellFlash(FIntPoint Cell, double CurrentTime)

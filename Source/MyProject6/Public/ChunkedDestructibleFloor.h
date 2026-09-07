@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "DestructiblePlanarAnimation.h"
+#include "MusicReactionListener.h"
 #include "ChunkedDestructibleFloor.generated.h"
 
 class UDynamicMeshComponent;
@@ -158,7 +159,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FChunkedFloorRegeneratedSignature);
  * horizontal faces with the same material are greedily merged.
  */
 UCLASS(BlueprintType, Blueprintable)
-class MYPROJECT6_API AChunkedDestructibleFloor : public AActor
+class MYPROJECT6_API AChunkedDestructibleFloor : public AActor, public IMusicReactionListener
 {
 	GENERATED_BODY()
 	friend class FDestructibleMusicAnimationTest;
@@ -242,12 +243,12 @@ public:
 	/** Called by the project music director for an onset or metronome beat. Only intact cells glow. */
 	UFUNCTION(BlueprintCallable, Category = "Animation|Music")
 	void TriggerMusicReaction(float NormalizedStrength, bool bIsOnset);
-	void ApplyMusicEvent(const struct FMusicReactionEvent& Event, double CurrentTime);
-	void ResetMusicPlayback();
+	virtual void ApplyMusicEvent(const struct FMusicReactionEvent& Event, double CurrentTime) override;
+	virtual void ResetMusicPlayback() override;
 	double GetMusicAnimationTime() const;
 
 	/** Cheap shared query used by the music director; derived destructibles need no duplicate glue. */
-	bool IsMusicReactionEnabled() const { return bReactToMusic && (bReactToOnsets || bReactToBPM || bReactToKeyPoints); }
+	virtual bool IsMusicReactionEnabled() const override { return bReactToMusic && (bReactToOnsets || bReactToBPM || bReactToKeyPoints); }
 
 	UFUNCTION(BlueprintCallable, Category = "Animation|Music")
 	void SetReactToMusic(bool bEnabled);
@@ -876,6 +877,7 @@ protected:
 	int32 CalculateFixedSineComponentCount(int32 AvailableRowCount) const;
 	virtual FTransform GetMusicEqualizerTransform(FIntPoint Cell) const;
 	virtual bool UsesMusicPieceMaterials() const { return false; }
+	virtual float GetTravelingColumnsSpeed() const { return 1.0f; }
 	virtual void RenderMusicEqualizerCells(TConstArrayView<int32> CellIndices);
 	virtual void ClearMusicPieceMaterials();
 	void BuildMusicEqualizerLayout();

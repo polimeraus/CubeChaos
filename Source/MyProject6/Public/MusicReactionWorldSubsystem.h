@@ -7,7 +7,7 @@
 #include "MusicReactionWorldSubsystem.generated.h"
 
 class UAudioComponent;
-class AChunkedDestructibleFloor;
+class AActor;
 struct FStreamableHandle;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMusicKeyPointDelegate, const FMusicReactionEvent&, Event);
 
@@ -18,6 +18,7 @@ class MYPROJECT6_API UMusicReactionWorldSubsystem : public UTickableWorldSubsyst
 	GENERATED_BODY()
 	friend class FDestructibleMusicAnimationTest;
 	friend class FMusicReactionTimelineTest;
+	friend class FMusicReactiveColumnGridTest;
 public:
 	UMusicReactionWorldSubsystem();
 	virtual void Deinitialize() override;
@@ -25,8 +26,8 @@ public:
 	virtual TStatId GetStatId() const override;
 	virtual ETickableTickType GetTickableTickType() const override;
 	virtual bool IsTickableWhenPaused() const override { return true; }
-	void RegisterReactionActor(AChunkedDestructibleFloor* Actor);
-	void UnregisterReactionActor(AChunkedDestructibleFloor* Actor);
+	void RegisterReactionActor(AActor* Actor);
+	void UnregisterReactionActor(AActor* Actor);
 	UFUNCTION(BlueprintPure, Category = "Animation|Music")
 	float GetDetectedBPM() const { return ActiveTrack ? ActiveTrack->EstimatedBPM : 0.0f; }
 	UFUNCTION(BlueprintPure, Category = "Animation|Music")
@@ -70,7 +71,7 @@ private:
 	TArray<FMusicReactionEvent> DeferredKeyPoints;
 	int32 NextDeferredKeyPoint = 0;
 	int32 LastAudioLoop = 0;
-	TArray<TWeakObjectPtr<AChunkedDestructibleFloor>> ReactionActors;
+	TArray<TWeakObjectPtr<AActor>> ReactionActors;
 	FMusicReactionClock PlaybackClock;
 	int32 NextOnsetIndex = 0;
 	int32 NextBeatIndex = 0;

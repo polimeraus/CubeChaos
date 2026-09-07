@@ -78,6 +78,8 @@ UCLASS(BlueprintType, Blueprintable)
 class MYPROJECT6_API AChunkedDestructibleConeStructure : public AChunkedDestructibleFloor
 {
 	GENERATED_BODY()
+	friend class FDestructibleMusicAnimationTest;
+	friend class FDestructibleConeMusicGroupsTest;
 
 public:
 	virtual bool UsesPlanarAnimation() const override { return false; }
@@ -109,6 +111,18 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Destructible Cone Structure|Debris")
 	int32 GetActiveDebrisPieceCount() const { return ActiveDebrisComponents.Num(); }
+
+	UFUNCTION(BlueprintCallable, Category = "Animation|Music")
+	void SetMusicGlowGroupSize(float NewSize);
+
+	UFUNCTION(BlueprintPure, Category = "Animation|Music")
+	float GetMusicGlowGroupSize() const { return MusicGlowGroupSize; }
+
+	UFUNCTION(BlueprintCallable, Category = "Animation|Music")
+	void SetTravelingColumnsSpeed(float NewSpeed);
+
+	UFUNCTION(BlueprintPure, Category = "Animation|Music")
+	virtual float GetTravelingColumnsSpeed() const override;
 
 	/** Sets how far the circular platform rings extend radially beyond the cone wall. */
 	UFUNCTION(BlueprintCallable, Category = "Destructible Cone Structure|Platforms")
@@ -165,6 +179,15 @@ public:
 	virtual bool WorldLocationToCell(FVector WorldLocation, FIntPoint& OutCell) const override;
 
 protected:
+	/** Target square side length. 200 cm matches the default right-click destruction diameter.
+	 * Traveling squares shrink near the tip to preserve their proportions. Equalizer groups whole cells. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, BlueprintSetter = SetMusicGlowGroupSize, Category = "Animation|Music", meta = (DisplayName = "Music Glow Group Size", EditCondition = "bReactToMusic", ClampMin = "1.0", ClampMax = "10000.0", UIMin = "50.0", UIMax = "1000.0", Units = "cm"))
+	float MusicGlowGroupSize = 200.0f;
+
+	/** Travel speed multiplier: 0.65 is slower than the original motion; 1 restores its speed. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, BlueprintSetter = SetTravelingColumnsSpeed, Category = "Animation|Music", meta = (DisplayName = "Traveling Columns Speed", EditCondition = "bReactToMusic && MusicAnimationType == EMusicAnimationType::TravelingColumns", ClampMin = "0.1", ClampMax = "4.0", UIMin = "0.1", UIMax = "2.0"))
+	float TravelingColumnsSpeed = 0.65f;
+
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -439,6 +462,9 @@ protected:
 	virtual bool ShouldCellExistInGeneratedShape(FIntPoint Cell) const override;
 	virtual void BuildChunkMesh(int32 ChunkIndex, UE::Geometry::FDynamicMesh3& OutMesh) const override;
 	virtual FTransform GetMusicEqualizerTransform(FIntPoint Cell) const override;
+	virtual bool UsesMusicPieceMaterials() const override { return true; }
+	virtual void RenderMusicEqualizerCells(TConstArrayView<int32> CellIndices) override;
+	virtual void ClearMusicPieceMaterials() override;
 	virtual void BuildChunkSimpleCollision(int32 ChunkIndex, FKAggregateGeom& OutCollision) const override;
 	virtual void ConfigureChunkComponent(UDynamicMeshComponent* Component) const override;
 	virtual void ClearAdditionalRuntimeEffects() override;
@@ -461,6 +487,39 @@ protected:
 	virtual void RenderFixedAnimation(TConstArrayView<float> AnimationAlphas) override;
 
 private:
+	static constexpr int32 MusicMaterialSlot = 2;
+	TSet<int32> MusicHighlightedCells;
+	mutable TMap<int32, TArray<int32>> MusicChunkOriginalMaterials;
+	TArray<int32> MusicCellGroupIndices;
+	TArray<TArray<int32>> MusicGlowGroups;
+	float CachedMusicGlowGroupSize = 0.0f;
+	EMusicAnimationType CachedMusicGroupAnimationType = EMusicAnimationType::TravelingColumns;
+	struct FMusicSquareRow
+	{
+		double MinZ = 0, MaxZ = 0, Side = 0;
+		int32 Columns = 0, FirstGroup = 0;
+	};
+	struct FMusicSquareTriangle
+	{
+		FVector3d A, B, C;
+		int32 CellIndex = INDEX_NONE;
+	};
+	TArray<FMusicSquareRow> MusicSquareRows;
+	TSet<int32> MusicHighlightedSquareGroups;
+	mutable TMap<int32, TArray<int32>> MusicChunkShellTriangles;
+	mutable TMap<int32, TMap<int32, TArray<FMusicSquareTriangle>>> MusicSquareChunkTriangles;
+	mutable bool bMusicSquareMeshDirty = true;
+	UPROPERTY(Transient)
+	TObjectPtr<UDynamicMeshComponent> MusicSquareComponent;
+	void BuildMusicSquareRows(float Size);
+	void CacheMusicSquareChunk(int32 Chunk);
+	void RenderMusicSurfaceSquares(const TSet<int32>& SelectedGroups);
+	void EnsureMusicGlowGroups();
+	FIntVector GetMusicGlowGroupKey(int32 CellIndex, float GroupSize) const;
+	void SetMusicTriangleCells(UE::Geometry::FDynamicMesh3& Mesh, int32 FirstTriangle, FIntPoint Cell) const;
+	void CacheMusicChunkMaterials(int32 ChunkIndex, UE::Geometry::FDynamicMesh3& Mesh) const;
+	void AddMusicAffectedChunks(int32 CellIndex, TSet<int32>& OutChunks) const;
+
 	int32 GridDiameterBlocks = 1;
 	int32 GridHeightBlocks = 1;
 	FVector ConeGridLocalMin = FVector::ZeroVector;

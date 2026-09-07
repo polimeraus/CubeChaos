@@ -155,13 +155,94 @@ bool FDestructibleMusicAnimationTest::RunTest(const FString& Parameters)
 	if (TestNotNull(TEXT("Cone spawns"), Cone))
 	{
 		Cone->ConeAnimationType = EConeStructureAnimationType::None;
+		Cone->bScatterDestroyedPieces = false;
+		Cone->FlashDuration = 0;
+		Cone->bPlayDestroyTickSound = false;
+		Cone->ConfigureConeStructure(8, 4, 1, .6f, FVector(80, 100, 70), FVector::ZeroVector);
 		Cone->DispatchBeginPlay();
 		TestNull(TEXT("Inactive cone has no music renderer"), Cone->MusicEqualizerInstances.Get());
+		TArray<FDynamicMesh3> ConeOriginals;
+		for (UDynamicMeshComponent* Component : Cone->ChunkComponents) { ConeOriginals.Add(*Component->GetMesh()); }
+		auto CheckConeGeometry = [this, Cone, &ConeOriginals](bool bCheckMaterials)
+		{
+			for (int32 Chunk = 0; Chunk < ConeOriginals.Num(); ++Chunk)
+			{
+				const FDynamicMesh3& Before = ConeOriginals[Chunk];
+				const FDynamicMesh3& After = *Cone->ChunkComponents[Chunk]->GetMesh();
+				TestEqual(TEXT("Cone glow adds no geometry"), After.TriangleCount(), Before.TriangleCount());
+				TestEqual(TEXT("Cone glow adds no vertices"), After.VertexCount(), Before.VertexCount());
+				for (int32 Vertex : Before.VertexIndicesItr())
+				{
+					TestTrue(TEXT("Cone pieces keep their full size and position"), Before.GetVertex(Vertex) == After.GetVertex(Vertex));
+				}
+				for (int32 Triangle : Before.TriangleIndicesItr())
+				{
+					TestTrue(TEXT("Cone glow preserves the exact curved and clipped triangles"), Before.GetTriangle(Triangle) == After.GetTriangle(Triangle));
+					if (bCheckMaterials)
+					{
+						TestEqual(TEXT("Cone and platform materials restore after music"), After.Attributes()->GetMaterialID()->GetValue(Triangle), Before.Attributes()->GetMaterialID()->GetValue(Triangle));
+					}
+				}
+			}
+		};
 		Cone->SetReactToMusic(true);
 		Cone->TriggerMusicReaction(1.0f, true);
-		TestNotNull(TEXT("Cone lazily creates its existing renderer"), Cone->MusicEqualizerInstances.Get());
+		Cone->UpdateMusicEqualizer(Cone->GetMusicAnimationTime() + .2);
+		TestNull(TEXT("Cone music never creates small overlay cubes"), Cone->MusicEqualizerInstances.Get());
+		TestTrue(TEXT("Traveling columns highlight real cone cells"), !Cone->MusicHighlightedCells.IsEmpty());
+		CheckConeGeometry(false);
+		TArray<int32> ConeCells;
+		for (int32 Cell = 0; Cell < Cone->Cells.Num(); ++Cell) { if (Cone->Cells[Cell].bExists) { ConeCells.Add(Cell); } }
+		Cone->RenderMusicEqualizerCells(ConeCells);
+		CheckConeGeometry(false);
+		TArray<UDynamicMesh*> CachedMeshes;
+		for (UDynamicMeshComponent* Component : Cone->ChunkComponents)
+		{
+			CachedMeshes.Add(Component->GetDynamicMesh());
+			const FDynamicMesh3& Mesh = *Component->GetMesh();
+			for (int32 Triangle : Mesh.TriangleIndicesItr())
+			{
+				TestTrue(TEXT("Every curved cone/platform triangle belongs to a real cell"), Mesh.GetTriangleGroup(Triangle) != INDEX_NONE);
+				TestTrue(TEXT("Traveling squares preserve original cone and platform materials"),
+					Mesh.Attributes()->GetMaterialID()->GetValue(Triangle) < Cone->MusicMaterialSlot);
+				const FVector Center = Cone->GetCellLocalCenter(Cone->FromCellIndex(Mesh.GetTriangleGroup(Triangle)));
+				const FIndex3i Vertices = Mesh.GetTriangle(Triangle);
+				for (int32 Corner = 0; Corner < 3; ++Corner)
+				{
+					const FVector Delta = (FVector(Mesh.GetVertex(Vertices[Corner])) - Center).GetAbs();
+					TestTrue(TEXT("A glow triangle stays inside the actual piece dimensions"),
+						Delta.X <= Cone->BlockDimensions.X * .5 + .01 && Delta.Y <= Cone->BlockDimensions.Y * .5 + .01 &&
+						Delta.Z <= Cone->BlockDimensions.Z * .5 + .01);
+				}
+			}
+		}
+		for (int32 Frame = 0; Frame < 8; ++Frame)
+		{
+			const int32 Cell = ConeCells[Frame % ConeCells.Num()];
+			Cone->RenderMusicEqualizerCells(MakeArrayView(&Cell, 1));
+			for (int32 Chunk = 0; Chunk < CachedMeshes.Num(); ++Chunk)
+			{
+				TestTrue(TEXT("Music frames reuse cone geometry and collision"), CachedMeshes[Chunk] == Cone->ChunkComponents[Chunk]->GetDynamicMesh());
+			}
+		}
+		Cone->ResetMusicPlayback();
+		CheckConeGeometry(true);
+		Cone->RenderMusicEqualizerCells(ConeCells);
+		const int32 DestroyedCell = ConeCells[0];
+		Cone->DestroyCell(Cone->FromCellIndex(DestroyedCell));
+		Cone->RenderMusicEqualizerCells(ConeCells);
+		for (UDynamicMeshComponent* Component : Cone->ChunkComponents)
+		{
+			const FDynamicMesh3& Mesh = *Component->GetMesh();
+			for (int32 Triangle : Mesh.TriangleIndicesItr())
+			{
+				TestTrue(TEXT("Exposed cut faces belong to intact neighboring pieces"), Mesh.GetTriangleGroup(Triangle) != INDEX_NONE && Mesh.GetTriangleGroup(Triangle) != DestroyedCell);
+			}
+		}
 		Cone->SetReactToMusic(false);
 		TestNull(TEXT("Disabling releases the cone renderer"), Cone->MusicEqualizerInstances.Get());
+		TestTrue(TEXT("Disabling releases cone music material cache"), Cone->MusicChunkOriginalMaterials.IsEmpty());
+		TestFalse(TEXT("Stopping music keeps the cone destruction hole"), Cone->Cells[DestroyedCell].bExists);
 		TestFalse(TEXT("Disabled cone does not tick"), Cone->IsActorTickEnabled());
 		Cone->Destroy();
 	}

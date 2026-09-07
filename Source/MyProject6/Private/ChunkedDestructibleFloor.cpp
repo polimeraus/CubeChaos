@@ -1027,8 +1027,10 @@ void AChunkedDestructibleFloor::ApplyMusicEvent(const FMusicReactionEvent& Event
 
 	const bool bAllColumns = Event.Type == EMusicReactionEventType::Burst || Event.Type == EMusicReactionEventType::Sweep;
 	if (bAllColumns) { RequestedColumnCount = DesiredColumns; }
-	const float Duration = Event.Duration > 0.0f ? FMath::Clamp(Event.Duration, 0.15f, 3.0f) :
+	const float BaseDuration = Event.Duration > 0.0f ? FMath::Clamp(Event.Duration, 0.15f, 3.0f) :
 		FMath::Clamp(MusicReactionDuration, 0.15f, 3.0f) * FMath::Lerp(0.9f, 1.2f, Response);
+	const float Duration = MusicAnimationType == EMusicAnimationType::TravelingColumns
+		? BaseDuration / GetTravelingColumnsSpeed() : BaseDuration;
 	// Ambient visuals retain the actual event age. A missed key point gets a visible catch-up pulse.
 	const double StartTime = bKeyPoint && CurrentTime - Event.TimeSeconds > 0.08 ? CurrentTime : Event.TimeSeconds;
 	if (MusicAnimationType == EMusicAnimationType::Equalizer)
@@ -2643,7 +2645,11 @@ void AChunkedDestructibleFloor::RefreshMusicReactionMaterial()
 	// Replacing an existing piece requires an opaque material to preserve its solid surface.
 	if (UsesMusicPieceMaterials() && (!ParentMaterial || ParentMaterial->GetBlendMode() != BLEND_Opaque))
 	{
-		ParentMaterial = CrispSpiralMaterial.Get();
+		// The flat structure material has no emissive Color input. Complete pieces need
+		// an opaque glow material that responds to the music renderer's color parameter.
+		ParentMaterial = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Game/Destructible/Materials/M_MusicPieceGlow.M_MusicPieceGlow"));
+		if (!ParentMaterial) { ParentMaterial = CrispSpiralMaterial.Get(); }
 	}
 	if (!UsesMusicPieceMaterials() &&
 		(!ParentMaterial || !ParentMaterial->GetUsageByFlag(MATUSAGE_InstancedStaticMeshes)))
