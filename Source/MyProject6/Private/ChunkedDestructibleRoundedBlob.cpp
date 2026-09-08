@@ -935,7 +935,8 @@ void AChunkedDestructibleRoundedBlob::BuildChunkMesh(int32 ChunkIndex, FDynamicM
 	auto AppendWall = [this, &OutMesh](
 		const FVector2D& A,
 		const FVector2D& B,
-		int32 MaterialIndex)
+		int32 MaterialIndex,
+		bool bOuterBoundary)
 	{
 		const FVector2D Edge = B - A;
 		const float EdgeLength = static_cast<float>(Edge.Size());
@@ -949,12 +950,12 @@ void AChunkedDestructibleRoundedBlob::BuildChunkMesh(int32 ChunkIndex, FDynamicM
 			static_cast<float>(Outward2D.Y),
 			0.0f).GetSafeNormal();
 		const double BottomZ = -EffectiveCellDimensions.Z;
-		AppendMeshQuad(
+		AppendFloorSideQuad(
 			OutMesh,
 			FVector3d(B.X, B.Y, BottomZ), FVector3d(B.X, B.Y, 0.0),
 			FVector3d(A.X, A.Y, 0.0), FVector3d(A.X, A.Y, BottomZ),
 			Normal, MaterialIndex, EdgeLength,
-			static_cast<float>(EffectiveCellDimensions.Z), UVWorldUnits);
+			static_cast<float>(EffectiveCellDimensions.Z), bOuterBoundary);
 	};
 
 	for (int32 Y = MinCellY; Y < MaxCellY; ++Y)
@@ -1042,7 +1043,7 @@ void AChunkedDestructibleRoundedBlob::BuildChunkMesh(int32 ChunkIndex, FDynamicM
 					}
 					if (bExposedGridEdge)
 					{
-						AppendWall(A, B, CellData.MaterialIndex);
+						AppendWall(A, B, CellData.MaterialIndex, false);
 					}
 				}
 			}
@@ -1052,7 +1053,7 @@ void AChunkedDestructibleRoundedBlob::BuildChunkMesh(int32 ChunkIndex, FDynamicM
 			{
 				for (const FBlobOutlineSegment& Segment : CellCache->OutlineSegments)
 				{
-					AppendWall(Segment.A, Segment.B, CellData.MaterialIndex);
+					AppendWall(Segment.A, Segment.B, CellData.MaterialIndex, true);
 				}
 			}
 			else
@@ -1067,7 +1068,7 @@ void AChunkedDestructibleRoundedBlob::BuildChunkMesh(int32 ChunkIndex, FDynamicM
 						CellMinX, CellMinY, CellMaxX, CellMaxY,
 						ClippedStart, ClippedEnd))
 					{
-						AppendWall(ClippedStart, ClippedEnd, CellData.MaterialIndex);
+						AppendWall(ClippedStart, ClippedEnd, CellData.MaterialIndex, true);
 					}
 				}
 			}

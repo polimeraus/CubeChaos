@@ -1220,7 +1220,7 @@ void AChunkedDestructibleFloor::ConfigureChunkComponent(UDynamicMeshComponent* C
 	}
 
 	const int32 MaterialCount = FMath::Max(FloorMaterials.Num(), 1);
-	Component->SetNumMaterials(MaterialCount);
+	Component->SetNumMaterials(MaterialCount + (SideNeonMaterialInstance ? 1 : 0));
 	for (int32 MaterialIndex = 0; MaterialIndex < MaterialCount; ++MaterialIndex)
 	{
 		UMaterialInterface* Material = FloorMaterials.IsValidIndex(MaterialIndex)
@@ -1231,6 +1231,10 @@ void AChunkedDestructibleFloor::ConfigureChunkComponent(UDynamicMeshComponent* C
 			Material = UMaterial::GetDefaultMaterial(MD_Surface);
 		}
 		Component->SetMaterial(MaterialIndex, Material);
+	}
+	if (SideNeonMaterialInstance)
+	{
+		Component->SetMaterial(MaterialCount, SideNeonMaterialInstance);
 	}
 	Component->SetCastShadow(bCastFloorShadow);
 	Component->SetTangentsType(EDynamicMeshComponentTangentsMode::AutoCalculated);
@@ -1254,6 +1258,7 @@ void AChunkedDestructibleFloor::ConfigureChunkComponent(UDynamicMeshComponent* C
 
 void AChunkedDestructibleFloor::RebuildAllChunks()
 {
+	RefreshSideNeonMaterial();
 	for (int32 ChunkIndex = 0; ChunkIndex < ChunkComponents.Num(); ++ChunkIndex)
 	{
 		RebuildChunk(ChunkIndex);
@@ -1370,42 +1375,42 @@ void AChunkedDestructibleFloor::BuildChunkMesh(int32 ChunkIndex, FDynamicMesh3& 
 
 			if (bGapX || !CellExists(X - 1, Y))
 			{
-				AppendMeshQuad(
+				AppendFloorSideQuad(
 					OutMesh,
 					FVector3d(MinX, MinY, BottomZ), FVector3d(MinX, MinY, 0.0),
 					FVector3d(MinX, MaxY, 0.0), FVector3d(MinX, MaxY, BottomZ),
 					-FVector3f::UnitX(), MaterialIndex,
-					EffectiveCellDimensions.Z, EffectiveCellDimensions.Y, UVWorldUnits);
+					EffectiveCellDimensions.Z, EffectiveCellDimensions.Y, X == 0);
 			}
 
 			if (bGapX || !CellExists(X + 1, Y))
 			{
-				AppendMeshQuad(
+				AppendFloorSideQuad(
 					OutMesh,
 					FVector3d(MaxX, MaxY, BottomZ), FVector3d(MaxX, MaxY, 0.0),
 					FVector3d(MaxX, MinY, 0.0), FVector3d(MaxX, MinY, BottomZ),
 					FVector3f::UnitX(), MaterialIndex,
-					EffectiveCellDimensions.Z, EffectiveCellDimensions.Y, UVWorldUnits);
+					EffectiveCellDimensions.Z, EffectiveCellDimensions.Y, X == CellCount.X - 1);
 			}
 
 			if (bGapY || !CellExists(X, Y - 1))
 			{
-				AppendMeshQuad(
+				AppendFloorSideQuad(
 					OutMesh,
 					FVector3d(MaxX, MinY, BottomZ), FVector3d(MaxX, MinY, 0.0),
 					FVector3d(MinX, MinY, 0.0), FVector3d(MinX, MinY, BottomZ),
 					-FVector3f::UnitY(), MaterialIndex,
-					EffectiveCellDimensions.Z, EffectiveCellDimensions.X, UVWorldUnits);
+					EffectiveCellDimensions.Z, EffectiveCellDimensions.X, Y == 0);
 			}
 
 			if (bGapY || !CellExists(X, Y + 1))
 			{
-				AppendMeshQuad(
+				AppendFloorSideQuad(
 					OutMesh,
 					FVector3d(MinX, MaxY, BottomZ), FVector3d(MinX, MaxY, 0.0),
 					FVector3d(MaxX, MaxY, 0.0), FVector3d(MaxX, MaxY, BottomZ),
 					FVector3f::UnitY(), MaterialIndex,
-					EffectiveCellDimensions.Z, EffectiveCellDimensions.X, UVWorldUnits);
+					EffectiveCellDimensions.Z, EffectiveCellDimensions.X, Y == CellCount.Y - 1);
 			}
 		}
 	}

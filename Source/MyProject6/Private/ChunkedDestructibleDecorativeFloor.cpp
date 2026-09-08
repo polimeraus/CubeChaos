@@ -1654,7 +1654,8 @@ void AChunkedDestructibleDecorativeFloor::BuildChunkMesh(
 	auto AppendWall = [this, &OutMesh](
 		const FVector2D& A,
 		const FVector2D& B,
-		int32 MaterialIndex)
+		int32 MaterialIndex,
+		bool bOuterBoundary)
 	{
 		const FVector2D Edge = B - A;
 		const float EdgeLength = static_cast<float>(Edge.Size());
@@ -1668,12 +1669,12 @@ void AChunkedDestructibleDecorativeFloor::BuildChunkMesh(
 			static_cast<float>(Outward2D.Y),
 			0.0f).GetSafeNormal();
 		const double BottomZ = -EffectiveCellDimensions.Z;
-		AppendMeshQuad(
+		AppendFloorSideQuad(
 			OutMesh,
 			FVector3d(B.X, B.Y, BottomZ), FVector3d(B.X, B.Y, 0.0),
 			FVector3d(A.X, A.Y, 0.0), FVector3d(A.X, A.Y, BottomZ),
 			Normal, MaterialIndex, EdgeLength,
-			static_cast<float>(EffectiveCellDimensions.Z), UVWorldUnits);
+			static_cast<float>(EffectiveCellDimensions.Z), bOuterBoundary);
 	};
 
 	for (int32 Y = MinCellY; Y < MaxCellY; ++Y)
@@ -1750,7 +1751,7 @@ void AChunkedDestructibleDecorativeFloor::BuildChunkMesh(
 					}
 					if (bExposedGridEdge && !IsShapeBoundarySegment(A, B))
 					{
-						AppendWall(A, B, CellData.MaterialIndex);
+						AppendWall(A, B, CellData.MaterialIndex, false);
 					}
 				}
 			}
@@ -1760,7 +1761,7 @@ void AChunkedDestructibleDecorativeFloor::BuildChunkMesh(
 			{
 				for (const FShapeOutlineSegment& Segment : CellGeometryCache[CellIndex].OutlineSegments)
 				{
-					AppendWall(Segment.A, Segment.B, CellData.MaterialIndex);
+					AppendWall(Segment.A, Segment.B, CellData.MaterialIndex, true);
 				}
 			}
 		}

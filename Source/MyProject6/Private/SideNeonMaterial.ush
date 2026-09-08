@@ -1,0 +1,9 @@
+// UV.x is normalized height above the bottom of a floor side, independent of shape and UV scale.
+// Opaque + unlit: no texture sampling, light components, transparency, or per-frame CPU updates.
+float height = UV.x;
+float halfWidth = Stripe.y * 0.5;
+float aa = max(fwidth(height), 0.00001);
+float band = saturate((halfWidth - abs(height - Stripe.x)) / aa + 0.5);
+band *= step(0.000001, Stripe.y);
+float mask = lerp(band, 1.0, Stripe.z);
+return lerp(BodyColor.rgb, GlowColor.rgb, mask);

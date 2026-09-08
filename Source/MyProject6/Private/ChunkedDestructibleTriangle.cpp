@@ -482,6 +482,22 @@ void AChunkedDestructibleTriangle::BuildChunkMesh(int32 ChunkIndex, FDynamicMesh
 		const FIntPoint Cell(X, Y);
 		return IsValidCell(Cell) && Cells[ToCellIndex(Cell)].bExists;
 	};
+	FVector2D Outline[3];
+	GetTriangleVertices(Outline[0], Outline[1], Outline[2]);
+	auto IsOuterBoundary = [&Outline](const FVector2D& A, const FVector2D& B)
+	{
+		for (int32 Index = 0; Index < 3; ++Index)
+		{
+			const FVector2D Edge = Outline[(Index + 1) % 3] - Outline[Index];
+			const double Tolerance = PolygonTolerance * Edge.Size();
+			if (FMath::Abs(Cross2D(Edge, A - Outline[Index])) <= Tolerance &&
+				FMath::Abs(Cross2D(Edge, B - Outline[Index])) <= Tolerance)
+			{
+				return true;
+			}
+		}
+		return false;
+	};
 
 	for (int32 Y = MinCellY; Y < MaxCellY; ++Y)
 	{
@@ -562,12 +578,13 @@ void AChunkedDestructibleTriangle::BuildChunkMesh(int32 ChunkIndex, FDynamicMesh
 					static_cast<float>(Outward2D.Y),
 					0.0f).GetSafeNormal();
 				const double BottomZ = -EffectiveCellDimensions.Z;
-				AppendMeshQuad(
+				AppendFloorSideQuad(
 					OutMesh,
 					FVector3d(B.X, B.Y, BottomZ), FVector3d(B.X, B.Y, 0.0),
 					FVector3d(A.X, A.Y, 0.0), FVector3d(A.X, A.Y, BottomZ),
 					Normal, CellData.MaterialIndex, EdgeLength,
-					static_cast<float>(EffectiveCellDimensions.Z), UVWorldUnits);
+					static_cast<float>(EffectiveCellDimensions.Z),
+					SideNeonMaterialInstance && SideNeon.Scope == EFloorSideNeonScope::OuterBoundary && IsOuterBoundary(A, B));
 			}
 		}
 	}

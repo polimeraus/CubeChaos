@@ -47,6 +47,53 @@ enum class EChunkedFloorFillRule : uint8
 	StretchCells UMETA(DisplayName = "Stretch Cells To Fit")
 };
 
+UENUM(BlueprintType)
+enum class EFloorSideNeonMode : uint8
+{
+	Off UMETA(DisplayName = "Off"),
+	FullSide UMETA(DisplayName = "Full Side"),
+	Stripe UMETA(DisplayName = "Stripe")
+};
+
+UENUM(BlueprintType)
+enum class EFloorSideNeonScope : uint8
+{
+	OuterBoundary UMETA(DisplayName = "Outer Boundary Only"),
+	AllExposedSides UMETA(DisplayName = "All Exposed Sides (Including Damage)")
+};
+
+/** Neon drawn on the existing side triangles, with one shared material instance per floor. */
+USTRUCT(BlueprintType)
+struct FFloorSideNeonSettings
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon")
+	EFloorSideNeonMode Mode = EFloorSideNeonMode::Off;
+
+	/** Outer boundary uses the original silhouette; damage and cell gaps do not become new perimeter. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode != EFloorSideNeonMode::Off", EditConditionHides))
+	EFloorSideNeonScope Scope = EFloorSideNeonScope::OuterBoundary;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode != EFloorSideNeonMode::Off", EditConditionHides, HideAlphaChannel))
+	FLinearColor Color = FLinearColor(0.0f, 0.5f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode != EFloorSideNeonMode::Off", EditConditionHides, ClampMin = "0.0", ClampMax = "100.0", UIMax = "20.0"))
+	float Intensity = 8.0f;
+
+	/** Thickness in the actor's local centimetres; actor scaling scales the stripe too. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::Stripe", EditConditionHides, ClampMin = "0.0", Units = "cm"))
+	float StripeWidth = 4.0f;
+
+	/** 0 = bottom edge, 0.5 = middle, 1 = top edge. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::Stripe", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
+	float StripePosition = 0.5f;
+
+	/** Unlit side-panel color outside the stripe. Top/bottom and unselected sides keep their materials. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::Stripe", EditConditionHides, HideAlphaChannel))
+	FLinearColor BodyColor = FLinearColor(0.015f, 0.015f, 0.02f);
+};
+
 /** Built-in coordinate-driven material patterns. */
 UENUM(BlueprintType)
 enum class EChunkedFloorPattern : uint8
@@ -170,6 +217,7 @@ class MYPROJECT6_API AChunkedDestructibleFloor : public AActor, public IMusicRea
 	friend class FDestructibleQueueTest;
 	friend class FDestructibleCollisionTest;
 	friend class FDestructibleStructureTest;
+	friend class FFloorSideNeonTest;
 
 public:
 	AChunkedDestructibleFloor();
@@ -227,6 +275,17 @@ public:
 	/** Pushes the current material array to every chunk. */
 	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Materials")
 	void RefreshFloorMaterials();
+
+	/** Mode on/off and scope changes rebuild chunks; appearance-only changes just update the material. */
+	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Side Neon")
+	void SetSideNeonSettings(const FFloorSideNeonSettings& NewSettings);
+
+	/** Changes the shared neon color and intensity without rebuilding geometry or collision. */
+	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Side Neon")
+	void SetSideNeonColor(FLinearColor NewColor, float NewIntensity = 8.0f);
+
+	UFUNCTION(BlueprintPure, Category = "Chunked Floor|Side Neon")
+	FFloorSideNeonSettings GetSideNeonSettings() const { return SideNeon; }
 
 	/** Replaces the runtime material palette and safely clamps every existing cell material index. */
 	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Materials")
@@ -423,6 +482,18 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Geometry", meta = (ClampMin = "1.0", Units = "cm"))
 	float UVWorldUnits = 100.0f;
+
+	/** Static emissive sides: no added lights, meshes, components, timers or actor ticks. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Chunked Floor|Side Neon", meta = (EditCondition = "UsesPlanarAnimation()", EditConditionHides, ShowOnlyInnerProperties))
+	FFloorSideNeonSettings SideNeon;
+
+	/** Serialized soft reference is cookable and only loads the asset when neon is enabled. */
+	UPROPERTY()
+	TSoftObjectPtr<UMaterialInterface> SideNeonMaterial = TSoftObjectPtr<UMaterialInterface>(
+		FSoftObjectPath(TEXT("/Game/Destructible/Materials/M_FloorSideNeon.M_FloorSideNeon")));
+
+	UPROPERTY(Transient, DuplicateTransient)
+	TObjectPtr<UMaterialInstanceDynamic> SideNeonMaterialInstance;
 
 	/** Material index 0 and 1 are used by built-in two-tone patterns by default. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Materials")
@@ -830,6 +901,13 @@ protected:
 		TFunctionRef<bool(FIntPoint, TArray<TArray<FVector2D>>&)> GetCellPolygons,
 		TFunctionRef<void(FIntPoint, const FVector2D&, const FVector2D&, const FVector2D&, int32)> AppendSurfaceTriangle) const;
 	virtual void BuildChunkSimpleCollision(int32 ChunkIndex, FKAggregateGeom& OutCollision) const;
+	void RefreshSideNeonMaterial();
+	/** A -> B must run from the bottom to the top of a vertical side. */
+	void AppendFloorSideQuad(
+		UE::Geometry::FDynamicMesh3& Mesh,
+		const FVector3d& A, const FVector3d& B, const FVector3d& C, const FVector3d& D,
+		const FVector3f& Normal, int32 MaterialIndex,
+		float ULength, float VLength, bool bOuterBoundary) const;
 	/** Shared low-level face builder used by rectangular and custom-shaped grid structures. */
 	static void AppendMeshQuad(
 		UE::Geometry::FDynamicMesh3& Mesh,
