@@ -62,12 +62,14 @@ AChasingNPC::AChasingNPC()
 	Movement->AvoidanceConsiderationRadius = 500.0f;
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> CharacterMesh(
-		TEXT("/Game/Characters/Mannequins/Meshes/SKM_Quinn_Simple.SKM_Quinn_Simple"));
+		TEXT("/Game/Characters/Ghoul/Mesh/SK_Ghoul_UE5.SK_Ghoul_UE5"));
 	if (CharacterMesh.Succeeded())
 	{
 		GetMesh()->SetSkeletalMeshAsset(CharacterMesh.Object);
 	}
 
+	// Ghoul's UE5 skeleton is compatible with this locomotion blueprint (SetupGhoulChaser.py).
+	// Keep the mesh on the class default so death replacements also use Ghoul.
 	static ConstructorHelpers::FClassFinder<UAnimInstance> AnimationBlueprint(
 		TEXT("/Game/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed"));
 	if (AnimationBlueprint.Succeeded())
