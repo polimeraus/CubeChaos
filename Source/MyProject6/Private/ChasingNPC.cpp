@@ -4,6 +4,8 @@
 
 #include "ChasingAIController.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/AnimSequence.h"
+#include "Animation/AnimSingleNodeInstance.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SphereComponent.h"
@@ -13,6 +15,7 @@
 #include "GameFramework/DamageType.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "MyProject6Character.h"
 #include "Sound/SoundBase.h"
 #include "TimerManager.h"
@@ -20,7 +23,8 @@
 
 AChasingNPC::AChasingNPC()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = false;
 	SetCanBeDamaged(true);
 
 	AIControllerClass = AChasingAIController::StaticClass();
@@ -77,14 +81,36 @@ AChasingNPC::AChasingNPC()
 		GetMesh()->SetAnimInstanceClass(AnimationBlueprint.Class);
 	}
 
-	// A project sound is assigned by default and can be replaced per instance in Details.
-	static ConstructorHelpers::FObjectFinder<USoundBase> DefaultDeathSound(
-		TEXT("/Game/Weapons/GrenadeLauncher/Audio/FirstPersonTemplateWeaponFire02.FirstPersonTemplateWeaponFire02"));
-	if (DefaultDeathSound.Succeeded())
+	static ConstructorHelpers::FObjectFinder<UAnimSequence> DefaultDeathAnimation(
+		TEXT("/Game/Characters/Mannequins/Anims/Death/MM_Death_Front_01.MM_Death_Front_01"));
+	if (DefaultDeathAnimation.Succeeded())
 	{
-		DeathSound = DefaultDeathSound.Object;
-		ContactDrainSound = DefaultDeathSound.Object;
-		FallingSound = DefaultDeathSound.Object;
+		DeathAnimation = DefaultDeathAnimation.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<USoundBase> DefaultHitSound(
+		TEXT("/Game/NPC/Audio/S_NPC_GhoulHit.S_NPC_GhoulHit"));
+	if (DefaultHitSound.Succeeded())
+	{
+		HitSound = DefaultHitSound.Object;
+	}
+
+	// Preserve the separate contact and falling cues.
+	static ConstructorHelpers::FObjectFinder<USoundBase> DefaultContactSound(
+		TEXT("/Game/Weapons/GrenadeLauncher/Audio/FirstPersonTemplateWeaponFire02.FirstPersonTemplateWeaponFire02"));
+	if (DefaultContactSound.Succeeded())
+	{
+		ContactDrainSound = DefaultContactSound.Object;
+		FallingSound = DefaultContactSound.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> FadeBody(
+		TEXT("/Game/NPC/Materials/MI_NPCDeath_Slot0.MI_NPCDeath_Slot0"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> FadeClothes(
+		TEXT("/Game/NPC/Materials/MI_NPCDeath_Slot1.MI_NPCDeath_Slot1"));
+	if (FadeBody.Succeeded() && FadeClothes.Succeeded())
+	{
+		DeathFadeMaterials = { FadeBody.Object, FadeClothes.Object };
 	}
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> DefaultContactGlow(
@@ -133,6 +159,8 @@ void AChasingNPC::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	GetWorldTimerManager().ClearTimer(ContactDrainTimerHandle);
 	GetWorldTimerManager().ClearTimer(FallingSoundTimerHandle);
+	GetWorldTimerManager().ClearTimer(DeathFadeTimerHandle);
+	DeathMaterialInstances.Reset();
 	ContactingPlayers.Reset();
 	Super::EndPlay(EndPlayReason);
 }
@@ -326,6 +354,11 @@ float AChasingNPC::TakeDamage(
 	}
 
 	CurrentHealth = FMath::Max(0.0f, CurrentHealth - AppliedDamage);
+	if (HitSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, HitSound, GetActorLocation(),
+			FMath::Max(0.0f, HitSoundVolume), FMath::Clamp(HitSoundPitch, 0.1f, 4.0f));
+	}
 	if (CurrentHealth <= 0.0f)
 	{
 		Die();
@@ -342,18 +375,28 @@ void AChasingNPC::Die(const bool bShouldSpawnReplacements)
 	}
 
 	bIsDead = true;
-	OnNPCDeath.Broadcast();
+	CurrentHealth = 0.0f;
+	SetCanBeDamaged(false);
+	SetLifeSpan(0.0f);
 	GetWorldTimerManager().ClearTimer(ContactDrainTimerHandle);
 	GetWorldTimerManager().ClearTimer(FallingSoundTimerHandle);
 	ContactingPlayers.Reset();
+	SetContactGlowActive(false);
 
 	if (AController* ExistingController = GetController())
 	{
 		ExistingController->StopMovement();
 	}
+	DetachFromControllerPendingDestroy();
 
+	GetCharacterMovement()->StopMovementImmediately();
 	GetCharacterMovement()->DisableMovement();
 	SetActorEnableCollision(false);
+	OnNPCDeath.Broadcast();
+	if (IsActorBeingDestroyed())
+	{
+		return;
+	}
 
 	if (DeathSound)
 	{
@@ -370,8 +413,82 @@ void AChasingNPC::Die(const bool bShouldSpawnReplacements)
 		SpawnReplacements();
 	}
 
-	// PlaySoundAtLocation is fire-and-forget, so the audio continues after the actor is gone.
-	Destroy();
+	float AnimationDuration = 0.0f;
+	USkeletalMeshComponent* CharacterMesh = GetMesh();
+	if (DeathAnimation && CharacterMesh && CharacterMesh->GetSkeletalMeshAsset())
+	{
+		// Corpses must finish the death pose even if they briefly leave the camera view.
+		CharacterMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+		CharacterMesh->bEnableUpdateRateOptimizations = false;
+		CharacterMesh->bPauseAnims = false;
+		CharacterMesh->PlayAnimation(DeathAnimation, false);
+		const float PlayRate = FMath::Clamp(DeathAnimationPlayRate, 0.1f, 4.0f);
+		// Compensate for the asset's rate scale so the exposed rate controls actual duration.
+		const float AssetRate = DeathAnimation->RateScale;
+		CharacterMesh->SetPlayRate(FMath::IsNearlyZero(AssetRate) ? PlayRate : PlayRate / AssetRate);
+		AnimationDuration = DeathAnimation->GetPlayLength() / PlayRate;
+	}
+
+	const float FadeDelay = AnimationDuration + FMath::Max(0.0f, DeathHoldDuration);
+	if (FadeDelay > 0.0f)
+	{
+		GetWorldTimerManager().SetTimer(DeathFadeTimerHandle, this,
+			&AChasingNPC::BeginDeathFade, FadeDelay, false);
+	}
+	else
+	{
+		BeginDeathFade();
+	}
+}
+
+void AChasingNPC::BeginDeathFade()
+{
+	USkeletalMeshComponent* CharacterMesh = GetMesh();
+	if (CharacterMesh)
+	{
+		// Hold the final pose, including when the mesh was off-screen during death.
+		if (DeathAnimation && CharacterMesh->GetSingleNodeInstance())
+		{
+			CharacterMesh->SetPosition(DeathAnimation->GetPlayLength(), false);
+			CharacterMesh->GetSingleNodeInstance()->SetPlaying(false);
+			CharacterMesh->TickAnimation(0.0f, false);
+			CharacterMesh->RefreshBoneTransforms();
+		}
+		CharacterMesh->bPauseAnims = true;
+		for (int32 Index = 0; Index < CharacterMesh->GetNumMaterials(); ++Index)
+		{
+			UMaterialInterface* Source = DeathFadeMaterials.IsValidIndex(Index) && DeathFadeMaterials[Index]
+				? DeathFadeMaterials[Index].Get() : CharacterMesh->GetMaterial(Index);
+			if (UMaterialInstanceDynamic* Material = CharacterMesh->CreateDynamicMaterialInstance(Index, Source))
+			{
+				Material->SetScalarParameterValue(DeathOpacityParameter, 1.0f);
+				DeathMaterialInstances.Add(Material);
+			}
+		}
+	}
+	ActiveDeathFadeDuration = FMath::Max(0.1f, DeathFadeDuration);
+	DeathFadeStartTime = GetWorld()->GetTimeSeconds();
+	SetActorTickEnabled(true);
+}
+
+void AChasingNPC::Tick(const float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	if (!bIsDead)
+	{
+		return;
+	}
+	const float Alpha = FMath::Clamp(
+		static_cast<float>((GetWorld()->GetTimeSeconds() - DeathFadeStartTime) / ActiveDeathFadeDuration), 0.0f, 1.0f);
+	const float Opacity = 1.0f - FMath::SmoothStep(0.0f, 1.0f, Alpha);
+	for (UMaterialInstanceDynamic* Material : DeathMaterialInstances)
+	{
+		Material->SetScalarParameterValue(DeathOpacityParameter, Opacity);
+	}
+	if (Alpha >= 1.0f)
+	{
+		Destroy();
+	}
 }
 
 void AChasingNPC::SpawnReplacements()
@@ -422,10 +539,24 @@ void AChasingNPC::SpawnReplacements()
 			FMath::Sin(AngleRadians) * SafeRadius,
 			10.0f);
 
-		World->SpawnActor<AChasingNPC>(
-			GetClass(),
-			DeathLocation + Offset,
-			GetActorRotation(),
-			SpawnParameters);
+		SpawnParameters.bDeferConstruction = true;
+		const FTransform SpawnTransform(GetActorRotation(), DeathLocation + Offset);
+		if (AChasingNPC* Replacement = World->SpawnActor<AChasingNPC>(GetClass(), SpawnTransform, SpawnParameters))
+		{
+			// Keep per-instance presentation settings for subsequent replacement generations.
+			Replacement->HitSound = HitSound;
+			Replacement->HitSoundVolume = HitSoundVolume;
+			Replacement->HitSoundPitch = HitSoundPitch;
+			Replacement->DeathSound = DeathSound;
+			Replacement->DeathSoundVolume = DeathSoundVolume;
+			Replacement->DeathSoundPitch = DeathSoundPitch;
+			Replacement->DeathAnimation = DeathAnimation;
+			Replacement->DeathAnimationPlayRate = DeathAnimationPlayRate;
+			Replacement->DeathHoldDuration = DeathHoldDuration;
+			Replacement->DeathFadeDuration = DeathFadeDuration;
+			Replacement->DeathFadeMaterials = DeathFadeMaterials;
+			Replacement->DeathOpacityParameter = DeathOpacityParameter;
+			Replacement->FinishSpawning(SpawnTransform);
+		}
 	}
 }

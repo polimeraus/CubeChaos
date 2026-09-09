@@ -9,6 +9,8 @@
 class USoundBase;
 class USphereComponent;
 class UMaterialInterface;
+class UMaterialInstanceDynamic;
+class UAnimSequence;
 class AMyProject6Character;
 class ACharacter;
 class UDamageType;
@@ -17,7 +19,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FChasingNPCDeathSignature);
 
 /**
  * A lightweight enemy that continuously chases player zero.
- * It uses AChasingAIController for navigation and disappears when its health reaches zero.
+ * It uses AChasingAIController for navigation, then plays a death pose and fades away.
  */
 UCLASS(Blueprintable)
 class MYPROJECT6_API AChasingNPC : public ACharacter
@@ -45,12 +47,13 @@ public:
 	/** Updates movement so this NPC runs at PlayerSpeedFraction of the player's walk speed. */
 	void UpdateChaseSpeedFromPlayer(const ACharacter* PlayerCharacter);
 
-	/** Fired immediately before the sound is played and the NPC disappears. */
+	/** Fired once when health reaches zero, before the death presentation begins. */
 	UPROPERTY(BlueprintAssignable, Category = "Chasing NPC|Health")
 	FChasingNPCDeathSignature OnNPCDeath;
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode) override;
 	virtual void FellOutOfWorld(const UDamageType& DamageType) override;
@@ -111,7 +114,17 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Movement", meta = (ClampMin = "0.05", Units = "s"))
 	float RepathInterval = 0.25f;
 
-	/** Sound played at the NPC location before it disappears. */
+	/** Played once for each successful hit, including the lethal hit. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Hit Audio")
+	TObjectPtr<USoundBase> HitSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Hit Audio", meta = (ClampMin = "0.0"))
+	float HitSoundVolume = 0.85f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Hit Audio", meta = (ClampMin = "0.1", ClampMax = "4.0"))
+	float HitSoundPitch = 1.0f;
+
+	/** Optional additional death sound. Empty by default to avoid doubling the lethal hit sound. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Death")
 	TObjectPtr<USoundBase> DeathSound;
 
@@ -120,6 +133,27 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Death", meta = (ClampMin = "0.1", ClampMax = "4.0"))
 	float DeathSoundPitch = 0.75f;
+
+	/** Non-looping sequence; its final pose remains visible during the hold and fade. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Death")
+	TObjectPtr<UAnimSequence> DeathAnimation;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Death", meta = (ClampMin = "0.1", ClampMax = "4.0"))
+	float DeathAnimationPlayRate = 1.0f;
+
+	/** Delay after the death animation has finished. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Death", meta = (ClampMin = "0.0", Units = "s"))
+	float DeathHoldDuration = 3.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Death", meta = (ClampMin = "0.1", Units = "s"))
+	float DeathFadeDuration = 2.0f;
+
+	/** Fade-capable materials in mesh slot order; used only on the corpse. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Death", AdvancedDisplay)
+	TArray<TObjectPtr<UMaterialInterface>> DeathFadeMaterials;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Death", AdvancedDisplay)
+	FName DeathOpacityParameter = TEXT("NPCDeathOpacity");
 
 	/** Played after a short continuous fall, before a possible FellOutOfWorld death. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Falling")
@@ -174,12 +208,18 @@ private:
 	void SetContactGlowActive(bool bActive);
 	void PlayFallingSoundIfStillFalling();
 	void Die(bool bShouldSpawnReplacements = true);
+	void BeginDeathFade();
 	void SpawnReplacements();
 
 	TSet<TWeakObjectPtr<AMyProject6Character>> ContactingPlayers;
 	TArray<TObjectPtr<UMaterialInterface>> OriginalMeshMaterials;
 	FTimerHandle ContactDrainTimerHandle;
 	FTimerHandle FallingSoundTimerHandle;
+	FTimerHandle DeathFadeTimerHandle;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UMaterialInstanceDynamic>> DeathMaterialInstances;
+	double DeathFadeStartTime = 0.0;
+	float ActiveDeathFadeDuration = 2.0f;
 	float ContactSoundCooldown = 0.0f;
 	bool bIsDead = false;
 	bool bContactGlowActive = false;
