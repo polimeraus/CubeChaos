@@ -43,6 +43,7 @@ public:
 
 	float GetChaseAcceptanceRadius() const { return ChaseAcceptanceRadius; }
 	float GetRepathInterval() const { return RepathInterval; }
+	virtual bool ShouldPauseChase() const { return IsDead(); }
 
 	/** Updates movement so this NPC runs at PlayerSpeedFraction of the player's walk speed. */
 	void UpdateChaseSpeedFromPlayer(const ACharacter* PlayerCharacter);

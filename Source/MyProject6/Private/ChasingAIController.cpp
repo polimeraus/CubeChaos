@@ -75,6 +75,13 @@ void AChasingAIController::RefreshChasePath()
 	SetFocus(PlayerPawn);
 
 	AChasingNPC* NPC = Cast<AChasingNPC>(ControlledPawn);
+	if (NPC && NPC->ShouldPauseChase())
+	{
+		StopMovement();
+		bUseDirectMovementFallback = false;
+		SetActorTickEnabled(false);
+		return;
+	}
 	if (NPC)
 	{
 		NPC->UpdateChaseSpeedFromPlayer(Cast<ACharacter>(PlayerPawn));
@@ -109,6 +116,10 @@ void AChasingAIController::Tick(const float DeltaSeconds)
 	}
 
 	const AChasingNPC* NPC = Cast<AChasingNPC>(ControlledPawn);
+	if (NPC && NPC->ShouldPauseChase())
+	{
+		return;
+	}
 	const float AcceptanceRadius = NPC ? NPC->GetChaseAcceptanceRadius() : 90.0f;
 	FVector ToPlayer = PlayerTarget->GetActorLocation() - ControlledPawn->GetActorLocation();
 	ToPlayer.Z = 0.0f;
