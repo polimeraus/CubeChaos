@@ -24,6 +24,9 @@ bool FLaunchPadTest::RunTest(const FString&)
         for (int32 I = 0; I < FMath::CeilToInt(Time * 60); ++I) { ++GFrameCounter; World->Tick(LEVELTICK_All, 1.f / 60); }
     };
     ALaunchPad* Pad = World->SpawnActor<ALaunchPad>();
+    Pad->Shape = ELaunchPadShape::Square;
+    Pad->VelocityMode = ELaunchPadVelocityMode::SeparateSpeeds;
+    Pad->RefreshPad();
     Pad->ForwardSpeed = 250;
     Pad->bPreserveHorizontalVelocity = false;
     FActorSpawnParameters Params;
@@ -70,6 +73,26 @@ bool FLaunchPadTest::RunTest(const FString&)
     Character->SetActorLocation(FVector(0, 0, Half + 10));
     Advance(.1f);
     TestTrue(TEXT("Reentering re-arms launch"), Character->GetVelocity().Z > 900);
+    Reset();
+    Pad->VelocityMode = ELaunchPadVelocityMode::SpeedAndAngle;
+    Pad->LaunchSpeed = 1000;
+    Pad->LaunchAngle = 45;
+    Pad->SetActorRotation(FRotator(0, 90, 0));
+    Character->SetActorLocation(FVector(0, 0, Half + 10));
+    Advance(.1f);
+    TestTrue(TEXT("45 degree launch follows pad yaw"), FMath::Abs(Character->GetVelocity().X) < 1 && Character->GetVelocity().Y > 700);
+    TestTrue(TEXT("45 degree vertical component"), Character->GetVelocity().Z > 580 && Character->GetVelocity().Z < 708);
+    Reset();
+    Pad->Shape = ELaunchPadShape::Circle;
+    Pad->LaunchAngle = 90;
+    Pad->RefreshPad();
+    Character->SetActorLocation(FVector(70, 70, Half + 10));
+    Advance(.1f);
+    TestTrue(TEXT("Circle excludes square corners"), Character->GetVelocity().Z < 100);
+    Reset();
+    Character->SetActorLocation(FVector(0, 0, Half + 10));
+    Advance(.1f);
+    TestTrue(TEXT("Circle center launches straight up at 90 degrees"), Character->GetVelocity().Z > 850 && Character->GetVelocity().Size2D() < 1);
     World->EndPlay(EEndPlayReason::Quit);
     World->DestroyWorld(false);
     GEngine->DestroyWorldContext(World);

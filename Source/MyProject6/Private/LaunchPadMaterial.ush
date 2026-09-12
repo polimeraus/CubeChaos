@@ -3,8 +3,8 @@ float2 p = (UV - 0.5) * 2.0;
 float t = Clock * AnimationSpeed;
 float aa = max(fwidth(p.x), 0.002);
 float square = max(abs(p.x), abs(p.y));
-float border = 1 - smoothstep(.014, .014 + aa, abs(square - .89));
-float inner = (1 - smoothstep(.004, .004 + aa, abs(square - .79))) * .3;
+float border = 1 - smoothstep(.014, .014 + aa, abs(lerp(square, length(p), Circular) - .89));
+float inner = (1 - smoothstep(.004, .004 + aa, abs(lerp(square, length(p), Circular) - .79))) * .3;
 float row = frac((p.x - t * .65) * 2.0 + .5) - .5;
 float chevron = (1 - smoothstep(.045, .045 + aa, abs(row + abs(p.y) * .65)))
     * (1 - smoothstep(.40, .44, abs(p.y))) * (1 - smoothstep(.68, .76, abs(p.x)));
@@ -16,4 +16,4 @@ float pulse = age >= 0 ? pow(saturate(1 - age / .6), 2) : 0;
 float wave = (1 - smoothstep(.018, .025 + aa, abs(square - saturate(age / .6)))) * pulse;
 float mask = saturate(border * .7 + inner + chevron + rails + wave);
 float3 dark = float3(.012, .021, .028) * (1 + .3 * (1 - square));
-return float4(dark + Tint.rgb * Brightness * mask * (1 + pulse * 2), 1);
+return float4(dark + Tint.rgb * Brightness * mask * (1 + pulse * 2), Circular > .5 ? (length(p) <= .98 ? 1 : 0) : 1);

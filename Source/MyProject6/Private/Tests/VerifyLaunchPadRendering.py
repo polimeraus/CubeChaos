@@ -65,6 +65,9 @@ def tick(_):
         elif state['stage'] == 'warmup' and now - state['since'] > 6:
             material = state['pad'].get_editor_property('symbol').get_material(0)
             assert isinstance(material, unreal.MaterialInstanceDynamic), 'Blueprint material missing'
+            assert state['pad'].get_editor_property('shape') == unreal.LaunchPadShape.CIRCLE
+            assert state['pad'].get_editor_property('pattern') == unreal.LaunchPadPattern.CONVERGING_RINGS
+            assert state['pad'].get_editor_property('launch_angle') == 90
             capture('idle')
             state.update(stage='animated', since=now)
         elif state['stage'] == 'animated' and now - state['since'] > .5:
@@ -88,6 +91,22 @@ def tick(_):
         elif state['stage'] == 'flight' and now - state['since'] > .3:
             result['character_height'] = state['character'].get_actor_location().z
             assert result['character_height'] > 200, 'Character did not rise'
+            state['character'].destroy_actor()
+            state['pad'].set_editor_property('shape', unreal.LaunchPadShape.SQUARE)
+            state['pad'].refresh_pad()
+            state.update(stage='square_rings', since=now)
+        elif state['stage'] == 'square_rings' and now - state['since'] > .3:
+            capture('square_rings')
+            state['pad'].set_editor_property('pattern', unreal.LaunchPadPattern.ARROWS)
+            state['pad'].refresh_pad()
+            state.update(stage='square_arrows', since=now)
+        elif state['stage'] == 'square_arrows' and now - state['since'] > 8:
+            capture('square_arrows')
+            state['pad'].set_editor_property('shape', unreal.LaunchPadShape.CIRCLE)
+            state['pad'].refresh_pad()
+            state.update(stage='circle_arrows', since=now)
+        elif state['stage'] == 'circle_arrows' and now - state['since'] > 3:
+            capture('circle_arrows')
             finish()
     except Exception as error:
         finish(str(error))

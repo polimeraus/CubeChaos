@@ -18,7 +18,10 @@ ALaunchPad::ALaunchPad()
     Base->SetupAttachment(RootComponent);
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(TEXT("/Engine/BasicShapes/Cube.Cube"));
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Plane(TEXT("/Engine/BasicShapes/Plane.Plane"));
-    Base->SetStaticMesh(Cube.Object);
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> Cylinder(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+    SquareMesh = Cube.Object;
+    CircleMesh = Cylinder.Object;
+    Base->SetStaticMesh(CircleMesh);
     Base->SetCollisionProfileName(TEXT("BlockAll"));
     Symbol = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("AnimatedArrows"));
     Symbol->SetupAttachment(RootComponent);
@@ -46,17 +49,22 @@ void ALaunchPad::OnConstruction(const FTransform& Transform)
 void ALaunchPad::RefreshPad()
 {
     const float Width = FMath::IsFinite(Size) ? FMath::Clamp(Size, 50.f, 1000.f) : 160.f;
+    Base->SetStaticMesh(Shape == ELaunchPadShape::Circle ? CircleMesh : SquareMesh);
     Base->SetRelativeLocation(FVector(0, 0, 4));
     Base->SetRelativeScale3D(FVector(Width / 100, Width / 100, .08f));
     Symbol->SetRelativeLocation(FVector(0, 0, 8.5f));
     Symbol->SetRelativeScale3D(FVector(Width / 100, Width / 100, 1));
     Trigger->SetRelativeLocation(FVector(0, 0, 23));
     Trigger->SetBoxExtent(FVector(Width / 2, Width / 2, 15));
-    if (PadMaterial && (!MaterialInstance || MaterialInstance->Parent != PadMaterial))
-        MaterialInstance = UMaterialInstanceDynamic::Create(PadMaterial, this);
+    UMaterialInterface* SelectedMaterial = Pattern == ELaunchPadPattern::ConvergingRings ? RingsMaterial.Get() : PadMaterial.Get();
+    if (SelectedMaterial && (!MaterialInstance || MaterialInstance->Parent != SelectedMaterial))
+        MaterialInstance = UMaterialInstanceDynamic::Create(SelectedMaterial, this);
     if (MaterialInstance)
     {
         Symbol->SetMaterial(0, MaterialInstance);
+        MaterialInstance->SetScalarParameterValue(TEXT("Circular"), Shape == ELaunchPadShape::Circle ? 1 : 0);
+        MaterialInstance->SetScalarParameterValue(TEXT("RingCount"), FMath::Clamp(RingCount, 1, 8));
+        MaterialInstance->SetScalarParameterValue(TEXT("RingThickness"), FMath::Clamp(RingThickness, .005f, .1f));
         MaterialInstance->SetVectorParameterValue(TEXT("Tint"), Color);
         MaterialInstance->SetScalarParameterValue(TEXT("Brightness"), bEnabled ? FMath::Clamp(Brightness, 0.f, 30.f) : .15f);
         MaterialInstance->SetScalarParameterValue(TEXT("AnimationSpeed"), bEnabled ? FMath::Clamp(AnimationSpeed, 0.f, 10.f) : 0);
@@ -93,12 +101,18 @@ void ALaunchPad::CheckCharacters()
     const double Now = GetWorld()->GetTimeSeconds();
     for (auto It = LastLaunch.CreateIterator(); It; ++It)
         if (!It.Key().IsValid() || Now - It.Value() > FMath::Max(Cooldown, .1f)) It.RemoveCurrent();
-    if (!bEnabled || !HasAuthority() || !FMath::IsFinite(LaunchUpSpeed) || !FMath::IsFinite(ForwardSpeed)) return;
+    if (!bEnabled || !HasAuthority() || !FMath::IsFinite(LaunchUpSpeed) || !FMath::IsFinite(ForwardSpeed) || !FMath::IsFinite(LaunchSpeed) || !FMath::IsFinite(LaunchAngle)) return;
     const float Top = Base->Bounds.GetBox().Max.Z;
     for (AActor* Actor : Overlaps)
     {
         ACharacter* Character = Cast<ACharacter>(Actor);
         if (!Character || (Character->IsPlayerControlled() ? !bAffectPlayers : !bAffectNPCs)) continue;
+        if (Shape == ELaunchPadShape::Circle)
+        {
+            const FVector Local = GetActorTransform().InverseTransformPosition(Character->GetActorLocation());
+            const float Radius = FMath::Clamp(Size, 50.f, 1000.f) * .5f;
+            if (FVector2D(Local.X, Local.Y).SizeSquared() > FMath::Square(Radius)) continue;
+        }
         auto* Movement = Character->GetCharacterMovement();
         if (!Movement || !Movement->IsActive() || Movement->MovementMode == MOVE_None) continue;
         // A capsule intersecting the side/underside must not activate the pad.
@@ -106,9 +120,18 @@ void ALaunchPad::CheckCharacters()
         if (Feet < Top - 5 || Feet > Top + 30 || Movement->Velocity.Z > 50 || !Movement->PendingLaunchVelocity.IsNearlyZero()) continue;
         const double* Previous = LastLaunch.Find(Character);
         if (Previous && Now - *Previous < FMath::Max(.1f, Cooldown)) continue;
-        const FVector Horizontal = FRotator(0, GetActorRotation().Yaw, 0).Vector() * FMath::Clamp(ForwardSpeed, 0.f, 10000.f);
+        float Up = FMath::Clamp(LaunchUpSpeed, 0.f, 10000.f);
+        float Forward = FMath::Clamp(ForwardSpeed, 0.f, 10000.f);
+        if (VelocityMode == ELaunchPadVelocityMode::SpeedAndAngle)
+        {
+            const float Angle = FMath::Clamp(LaunchAngle, 0.f, 90.f);
+            const float Speed = FMath::Clamp(LaunchSpeed, 0.f, 10000.f);
+            Up = Speed * FMath::Sin(FMath::DegreesToRadians(Angle));
+            Forward = Angle >= 90 ? 0 : Speed * FMath::Cos(FMath::DegreesToRadians(Angle));
+        }
+        const FVector Horizontal = FRotator(0, GetActorRotation().Yaw, 0).Vector() * Forward;
         LastLaunch.Add(Character, Now);
-        Character->LaunchCharacter(Horizontal + FVector(0, 0, FMath::Clamp(LaunchUpSpeed, 0.f, 10000.f)), !bPreserveHorizontalVelocity, true);
+        Character->LaunchCharacter(Horizontal + FVector(0, 0, Up), !bPreserveHorizontalVelocity, true);
         if (MaterialInstance) MaterialInstance->SetScalarParameterValue(TEXT("SpawnTime"), Now);
     }
 }

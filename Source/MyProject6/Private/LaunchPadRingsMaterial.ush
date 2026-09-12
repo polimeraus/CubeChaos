@@ -1,0 +1,25 @@
+// Several concentric waves contract to the center, then repeat. UV-only shader.
+float2 p = (UV - .5) * 2;
+float r = length(p);
+float aa = max(fwidth(r), .002);
+float t = Clock * AnimationSpeed * .4;
+float count = clamp(round(RingCount), 1, 8);
+float rings = 0;
+float center = 0;
+for (int i = 0; i < 8; ++i)
+{
+    if (i < count)
+    {
+        float progress = frac(t + i / count);
+        float radius = .88 * (1 - progress);
+        float fade = smoothstep(0, .08, progress);
+        rings += (1 - smoothstep(RingThickness, RingThickness + aa, abs(r - radius))) * fade * .7;
+        center += exp(-r * r * 2000) * smoothstep(.88, .98, progress);
+    }
+}
+float outline = 1 - smoothstep(.008, .008 + aa, abs(lerp(max(abs(p.x), abs(p.y)), r, Circular) - .94));
+float age = Clock - SpawnTime;
+float pulse = age >= 0 ? pow(saturate(1 - age / .6), 2) : 0;
+float mask = saturate(rings + center + outline * .3);
+float3 color = float3(.012, .021, .028) + Tint.rgb * Brightness * mask * (1 + pulse * 2);
+return float4(color, Circular > .5 ? (r <= .98 ? 1 : 0) : 1);

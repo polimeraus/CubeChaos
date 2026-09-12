@@ -9,7 +9,14 @@ class UMaterialInstanceDynamic;
 class UMaterialInterface;
 class ACharacter;
 
-/** Square floor pad. Pivot is the bottom; keep the actor upright. */
+UENUM(BlueprintType)
+enum class ELaunchPadShape : uint8 { Circle, Square };
+UENUM(BlueprintType)
+enum class ELaunchPadPattern : uint8 { ConvergingRings, Arrows };
+UENUM(BlueprintType)
+enum class ELaunchPadVelocityMode : uint8 { SpeedAndAngle, SeparateSpeeds };
+
+/** Configurable floor pad. Pivot is the bottom; keep the actor upright. */
 UCLASS(Blueprintable)
 class MYPROJECT6_API ALaunchPad : public AActor
 {
@@ -17,11 +24,19 @@ class MYPROJECT6_API ALaunchPad : public AActor
 public:
     ALaunchPad();
     virtual void OnConstruction(const FTransform& Transform) override;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad") ELaunchPadShape Shape = ELaunchPadShape::Circle;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad|Visual") ELaunchPadPattern Pattern = ELaunchPadPattern::ConvergingRings;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad") ELaunchPadVelocityMode VelocityMode = ELaunchPadVelocityMode::SpeedAndAngle;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad", meta=(ClampMin="0", ClampMax="10000", Units="cm/s", EditCondition="VelocityMode == ELaunchPadVelocityMode::SpeedAndAngle")) float LaunchSpeed = 1200;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad", meta=(ClampMin="0", ClampMax="90", Units="deg", EditCondition="VelocityMode == ELaunchPadVelocityMode::SpeedAndAngle")) float LaunchAngle = 90;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad|Visual", meta=(ClampMin="1", ClampMax="8")) int32 RingCount = 4;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad|Visual", meta=(ClampMin="0.005", ClampMax="0.1")) float RingThickness = 0.02f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad|Visual") TObjectPtr<UMaterialInterface> RingsMaterial;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad") bool bEnabled = true;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad", meta=(ClampMin="50", ClampMax="1000", Units="cm")) float Size = 160;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad", meta=(ClampMin="0", ClampMax="10000", Units="cm/s")) float LaunchUpSpeed = 1200;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad", meta=(ClampMin="0", ClampMax="10000", Units="cm/s")) float ForwardSpeed = 0;
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad") bool bPreserveHorizontalVelocity = true;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad") bool bPreserveHorizontalVelocity = false;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad") bool bAffectPlayers = true;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad") bool bAffectNPCs = true;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad", meta=(ClampMin="0.1", ClampMax="10", Units="s")) float Cooldown = 0.5f;
@@ -37,6 +52,8 @@ protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Launch Pad") TObjectPtr<UStaticMeshComponent> Symbol;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Launch Pad") TObjectPtr<UBoxComponent> Trigger;
 private:
+    UPROPERTY() TObjectPtr<UStaticMesh> SquareMesh;
+    UPROPERTY() TObjectPtr<UStaticMesh> CircleMesh;
     UFUNCTION() void OnEnter(UPrimitiveComponent* Component, AActor* Other, UPrimitiveComponent* OtherComponent, int32 BodyIndex, bool bSweep, const FHitResult& Hit);
     UFUNCTION() void OnLeave(UPrimitiveComponent* Component, AActor* Other, UPrimitiveComponent* OtherComponent, int32 BodyIndex);
     void CheckCharacters();
