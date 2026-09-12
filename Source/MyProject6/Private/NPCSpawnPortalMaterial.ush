@@ -1,0 +1,35 @@
+// Procedural hologram, no textures. Layer 0 = floor glyph, Layer 1 = ascending halo.
+float t = Clock * AnimationSpeed;
+float travel = frac(t * 0.38 + Phase);
+float age = Clock - SpawnTime;
+float pulse = (age >= 0.0) ? pow(saturate(1.0 - age / max(PulseDuration, 0.05)), 2.0) : 0.0;
+float2 p = (UV - 0.5) * 2.0;
+float r = length(p);
+float a = atan2(p.y, p.x) / 6.2831853;
+float aa = max(fwidth(r), 0.0015);
+
+float outer = 1.0 - smoothstep(0.009, 0.009 + aa, abs(r - 0.91));
+float inner = 1.0 - smoothstep(0.006, 0.006 + aa, abs(r - 0.55));
+float band = 1.0 - smoothstep(0.026, 0.026 + aa, abs(r - 0.76));
+float dashPhase = frac(a * 8.0 + t * 0.55);
+float dash = smoothstep(0.04, 0.08, dashPhase) * (1.0 - smoothstep(0.73, 0.77, dashPhase));
+float tickPhase = abs(frac(a * 24.0 - t * 0.32) - 0.5);
+float ticks = (1.0 - smoothstep(0.025, 0.045, tickPhase))
+    * smoothstep(0.82, 0.84, r) * (1.0 - smoothstep(0.87, 0.89, r));
+float core = exp(-r * r * 28.0) * (0.18 + 0.06 * sin(t * 2.5));
+float iris = (1.0 - smoothstep(0.01, 0.01 + aa, abs(r - (0.24 + 0.025 * sin(t * 2.2))))) * 0.5;
+float floorMask = outer * 0.7 + inner * 0.55 + band * dash + ticks + core + iris;
+
+float haloRadius = lerp(0.68, 0.35, travel);
+float halo = 1.0 - smoothstep(0.009, 0.009 + aa, abs(r - haloRadius));
+float haloSoft = exp(-abs(r - haloRadius) * 75.0) * 0.12;
+float fade = sin(travel * 3.14159265);
+float haloMask = (halo + haloSoft) * fade * 0.65;
+
+// The expanding wave is tied to actual spawn success and decays even at animation speed zero.
+float waveRadius = lerp(0.20, 0.98, saturate(age / max(PulseDuration, 0.05)));
+float wave = (1.0 - smoothstep(0.018, 0.018 + aa, abs(r - waveRadius))) * pulse;
+float mask = lerp(floorMask + wave * PulseStrength, haloMask, saturate(Layer));
+mask *= 1.0 - smoothstep(0.98, 1.0, r);
+float3 color = lerp(Tint.rgb, float3(0.7, 0.95, 1.0), pulse * 0.28);
+return float4(color * Brightness * (1.0 + pulse * PulseStrength), saturate(mask));
