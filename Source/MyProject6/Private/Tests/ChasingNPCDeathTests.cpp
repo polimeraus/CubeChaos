@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 
 #include "ChasingNPC.h"
+#include "NPCSpawnPoint.h"
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Engine.h"
@@ -87,6 +88,8 @@ bool FChasingNPCDeathTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Actor is removed after fade completion"), NPC->IsActorBeingDestroyed());
 
 	// Replacement generations inherit the editable presentation, and repeated hits never multiply them.
+	auto* Point = World->SpawnActor<ANPCSpawnPoint>(FVector(2000, 0, 0), FRotator::ZeroRotator);
+	Point->SpawnSettings.bSnapToGround = false;
 	auto* Parent = World->SpawnActor<AChasingNPC>();
 	SetFloat(Parent, TEXT("HitSoundPitch"), 1.4f);
 	SetFloat(Parent, TEXT("DeathHoldDuration"), 0.0f);
@@ -94,12 +97,15 @@ bool FChasingNPCDeathTest::RunTest(const FString& Parameters)
 	FindFProperty<FObjectPropertyBase>(Parent->GetClass(), TEXT("DeathAnimation"))->SetObjectPropertyValue_InContainer(Parent, nullptr);
 	UGameplayStatics::ApplyDamage(Parent, 100, nullptr, nullptr, nullptr);
 	UGameplayStatics::ApplyDamage(Parent, 100, nullptr, nullptr, nullptr);
+	TestEqual(TEXT("One death queues exactly two at the spawn point"), Point->GetPendingNPCCount(), 2);
+	Advance(1.0f / 60.0f);
 	int32 LivingCount = 0;
 	for (TActorIterator<AChasingNPC> It(World); It; ++It)
 	{
 		if (!It->IsDead())
 		{
 			++LivingCount;
+			TestTrue(TEXT("Replacements appear at the portal, away from the death"), It->GetActorLocation().X > 1300.0);
 			TestEqual(TEXT("Replacements inherit the chosen hit pitch"),
 				FindFProperty<FFloatProperty>(It->GetClass(), TEXT("HitSoundPitch"))->GetPropertyValue_InContainer(*It), 1.4f);
 		}

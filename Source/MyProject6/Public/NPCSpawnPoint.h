@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "NPCReplacementPresentation.h"
 #include "NPCSpawnPoint.generated.h"
 
 class ACharacter;
@@ -182,6 +183,8 @@ struct FNPCSpawnQueuedRequest
 	GENERATED_BODY()
 	UPROPERTY() TSubclassOf<ACharacter> NPCClass;
 	UPROPERTY() FNPCSpawnSettings Settings;
+	UPROPERTY() FNPCReplacementPresentation ReplacementPresentation;
+	bool bReplacement = false;
 	int32 Id = 0;
 	int32 Requested = 0;
 	int32 Spawned = 0;
@@ -244,6 +247,11 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "NPC Spawn Point")
 	int32 SpawnNPCsWithSettings(TSubclassOf<ACharacter> NPCClass, int32 Count, const FNPCSpawnSettings& Settings);
 
+	/** Extra priority work, using this point's placement/launch settings without changing normal requests. */
+	int32 SpawnReplacementNPCs(const AChasingNPC* Source, int32 Count);
+	int32 GetPendingReplacementNPCCount() const;
+	static ANPCSpawnPoint* FindNearestSpawnPoint(const UObject* WorldContextObject, const FVector& Location);
+
 	/** NPCType None uses DefaultNPCClass; other names must exist in NPCTypes. */
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "NPC Spawn Point")
 	int32 SpawnNPCType(FName NPCType, int32 Count);
@@ -299,10 +307,11 @@ protected:
 #endif
 
 private:
+	int32 EnqueueSpawn(TSubclassOf<ACharacter> NPCClass, int32 Count, const FNPCSpawnSettings& Settings, const AChasingNPC* ReplacementSource = nullptr);
 	bool FindSpawnTransform(const FNPCSpawnQueuedRequest& Request, FTransform& OutTransform) const;
 	FVector CalculateLaunchVelocity(const FNPCSpawnSettings& Settings, const FVector& SpawnLocation) const;
 	void ProcessQueue();
-	void ScheduleProcessing(float Delay);
+	void ScheduleProcessing();
 	void UpdatePortalAnchor();
 	void PulsePortal();
 	UPROPERTY(Transient) TArray<TObjectPtr<UMaterialInstanceDynamic>> PortalInstances;
@@ -311,6 +320,8 @@ private:
 	TArray<TWeakObjectPtr<ACharacter>> SpawnedNPCs;
 	FTimerHandle SpawnTimer;
 	int32 NextRequestId = 1;
+	double NextNormalSpawnTime = 0.0;
+	double NextReplacementSpawnTime = 0.0;
 	bool bProcessingQueue = false;
 	bool bEndingPlay = false;
 };

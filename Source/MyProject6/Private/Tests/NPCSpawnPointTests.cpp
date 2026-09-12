@@ -15,6 +15,8 @@ void UNPCSpawnPointTestObserver::OnSpawned(ANPCSpawnPoint* Point, int32 RequestI
 	++SpawnEvents;
 	LaunchVelocities.Add(NPC->GetCharacterMovement()->PendingLaunchVelocity);
 	SpawnLocations.Add(NPC->GetActorLocation());
+	SpawnRequestIds.Add(RequestId);
+	SpawnTimes.Add(Point->GetWorld()->GetTimeSeconds());
 	if (bCancelOnNextSpawn)
 	{
 		bCancelOnNextSpawn = false;
@@ -44,6 +46,8 @@ void UNPCSpawnPointTestObserver::OnFinished(ANPCSpawnPoint* Point, int32 Request
 #include "GameFramework/CharacterMovementComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "Misc/AutomationTest.h"
+#include "Kismet/GameplayStatics.h"
+#include "UObject/UnrealType.h"
 #include "UObject/StrongObjectPtr.h"
 
 namespace
@@ -448,6 +452,139 @@ bool FNPCSpawnLaunchSpreadTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("A 90 degree outward offset launches tangent to the spawn ring"), FVector::DotProduct(Offset, Heading), 0.0, 0.001);
 		TestTrue(TEXT("Positive offset turns in the positive yaw direction"), FVector::CrossProduct(Offset, Heading).Z > 0.99);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNPCReplacementPriorityTest, "MyProject6.NPC.SpawnPoint.ReplacementPriorityAndNormalTiming",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FNPCReplacementPriorityTest::RunTest(const FString& Parameters)
+{
+	FSpawnTestWorld TestWorld;
+	TestWorld.Box(FVector(0, 0, -50), FVector(10000, 10000, 50));
+	ANPCSpawnPoint* Nearest = TestWorld.Point(NAME_None, FVector(1000, 0, 0));
+	ANPCSpawnPoint* Farther = TestWorld.Point(NAME_None, FVector(-4000, 0, 0));
+	TStrongObjectPtr<UNPCSpawnPointTestObserver> Observer(NewObject<UNPCSpawnPointTestObserver>());
+	Observe(Nearest, Observer.Get());
+	Nearest->SpawnSettings.SpawnInterval = 1.0f;
+	const int32 NormalId = Nearest->SpawnNPCs(ACharacter::StaticClass(), 3);
+	const int32 FollowingId = Nearest->SpawnNPCs(ACharacter::StaticClass(), 1);
+	TestWorld.Advance(0.2f);
+	if (!TestEqual(TEXT("Normal batch starts with one NPC"), Observer->SpawnTimes.Num(), 1)) { return false; }
+	const double FirstNormalTime = Observer->SpawnTimes[0];
+	AChasingNPC* Victim = TestWorld.World->SpawnActor<AChasingNPC>(FVector(4000, 0, 100), FRotator::ZeroRotator);
+	TestEqual(TEXT("Distance lookup works without point IDs"), ANPCSpawnPoint::FindNearestSpawnPoint(Victim, Victim->GetActorLocation()), Nearest);
+	UGameplayStatics::ApplyDamage(Victim, 25, nullptr, nullptr, nullptr);
+	TestEqual(TEXT("Nonlethal hit does not create replacements"), Nearest->GetPendingNPCCount(), 3);
+	UGameplayStatics::ApplyDamage(Victim, 75, nullptr, nullptr, nullptr);
+	UGameplayStatics::ApplyDamage(Victim, 100, nullptr, nullptr, nullptr);
+	TestEqual(TEXT("Exactly two extras join existing work"), Nearest->GetPendingNPCCount(), 5);
+	TestWorld.Advance(0.1f);
+	if (!TestEqual(TEXT("Both extras precede the next normal emission"), Observer->SpawnEvents, 3)) { return false; }
+	const int32 ExtraId = Observer->SpawnRequestIds[1];
+	TestTrue(TEXT("Extras have their own request"), ExtraId != NormalId && ExtraId != FollowingId);
+	TestEqual(TEXT("Both extras belong to one request"), Observer->SpawnRequestIds[2], ExtraId);
+	TestEqual(TEXT("Normal interval remains configured"), Nearest->SpawnSettings.SpawnInterval, 1.0f);
+	TestEqual(TEXT("Farther point remains idle"), Farther->GetSpawnedNPCs().Num(), 0);
+	for (int32 Index = 1; Index <= 2; ++Index)
+	{
+		TestTrue(TEXT("Extras originate within the nearest portal radius"), FVector::Dist2D(Observer->SpawnLocations[Index], Nearest->GetActorLocation()) <= 600.1);
+		TestTrue(TEXT("Replacement retains the defeated class"), Nearest->GetSpawnedNPCs()[Index]->IsA<AChasingNPC>());
+	}
+	TestWorld.Advance(3.1f);
+	if (!TestEqual(TEXT("All four normal NPCs plus two extras complete"), Observer->SpawnEvents, 6)) { return false; }
+	TestEqual(TEXT("Original request resumes"), Observer->SpawnRequestIds[3], NormalId);
+	TestEqual(TEXT("Original next due time was neither reset nor advanced"), Observer->SpawnTimes[3] - FirstNormalTime, 1.0, 0.04);
+	TestEqual(TEXT("Original third NPC is retained"), Observer->SpawnRequestIds[4], NormalId);
+	TestEqual(TEXT("Following normal request retains FIFO order"), Observer->SpawnRequestIds[5], FollowingId);
+	TestEqual(TEXT("Every request completes once"), Observer->Results.Num(), 3);
+	TestEqual(TEXT("Queue fully drains"), Nearest->GetPendingNPCCount(), 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNPCReplacementBlockedTest, "MyProject6.NPC.SpawnPoint.BlockedReplacementAndCancellation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FNPCReplacementBlockedTest::RunTest(const FString& Parameters)
+{
+	FSpawnTestWorld TestWorld;
+	ANPCSpawnPoint* Point = TestWorld.Point(TEXT("BlockedExtras"));
+	TStrongObjectPtr<UNPCSpawnPointTestObserver> Observer(NewObject<UNPCSpawnPointTestObserver>());
+	Observe(Point, Observer.Get());
+	FNPCSpawnSettings Normal = Point->SpawnSettings;
+	Normal.bSnapToGround = false;
+	Normal.SpawnInterval = 0.1f;
+	Point->SpawnSettings.MaxBlockedAttempts = 3;
+	Point->SpawnSettings.RetryInterval = 0.1f;
+	Point->SpawnNPCsWithSettings(ACharacter::StaticClass(), 3, Normal);
+	AChasingNPC* Source = TestWorld.World->SpawnActor<AChasingNPC>(FVector(4000, 0, 100), FRotator::ZeroRotator);
+	Point->SpawnReplacementNPCs(Source, 2); // Missing ground blocks only the extra request.
+	Source->Destroy(); // Queued presentation must survive destruction.
+	TestWorld.Advance(0.5f);
+	TestEqual(TEXT("Blocked extras cannot stall normal work"), Point->GetSpawnedNPCs().Num(), 3);
+	TestEqual(TEXT("Both requests report a terminal result"), Observer->Results.Num(), 2);
+	TestEqual(TEXT("No infinite retry remains"), Point->GetPendingNPCCount(), 0);
+	Point->SpawnSettings.bSnapToGround = false;
+	Point->SpawnSettings.Mode = ENPCSpawnMode::Launch;
+	Point->SpawnSettings.LaunchInterval = 0.2f;
+	Point->SpawnSettings.LaunchUpSpeed = 1500;
+	Source = TestWorld.World->SpawnActor<AChasingNPC>(FVector(4000, 0, 100), FRotator::ZeroRotator);
+	Point->SpawnNPCsWithSettings(ACharacter::StaticClass(), 3, Normal);
+	Point->SpawnReplacementNPCs(Source, 2);
+	Observer->bCancelOnNextSpawn = true;
+	TestWorld.Advance(0.05f);
+	TestEqual(TEXT("Callback cancellation removes normal and extra work"), Point->GetPendingNPCCount(), 0);
+	TestEqual(TEXT("Priority extra emits before cancellation"), Observer->SpawnEvents, 4);
+	TestTrue(TEXT("Extra follows the portal launch settings"), Observer->LaunchVelocities.Last().Z > 1400);
+	TestWorld.Advance(0.5f);
+	TestEqual(TEXT("Cancellation leaves no delayed spawns"), Observer->SpawnEvents, 4);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNPCReplacementLimitsTest, "MyProject6.NPC.SpawnPoint.ReplacementAvailabilityAndPopulation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FNPCReplacementLimitsTest::RunTest(const FString& Parameters)
+{
+	FSpawnTestWorld TestWorld;
+	AChasingNPC* Orphan = TestWorld.World->SpawnActor<AChasingNPC>();
+	TestNull(TEXT("No nearest point exists in an empty level"), ANPCSpawnPoint::FindNearestSpawnPoint(Orphan, Orphan->GetActorLocation()));
+	UGameplayStatics::ApplyDamage(Orphan, 100, nullptr, nullptr, nullptr);
+	TestWorld.Advance(0.1f);
+	int32 Living = 0;
+	for (TActorIterator<AChasingNPC> It(TestWorld.World); It; ++It) { if (!It->IsDead()) { ++Living; } }
+	TestEqual(TEXT("No spawner means no random replacements at the death"), Living, 0);
+	ANPCSpawnPoint* Point = TestWorld.Point(TEXT("Population"), FVector(2000, 0, 0));
+	Point->SpawnSettings.bSnapToGround = false;
+	AChasingNPC* First = TestWorld.World->SpawnActor<AChasingNPC>(FVector(4000, 0, 100), FRotator::ZeroRotator);
+	AChasingNPC* Second = TestWorld.World->SpawnActor<AChasingNPC>(FVector(4500, 0, 100), FRotator::ZeroRotator);
+	for (AChasingNPC* NPC : { First, Second })
+	{
+		FindFProperty<FIntProperty>(NPC->GetClass(), TEXT("MaxActiveNPCCount"))->SetPropertyValue_InContainer(NPC, 2);
+		FindFProperty<FFloatProperty>(NPC->GetClass(), TEXT("HitSoundPitch"))->SetPropertyValue_InContainer(NPC, 1.3f);
+	}
+	UGameplayStatics::ApplyDamage(First, 100, nullptr, nullptr, nullptr);
+	TestEqual(TEXT("Living population reserves its places"), Point->GetPendingNPCCount(), 1);
+	UGameplayStatics::ApplyDamage(Second, 100, nullptr, nullptr, nullptr);
+	TestEqual(TEXT("Simultaneous deaths include queued population"), Point->GetPendingNPCCount(), 2);
+	First->Destroy();
+	Second->Destroy();
+	TestWorld.Advance(0.1f);
+	TestEqual(TEXT("Reserved extras spawn within the cap"), Point->GetSpawnedNPCs().Num(), 2);
+	for (ACharacter* NPC : Point->GetSpawnedNPCs())
+	{
+		TestEqual(TEXT("Presentation snapshot survives destruction of its source"),
+			FindFProperty<FFloatProperty>(NPC->GetClass(), TEXT("HitSoundPitch"))->GetPropertyValue_InContainer(NPC), 1.3f);
+	}
+	Point->MaxSpawnsPerFrame = 2;
+	Point->SpawnSettings.SpawnInterval = 1.0f;
+	Point->SpawnNPCs(AChasingNPC::StaticClass(), 40);
+	AChasingNPC* Third = TestWorld.World->SpawnActor<AChasingNPC>(FVector(5000, 0, 100), FRotator::ZeroRotator);
+	UGameplayStatics::ApplyDamage(Third, 100, nullptr, nullptr, nullptr);
+	TestEqual(TEXT("A large normal queue does not consume the replacement population budget"), Point->GetPendingReplacementNPCCount(), 2);
+	TestWorld.Advance(1.0f / 60.0f);
+	TestEqual(TEXT("Both extras fit the shared frame budget before normal work"), Point->GetSpawnedNPCs().Num(), 4);
+	TestEqual(TEXT("All forty planned NPCs remain queued"), Point->GetPendingNPCCount(), 40);
 	return true;
 }
 

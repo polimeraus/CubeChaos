@@ -261,6 +261,21 @@ int32 ANPCSpawnPoint::SpawnNPCs(TSubclassOf<ACharacter> NPCClass, int32 Count)
 
 int32 ANPCSpawnPoint::SpawnNPCsWithSettings(TSubclassOf<ACharacter> NPCClass, int32 Count, const FNPCSpawnSettings& Settings)
 {
+	return EnqueueSpawn(NPCClass, Count, Settings);
+}
+
+int32 ANPCSpawnPoint::SpawnReplacementNPCs(const AChasingNPC* Source, int32 Count)
+{
+	if (!IsValid(Source)) { return INDEX_NONE; }
+	FNPCSpawnSettings Settings = SpawnSettings;
+	// Normal batch delays do not postpone combat reinforcements. Launch mode retains
+	// its short clearance interval so the two capsules can leave the portal safely.
+	Settings.SpawnInterval = 0.0f;
+	return EnqueueSpawn(Source->GetClass(), Count, Settings, Source);
+}
+
+int32 ANPCSpawnPoint::EnqueueSpawn(TSubclassOf<ACharacter> NPCClass, int32 Count, const FNPCSpawnSettings& Settings, const AChasingNPC* ReplacementSource)
+{
 	UWorld* World = GetWorld();
 	if (!World || !World->IsGameWorld() || World->GetNetMode() == NM_Client || !HasAuthority() || bEndingPlay || IsActorBeingDestroyed()) { return INDEX_NONE; }
 	if (!NPCClass || NPCClass->HasAnyClassFlags(CLASS_Abstract | CLASS_Deprecated | CLASS_NewerVersionExists)
@@ -280,6 +295,8 @@ int32 ANPCSpawnPoint::SpawnNPCsWithSettings(TSubclassOf<ACharacter> NPCClass, in
 	Request.NPCClass = NPCClass;
 	Request.Requested = Count;
 	Request.Settings = Settings;
+	Request.bReplacement = ReplacementSource != nullptr;
+	if (ReplacementSource) { Request.ReplacementPresentation.Capture(*ReplacementSource); }
 	FNPCSpawnSettings& S = Request.Settings;
 	S.SpawnRadius = FMath::Clamp(S.SpawnRadius, 0.0f, 100000.0f);
 	S.InnerRadius = FMath::Clamp(S.InnerRadius, 0.0f, S.SpawnRadius);
@@ -298,11 +315,12 @@ int32 ANPCSpawnPoint::SpawnNPCsWithSettings(TSubclassOf<ACharacter> NPCClass, in
 	S.RetryInterval = FMath::Max(0.02f, S.RetryInterval);
 	S.PlacementAttempts = FMath::Clamp(S.PlacementAttempts, 1, 256);
 	S.MaxBlockedAttempts = FMath::Clamp(S.MaxBlockedAttempts, 1, 1000);
-	Queue.Add(Request);
-	if (!bProcessingQueue && Queue.Num() == 1 && !GetWorldTimerManager().TimerExists(SpawnTimer))
+	if (!Queue.ContainsByPredicate([&Request](const FNPCSpawnQueuedRequest& Pending) { return Pending.bReplacement == Request.bReplacement; }))
 	{
-		ScheduleProcessing(0.0f);
+		(Request.bReplacement ? NextReplacementSpawnTime : NextNormalSpawnTime) = World->GetTimeSeconds();
 	}
+	Queue.Add(Request);
+	if (!bProcessingQueue) { ScheduleProcessing(); }
 	return Request.Id;
 }
 
@@ -326,6 +344,19 @@ int32 ANPCSpawnPoint::GetPendingNPCCount() const
 	return Count;
 }
 
+int32 ANPCSpawnPoint::GetPendingReplacementNPCCount() const
+{
+	int32 Count = 0;
+	for (const FNPCSpawnQueuedRequest& Request : Queue)
+	{
+		if (Request.bReplacement)
+		{
+			Count += Request.Requested - Request.Spawned;
+		}
+	}
+	return Count;
+}
+
 TArray<ACharacter*> ANPCSpawnPoint::GetSpawnedNPCs() const
 {
 	TArray<ACharacter*> Result;
@@ -343,10 +374,26 @@ void ANPCSpawnPoint::CancelPendingSpawns()
 	// Detach before callbacks: listeners may enqueue new requests or cancel again.
 	const TArray<FNPCSpawnQueuedRequest> Cancelled = MoveTemp(Queue);
 	Queue.Reset();
+	NextNormalSpawnTime = NextReplacementSpawnTime = 0.0;
 	for (const FNPCSpawnQueuedRequest& Request : Cancelled)
 	{
 		OnSpawnRequestFinished.Broadcast(this, Request.Id, Request.Requested, Request.Spawned, true);
 	}
+}
+
+ANPCSpawnPoint* ANPCSpawnPoint::FindNearestSpawnPoint(const UObject* WorldContextObject, const FVector& Location)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::ReturnNull) : nullptr;
+	if (!World) { return nullptr; }
+	ANPCSpawnPoint* Nearest = nullptr;
+	double BestDistance = TNumericLimits<double>::Max();
+	for (TActorIterator<ANPCSpawnPoint> It(World); It; ++It)
+	{
+		if (!IsValid(*It) || It->IsActorBeingDestroyed() || It->bEndingPlay) { continue; }
+		const double Distance = FVector::DistSquared(Location, It->GetActorLocation());
+		if (Distance < BestDistance) { Nearest = *It; BestDistance = Distance; }
+	}
+	return Nearest;
 }
 
 ANPCSpawnPoint* ANPCSpawnPoint::FindSpawnPoint(const UObject* WorldContextObject, FName PointId)
@@ -477,9 +524,16 @@ FVector ANPCSpawnPoint::CalculateLaunchVelocity(const FNPCSpawnSettings& Setting
 	return FRotator(0.0f, Yaw, 0.0f).Vector() * HorizontalSpeed + FVector(0.0f, 0.0f, VerticalSpeed);
 }
 
-void ANPCSpawnPoint::ScheduleProcessing(float Delay)
+void ANPCSpawnPoint::ScheduleProcessing()
 {
 	if (Queue.IsEmpty() || bEndingPlay || IsActorBeingDestroyed()) { return; }
+	double NextTime = TNumericLimits<double>::Max();
+	for (const FNPCSpawnQueuedRequest& Request : Queue)
+	{
+		NextTime = FMath::Min(NextTime, Request.bReplacement ? NextReplacementSpawnTime : NextNormalSpawnTime);
+	}
+	const float Delay = FMath::Max(0.0, NextTime - GetWorld()->GetTimeSeconds());
+	GetWorldTimerManager().ClearTimer(SpawnTimer);
 	if (Delay > 0.0f)
 	{
 		GetWorldTimerManager().SetTimer(SpawnTimer, this, &ANPCSpawnPoint::ProcessQueue, Delay, false);
@@ -495,38 +549,56 @@ void ANPCSpawnPoint::ProcessQueue()
 	if (bEndingPlay || IsActorBeingDestroyed() || !HasAuthority() || GetNetMode() == NM_Client || bProcessingQueue) { return; }
 	if (VisualSettings.bEnabled && !IsRunningDedicatedServer()) { UpdatePortalAnchor(); }
 	TGuardValue<bool> ProcessingGuard(bProcessingQueue, true);
-	float NextDelay = 0.0f;
 	const int32 Budget = FMath::Clamp(MaxSpawnsPerFrame, 1, 100);
 	for (int32 Index = 0; Index < Budget && !Queue.IsEmpty() && !bEndingPlay && !IsActorBeingDestroyed(); ++Index)
 	{
 		// Do not retain a reference across spawning or Blueprint callbacks, which may change the queue.
-		const FNPCSpawnQueuedRequest Snapshot = Queue[0];
+		const double Now = GetWorld()->GetTimeSeconds();
+		int32 RequestIndex = INDEX_NONE;
+		if (NextReplacementSpawnTime <= Now)
+		{
+			RequestIndex = Queue.IndexOfByPredicate([](const FNPCSpawnQueuedRequest& Request) { return Request.bReplacement; });
+		}
+		if (RequestIndex == INDEX_NONE && NextNormalSpawnTime <= Now)
+		{
+			RequestIndex = Queue.IndexOfByPredicate([](const FNPCSpawnQueuedRequest& Request) { return !Request.bReplacement; });
+		}
+		if (RequestIndex == INDEX_NONE) { break; }
+		const FNPCSpawnQueuedRequest Snapshot = Queue[RequestIndex];
 		FTransform Transform;
 		ACharacter* NPC = nullptr;
 		if (FindSpawnTransform(Snapshot, Transform))
 		{
 			FActorSpawnParameters Params;
 			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
+			Params.bDeferConstruction = Snapshot.bReplacement;
 			NPC = GetWorld()->SpawnActor<ACharacter>(Snapshot.NPCClass, Transform, Params);
+			if (Snapshot.bReplacement && IsValid(NPC))
+			{
+				if (AChasingNPC* Chaser = Cast<AChasingNPC>(NPC)) { Snapshot.ReplacementPresentation.Apply(*Chaser); }
+				NPC->FinishSpawning(Transform);
+			}
 		}
-		if (bEndingPlay || IsActorBeingDestroyed() || Queue.IsEmpty() || Queue[0].Id != Snapshot.Id) { break; }
+		RequestIndex = Queue.IndexOfByPredicate([&Snapshot](const FNPCSpawnQueuedRequest& Request) { return Request.Id == Snapshot.Id; });
+		if (bEndingPlay || IsActorBeingDestroyed() || RequestIndex == INDEX_NONE) { break; }
+		double& NextTime = Snapshot.bReplacement ? NextReplacementSpawnTime : NextNormalSpawnTime;
 		if (!IsValid(NPC) || NPC->IsActorBeingDestroyed())
 		{
-			NextDelay = Snapshot.Settings.RetryInterval;
-			if (++Queue[0].BlockedAttempts >= Snapshot.Settings.MaxBlockedAttempts)
+			NextTime = Now + Snapshot.Settings.RetryInterval;
+			if (++Queue[RequestIndex].BlockedAttempts >= Snapshot.Settings.MaxBlockedAttempts)
 			{
-				Queue.RemoveAt(0);
+				Queue.RemoveAt(RequestIndex);
 				UE_LOG(LogNPCSpawnPoint, Display, TEXT("%s request %d finished: %d/%d spawned; no free placement found after %d attempts."),
 					*SpawnPointId.ToString(), Snapshot.Id, Snapshot.Spawned, Snapshot.Requested, Snapshot.Settings.MaxBlockedAttempts);
 				OnSpawnRequestFinished.Broadcast(this, Snapshot.Id, Snapshot.Requested, Snapshot.Spawned, false);
 			}
-			break;
+			continue;
 		}
 
-		Queue[0].BlockedAttempts = 0;
-		const int32 SpawnedCount = ++Queue[0].Spawned;
+		Queue[RequestIndex].BlockedAttempts = 0;
+		const int32 SpawnedCount = ++Queue[RequestIndex].Spawned;
 		const bool bFinished = SpawnedCount == Snapshot.Requested;
-		if (bFinished) { Queue.RemoveAt(0); }
+		if (bFinished) { Queue.RemoveAt(RequestIndex); }
 		SpawnedNPCs.RemoveAllSwap([](const TWeakObjectPtr<ACharacter>& Entry) { return !Entry.IsValid(); });
 		SpawnedNPCs.Add(NPC);
 		if (!SpawnPointId.IsNone()) { NPC->Tags.AddUnique(SpawnPointId); }
@@ -535,14 +607,13 @@ void ANPCSpawnPoint::ProcessQueue()
 		{
 			NPC->LaunchCharacter(CalculateLaunchVelocity(Snapshot.Settings, NPC->GetActorLocation()), true, true);
 		}
-		NextDelay = GetEmissionInterval(Snapshot.Settings);
+		NextTime = Now + GetEmissionInterval(Snapshot.Settings);
 		PulsePortal();
 		OnNPCSpawned.Broadcast(this, Snapshot.Id, NPC);
 		if (bFinished)
 		{
 			OnSpawnRequestFinished.Broadcast(this, Snapshot.Id, Snapshot.Requested, SpawnedCount, false);
 		}
-		if (NextDelay > 0.0f) { break; }
 	}
-	ScheduleProcessing(NextDelay);
+	ScheduleProcessing();
 }

@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ChasingNPC.h"
+#include "NPCSpawnPoint.h"
 
 #include "ChasingAIController.h"
 #include "Animation/AnimInstance.h"
@@ -495,10 +496,13 @@ void AChasingNPC::SpawnReplacements()
 {
 	UWorld* World = GetWorld();
 	const int32 RequestedReplacementCount = FMath::Clamp(ReplacementCount, 0, 8);
-	if (!bSpawnReplacementsOnDeath || !World || RequestedReplacementCount == 0)
+	if (!bSpawnReplacementsOnDeath || !World || !HasAuthority() || GetNetMode() == NM_Client || RequestedReplacementCount == 0)
 	{
 		return;
 	}
+
+	ANPCSpawnPoint* SpawnPoint = ANPCSpawnPoint::FindNearestSpawnPoint(this, GetActorLocation());
+	if (!SpawnPoint) { return; }
 
 	int32 SafeReplacementCount = RequestedReplacementCount;
 	const int32 SafePopulationLimit = FMath::Clamp(MaxActiveNPCCount, 0, 512);
@@ -512,6 +516,11 @@ void AChasingNPC::SpawnReplacements()
 				++LivingNPCCount;
 			}
 		}
+		// Reserve queued reinforcements too: several deaths can occur before any spawn timer runs.
+		for (TActorIterator<ANPCSpawnPoint> It(World); It; ++It)
+		{
+			if (!It->IsActorBeingDestroyed()) { LivingNPCCount += It->GetPendingReplacementNPCCount(); }
+		}
 		SafeReplacementCount = FMath::Min(
 			RequestedReplacementCount,
 			FMath::Max(SafePopulationLimit - LivingNPCCount, 0));
@@ -521,42 +530,37 @@ void AChasingNPC::SpawnReplacements()
 		}
 	}
 
-	FActorSpawnParameters SpawnParameters;
-	SpawnParameters.Owner = GetOwner();
-	SpawnParameters.SpawnCollisionHandlingOverride =
-		ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+	SpawnPoint->SpawnReplacementNPCs(this, SafeReplacementCount);
+}
 
-	const FVector DeathLocation = GetActorLocation();
-	const float SafeRadius = FMath::Max(100.0f, ReplacementSpawnRadius);
-	const float AngleStep = 360.0f / static_cast<float>(SafeReplacementCount);
-	const float InitialAngle = FMath::FRandRange(0.0f, 360.0f);
+void FNPCReplacementPresentation::Capture(const AChasingNPC& Source)
+{
+	HitSound = Source.HitSound;
+	HitSoundVolume = Source.HitSoundVolume;
+	HitSoundPitch = Source.HitSoundPitch;
+	DeathSound = Source.DeathSound;
+	DeathSoundVolume = Source.DeathSoundVolume;
+	DeathSoundPitch = Source.DeathSoundPitch;
+	DeathAnimation = Source.DeathAnimation;
+	DeathAnimationPlayRate = Source.DeathAnimationPlayRate;
+	DeathHoldDuration = Source.DeathHoldDuration;
+	DeathFadeDuration = Source.DeathFadeDuration;
+	DeathFadeMaterials = Source.DeathFadeMaterials;
+	DeathOpacityParameter = Source.DeathOpacityParameter;
+}
 
-	for (int32 Index = 0; Index < SafeReplacementCount; ++Index)
-	{
-		const float AngleRadians = FMath::DegreesToRadians(InitialAngle + AngleStep * Index);
-		const FVector Offset(
-			FMath::Cos(AngleRadians) * SafeRadius,
-			FMath::Sin(AngleRadians) * SafeRadius,
-			10.0f);
-
-		SpawnParameters.bDeferConstruction = true;
-		const FTransform SpawnTransform(GetActorRotation(), DeathLocation + Offset);
-		if (AChasingNPC* Replacement = World->SpawnActor<AChasingNPC>(GetClass(), SpawnTransform, SpawnParameters))
-		{
-			// Keep per-instance presentation settings for subsequent replacement generations.
-			Replacement->HitSound = HitSound;
-			Replacement->HitSoundVolume = HitSoundVolume;
-			Replacement->HitSoundPitch = HitSoundPitch;
-			Replacement->DeathSound = DeathSound;
-			Replacement->DeathSoundVolume = DeathSoundVolume;
-			Replacement->DeathSoundPitch = DeathSoundPitch;
-			Replacement->DeathAnimation = DeathAnimation;
-			Replacement->DeathAnimationPlayRate = DeathAnimationPlayRate;
-			Replacement->DeathHoldDuration = DeathHoldDuration;
-			Replacement->DeathFadeDuration = DeathFadeDuration;
-			Replacement->DeathFadeMaterials = DeathFadeMaterials;
-			Replacement->DeathOpacityParameter = DeathOpacityParameter;
-			Replacement->FinishSpawning(SpawnTransform);
-		}
-	}
+void FNPCReplacementPresentation::Apply(AChasingNPC& Target) const
+{
+	Target.HitSound = HitSound;
+	Target.HitSoundVolume = HitSoundVolume;
+	Target.HitSoundPitch = HitSoundPitch;
+	Target.DeathSound = DeathSound;
+	Target.DeathSoundVolume = DeathSoundVolume;
+	Target.DeathSoundPitch = DeathSoundPitch;
+	Target.DeathAnimation = DeathAnimation;
+	Target.DeathAnimationPlayRate = DeathAnimationPlayRate;
+	Target.DeathHoldDuration = DeathHoldDuration;
+	Target.DeathFadeDuration = DeathFadeDuration;
+	Target.DeathFadeMaterials = DeathFadeMaterials;
+	Target.DeathOpacityParameter = DeathOpacityParameter;
 }

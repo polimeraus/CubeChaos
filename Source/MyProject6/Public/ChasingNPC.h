@@ -25,6 +25,7 @@ UCLASS(Blueprintable)
 class MYPROJECT6_API AChasingNPC : public ACharacter
 {
 	GENERATED_BODY()
+	friend struct FNPCReplacementPresentation;
 
 public:
 	AChasingNPC();
@@ -169,7 +170,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Falling", meta = (ClampMin = "0.1", ClampMax = "4.0"))
 	float FallingSoundPitch = 1.15f;
 
-	/** When enabled, killing this NPC creates new chasers at the death location. */
+	/** When enabled, killing this NPC requests replacements from the nearest spawn point. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Replacement")
 	bool bSpawnReplacementsOnDeath = true;
 
@@ -177,8 +178,8 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Replacement", meta = (ClampMin = "0", ClampMax = "8"))
 	int32 ReplacementCount = 2;
 
-	/** Separates replacements so their capsules do not start inside each other. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Replacement", meta = (ClampMin = "100.0", Units = "cm"))
+	/** Legacy serialized value. Placement now uses the nearest spawn point's settings. */
+	UPROPERTY(meta = (DeprecatedProperty, DeprecationMessage = "Use NPC Spawn Point SpawnSettings.SpawnRadius instead."))
 	float ReplacementSpawnRadius = 160.0f;
 
 	/**

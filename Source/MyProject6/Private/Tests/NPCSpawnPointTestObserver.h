@@ -33,6 +33,8 @@ public:
 	TArray<FNPCSpawnTestResult> Results;
 	TArray<FVector> LaunchVelocities;
 	TArray<FVector> SpawnLocations;
+	TArray<int32> SpawnRequestIds;
+	TArray<double> SpawnTimes;
 	int32 SpawnEvents = 0;
 	bool bCancelOnNextSpawn = false;
 	bool bQueueOnNextFinish = false;

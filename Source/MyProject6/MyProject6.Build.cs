@@ -38,6 +38,7 @@ public class MyProject6 : ModuleRules
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.Add("PropertyEditor");
+			PrivateDependencyModuleNames.Add("RenderCore");
 		}
 
 		PublicIncludePaths.AddRange(new string[] {
