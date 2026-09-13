@@ -1,6 +1,7 @@
 #include "RadicalMikeNPC.h"
 
 #include "RadicalBusterProjectile.h"
+#include "NPCHealthBarComponent.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -16,6 +17,10 @@
 
 ARadicalMikeNPC::ARadicalMikeNPC()
 {
+	MaxHealth = 200.0f;
+	CurrentHealth = MaxHealth;
+	// The head bone sits inside the oversized helmet, below its antenna.
+	HealthBar->HeadClearance = 60.0f;
 	PrimaryActorTick.bStartWithTickEnabled = true;
 	BusterWeapon = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("BusterWeapon"));
 	// Same socket and identity transform as the asset pack's BP_ZMikeShowcase_R.

@@ -2,6 +2,7 @@
 
 #include "ChasingNPC.h"
 #include "NPCSpawnPoint.h"
+#include "NPCHealthBarComponent.h"
 
 #include "ChasingAIController.h"
 #include "Animation/AnimInstance.h"
@@ -32,6 +33,8 @@ AChasingNPC::AChasingNPC()
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 
 	GetCapsuleComponent()->InitCapsuleSize(42.0f, 96.0f);
+	HealthBar = CreateDefaultSubobject<UNPCHealthBarComponent>(TEXT("HealthBar"));
+	HealthBar->SetupAttachment(GetCapsuleComponent());
 
 	ContactSensor = CreateDefaultSubobject<USphereComponent>(TEXT("Contact Sensor"));
 	ContactSensor->SetupAttachment(GetCapsuleComponent());
@@ -126,7 +129,9 @@ void AChasingNPC::BeginPlay()
 {
 	Super::BeginPlay();
 
-	CurrentHealth = FMath::Max(1.0f, MaxHealth);
+	MaxHealth = FMath::Max(1.0f, MaxHealth);
+	CurrentHealth = MaxHealth;
+	HealthBar->UpdateHealth(CurrentHealth, MaxHealth);
 	GetCharacterMovement()->MaxWalkSpeed = FMath::Max(0.0f, ChaseSpeed);
 	if (const ACharacter* PlayerCharacter = UGameplayStatics::GetPlayerCharacter(this, 0))
 	{
@@ -355,6 +360,7 @@ float AChasingNPC::TakeDamage(
 	}
 
 	CurrentHealth = FMath::Max(0.0f, CurrentHealth - AppliedDamage);
+	HealthBar->UpdateHealth(CurrentHealth, MaxHealth);
 	if (HitSound)
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, HitSound, GetActorLocation(),
@@ -377,6 +383,7 @@ void AChasingNPC::Die(const bool bShouldSpawnReplacements)
 
 	bIsDead = true;
 	CurrentHealth = 0.0f;
+	HealthBar->UpdateHealth(CurrentHealth, MaxHealth);
 	SetCanBeDamaged(false);
 	SetLifeSpan(0.0f);
 	GetWorldTimerManager().ClearTimer(ContactDrainTimerHandle);

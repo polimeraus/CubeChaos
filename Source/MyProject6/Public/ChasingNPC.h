@@ -14,6 +14,7 @@ class UAnimSequence;
 class AMyProject6Character;
 class ACharacter;
 class UDamageType;
+class UNPCHealthBarComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FChasingNPCDeathSignature);
 
@@ -38,6 +39,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Chasing NPC|Health")
 	float GetCurrentHealth() const { return CurrentHealth; }
+
+	UFUNCTION(BlueprintPure, Category = "Chasing NPC|Health")
+	float GetMaxHealth() const { return MaxHealth; }
 
 	UFUNCTION(BlueprintPure, Category = "Chasing NPC|Health")
 	bool IsDead() const { return bIsDead; }
@@ -93,12 +97,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Contact Audio", meta = (ClampMin = "0.1", ClampMax = "4.0"))
 	float ContactSoundPitch = 1.8f;
 
-	/** One default ball projectile deals 100 damage, so the default NPC dies in one hit. */
+	/** Ghoul takes four yellow hits or two red hits at the default projectile damage. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Chasing NPC|Health", meta = (ClampMin = "1.0"))
 	float MaxHealth = 100.0f;
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Chasing NPC|Health")
 	float CurrentHealth = 100.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Chasing NPC|Health")
+	TObjectPtr<UNPCHealthBarComponent> HealthBar;
 
 	/** Used only until a valid player is found. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Movement", meta = (ClampMin = "0.0", Units = "cm/s"))

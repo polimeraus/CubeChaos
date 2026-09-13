@@ -111,7 +111,7 @@ bool FRadicalMikeCombatTest::RunTest(const FString& Parameters)
 	// Kill during the windup: both the pending shot and the animation recovery must be cancelled.
 	for (int32 Frame = 0; Frame < 180 && !NPC->ShouldPauseChase(); ++Frame) { Advance(1.0f / 60.0f); }
 	TestTrue(TEXT("Next attack begins after cover is removed"), NPC->ShouldPauseChase());
-	UGameplayStatics::ApplyDamage(NPC, 100, nullptr, nullptr, nullptr);
+	UGameplayStatics::ApplyDamage(NPC, NPC->GetCurrentHealth(), nullptr, nullptr, nullptr);
 	TestTrue(TEXT("Lethal hit kills the shooter"), NPC->IsDead());
 	TestFalse(TEXT("Death disables the living actor tick until fade starts"), NPC->IsActorTickEnabled());
 	Advance(3.0f);

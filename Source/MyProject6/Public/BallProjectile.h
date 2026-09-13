@@ -73,7 +73,7 @@ protected:
 
 	/** Standard point damage applied to damageable actors such as the chasing NPC. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Projectile|Damage", meta = (ClampMin = "0.0"))
-	float ActorDamage = 100.0f;
+	float ActorDamage = 25.0f;
 
 	/** Removes the projectile even when the impacted Actor does not accept damage. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Projectile|Damage")

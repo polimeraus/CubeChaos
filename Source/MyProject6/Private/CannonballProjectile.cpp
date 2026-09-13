@@ -4,6 +4,8 @@
 
 ACannonballProjectile::ACannonballProjectile()
 {
+	// Red shots remove twice as much NPC health as the yellow ball.
+	ActorDamage *= 2.0f;
 	InitialLifeSpan = 8.0f;
 	ProjectileColor = FLinearColor(1.0f, 0.015f, 0.005f, 1.0f);
 	ProjectileCollisionRadius = 24.0f;
