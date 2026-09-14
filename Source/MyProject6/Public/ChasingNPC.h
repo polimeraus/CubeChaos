@@ -16,6 +16,7 @@ class AMyProject6Character;
 class ACharacter;
 class UDamageType;
 class UNPCHealthBarComponent;
+class UNPCHitReactionComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FChasingNPCDeathSignature);
 
@@ -49,7 +50,8 @@ public:
 
 	float GetChaseAcceptanceRadius() const { return ChaseAcceptanceRadius; }
 	float GetRepathInterval() const { return RepathInterval; }
-	virtual bool ShouldPauseChase() const { return IsDead() || bContactAttackActive; }
+	virtual bool ShouldPauseChase() const;
+	bool IsStaggering() const;
 
 	/** Updates movement so this NPC runs at PlayerSpeedFraction of the player's walk speed. */
 	void UpdateChaseSpeedFromPlayer(const ACharacter* PlayerCharacter);
@@ -114,6 +116,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Chasing NPC|Health")
 	TObjectPtr<UNPCHealthBarComponent> HealthBar;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Chasing NPC|Hit Reaction")
+	TObjectPtr<UNPCHitReactionComponent> HitReaction;
 
 	/** Used only until a valid player is found. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Movement", meta = (ClampMin = "0.0", Units = "cm/s"))
@@ -226,7 +231,7 @@ private:
 	void UpdateContactAttack(const AMyProject6Character* Target);
 	void StopContactAttack();
 	void PlayFallingSoundIfStillFalling();
-	void Die(bool bShouldSpawnReplacements = true);
+	void Die(bool bShouldSpawnReplacements = true, const FVector& ImpactDirection = FVector::ZeroVector);
 	void BeginDeathFade();
 	void SpawnReplacements();
 

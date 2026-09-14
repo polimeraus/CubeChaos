@@ -2,6 +2,7 @@
 
 #include "ChasingAIController.h"
 #include "NPCHealthBarComponent.h"
+#include "NPCHitReactionComponent.h"
 #include "MyProject6Character.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimSingleNodeInstance.h"
@@ -18,6 +19,7 @@ AWhisperFollower::AWhisperFollower()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	SetCanBeDamaged(true);
+	HitReaction = CreateDefaultSubobject<UNPCHitReactionComponent>(TEXT("HitReaction"));
 	AIControllerClass = AChasingAIController::StaticClass();
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 	GetCapsuleComponent()->InitCapsuleSize(42.0f, 100.0f);
@@ -74,6 +76,11 @@ void AWhisperFollower::BeginPlay()
 	GetMesh()->AddTickPrerequisiteActor(this);
 }
 
+bool AWhisperFollower::ShouldPauseFollow() const
+{
+	return bIsDead || bContactAttackActive || HitReaction->IsStaggering();
+}
+
 float AWhisperFollower::TakeDamage(float DamageAmount, const FDamageEvent& DamageEvent,
 	AController* EventInstigator, AActor* DamageCauser)
 {
@@ -92,6 +99,7 @@ float AWhisperFollower::TakeDamage(float DamageAmount, const FDamageEvent& Damag
 		GetCharacterMovement()->StopMovementImmediately();
 		GetCharacterMovement()->DisableMovement();
 		SetActorEnableCollision(false);
+		ContactSensor->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		SetActorTickEnabled(false);
 		float AnimationDuration = 0.0f;
 		if (DeathAnimation && GetMesh()->GetSkeletalMeshAsset())
@@ -104,6 +112,12 @@ float AWhisperFollower::TakeDamage(float DamageAmount, const FDamageEvent& Damag
 			AnimationDuration = DeathAnimation->GetPlayLength();
 		}
 		SetLifeSpan(AnimationDuration + 3.0f);
+		HitReaction->StartDeathFlight(UNPCHitReactionComponent::ResolveImpactDirection(*this, DamageEvent, EventInstigator, DamageCauser));
+	}
+	else
+	{
+		HitReaction->Stagger(UNPCHitReactionComponent::ResolveImpactDirection(*this, DamageEvent, EventInstigator, DamageCauser));
+		if (HitReaction->IsStaggering()) { StopContactInteraction(); }
 	}
 	return AppliedDamage;
 }
@@ -137,6 +151,7 @@ void AWhisperFollower::Tick(float DeltaSeconds)
 			return;
 		}
 		SetContactGlowActive(true);
+		if (HitReaction->IsStaggering()) { return; }
 		if (ContactAttackAnimation && !bContactAttackActive)
 		{
 			bContactAttackActive = true;

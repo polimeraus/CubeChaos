@@ -115,7 +115,13 @@ bool FNPCProjectileHealthTest::RunTest(const FString& Parameters)
 				TestEqual(Case + TEXT(" gauge is visible until death"), Bar->IsVisible(), Expected > 0.0f);
 				if (Hits == 1) { TestFalse(Case + TEXT(" survives the first hit"), Dead(NPC)); }
 			}
-			TestFalse(Case + TEXT(" stops blocking at death"), NPC->GetActorEnableCollision());
+			// A launched corpse keeps world collision so it can land, while gameplay actors pass through it.
+			TestEqual(Case + TEXT(" stops blocking players at death"),
+				NPC->GetCapsuleComponent()->GetCollisionResponseToChannel(ECC_Pawn), ECR_Ignore);
+			TestEqual(Case + TEXT(" stops blocking projectiles at death"),
+				NPC->GetCapsuleComponent()->GetCollisionResponseToChannel(ECC_GameTraceChannel1), ECR_Ignore);
+			TestEqual(Case + TEXT(" retains floor collision for landing"),
+				NPC->GetCapsuleComponent()->GetCollisionResponseToChannel(ECC_WorldStatic), ECR_Block);
 			TestNull(Case + TEXT(" stops following at death"), NPC->GetController());
 			TestEqual(Case + TEXT(" ignores further hits"), UGameplayStatics::ApplyDamage(NPC, 50, nullptr, nullptr, nullptr), 0.0f);
 			TestFalse(Case + TEXT(" remains for its death animation"), NPC->IsActorBeingDestroyed());

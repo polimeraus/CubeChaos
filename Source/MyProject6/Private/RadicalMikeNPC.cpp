@@ -90,7 +90,7 @@ void ARadicalMikeNPC::ScheduleAttack()
 
 bool ARadicalMikeNPC::CanFireAt(const ACharacter* Target, const FVector& Origin) const
 {
-	if (!IsValid(Target) || Target == this || IsDead() || !bEnableShooting ||
+	if (!IsValid(Target) || Target == this || IsDead() || IsStaggering() || !bEnableShooting ||
 		!GetCharacterMovement()->IsMovingOnGround() ||
 		FVector::DistSquared(GetActorLocation(), Target->GetActorLocation()) > FMath::Square(FMath::Max(100.0f, FireRange)))
 	{

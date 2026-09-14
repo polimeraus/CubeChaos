@@ -9,6 +9,7 @@ class UAnimSequence;
 class UNPCHealthBarComponent;
 class USphereComponent;
 class UMaterialInterface;
+class UNPCHitReactionComponent;
 
 /** Placeable companion using the project's player-following AI and Whisper locomotion. */
 UCLASS(Blueprintable)
@@ -31,7 +32,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Whisper|Health")
 	bool IsDead() const { return bIsDead; }
 
-	bool ShouldPauseFollow() const { return bIsDead || bContactAttackActive; }
+	bool ShouldPauseFollow() const;
 
 #if WITH_EDITOR
 	/** Rebuild the interpolation data after creating or editing samples from Python. */
@@ -76,6 +77,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Whisper|Health")
 	TObjectPtr<UNPCHealthBarComponent> HealthBar;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Whisper|Hit Reaction")
+	TObjectPtr<UNPCHitReactionComponent> HitReaction;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Whisper|Health")
 	TObjectPtr<UAnimSequence> DeathAnimation;

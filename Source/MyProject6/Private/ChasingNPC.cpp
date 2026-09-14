@@ -3,6 +3,7 @@
 #include "ChasingNPC.h"
 #include "NPCSpawnPoint.h"
 #include "NPCHealthBarComponent.h"
+#include "NPCHitReactionComponent.h"
 
 #include "ChasingAIController.h"
 #include "Animation/AnimInstance.h"
@@ -28,6 +29,7 @@ AChasingNPC::AChasingNPC()
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = false;
 	SetCanBeDamaged(true);
+	HitReaction = CreateDefaultSubobject<UNPCHitReactionComponent>(TEXT("HitReaction"));
 
 	AIControllerClass = AChasingAIController::StaticClass();
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
@@ -148,6 +150,16 @@ void AChasingNPC::BeginPlay()
 
 	ContactSensor->OnComponentBeginOverlap.AddDynamic(this, &AChasingNPC::OnContactBegin);
 	ContactSensor->OnComponentEndOverlap.AddDynamic(this, &AChasingNPC::OnContactEnd);
+}
+
+bool AChasingNPC::IsStaggering() const
+{
+	return HitReaction && HitReaction->IsStaggering();
+}
+
+bool AChasingNPC::ShouldPauseChase() const
+{
+	return IsDead() || bContactAttackActive || IsStaggering();
 }
 
 void AChasingNPC::UpdateChaseSpeedFromPlayer(const ACharacter* PlayerCharacter)
@@ -324,7 +336,7 @@ void AChasingNPC::ApplyContactEnergyDrain()
 
 void AChasingNPC::UpdateContactAttack(const AMyProject6Character* Target)
 {
-	if (!Target || bIsDead)
+	if (!Target || bIsDead || IsStaggering())
 	{
 		StopContactAttack();
 		return;
@@ -420,13 +432,18 @@ float AChasingNPC::TakeDamage(
 	}
 	if (CurrentHealth <= 0.0f)
 	{
-		Die();
+		Die(true, UNPCHitReactionComponent::ResolveImpactDirection(*this, DamageEvent, EventInstigator, DamageCauser));
+	}
+	else
+	{
+		HitReaction->Stagger(UNPCHitReactionComponent::ResolveImpactDirection(*this, DamageEvent, EventInstigator, DamageCauser));
+		if (IsStaggering()) { StopContactAttack(); }
 	}
 
 	return AppliedDamage;
 }
 
-void AChasingNPC::Die(const bool bShouldSpawnReplacements)
+void AChasingNPC::Die(const bool bShouldSpawnReplacements, const FVector& ImpactDirection)
 {
 	if (bIsDead)
 	{
@@ -453,6 +470,7 @@ void AChasingNPC::Die(const bool bShouldSpawnReplacements)
 	GetCharacterMovement()->StopMovementImmediately();
 	GetCharacterMovement()->DisableMovement();
 	SetActorEnableCollision(false);
+	ContactSensor->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	OnNPCDeath.Broadcast();
 	if (IsActorBeingDestroyed())
 	{
@@ -489,6 +507,7 @@ void AChasingNPC::Die(const bool bShouldSpawnReplacements)
 		CharacterMesh->SetPlayRate(FMath::IsNearlyZero(AssetRate) ? PlayRate : PlayRate / AssetRate);
 		AnimationDuration = DeathAnimation->GetPlayLength() / PlayRate;
 	}
+	HitReaction->StartDeathFlight(ImpactDirection);
 
 	const float FadeDelay = AnimationDuration + FMath::Max(0.0f, DeathHoldDuration);
 	if (FadeDelay > 0.0f)
@@ -504,6 +523,13 @@ void AChasingNPC::Die(const bool bShouldSpawnReplacements)
 
 void AChasingNPC::BeginDeathFade()
 {
+	// A low platform can leave the corpse airborne longer than its death animation.
+	if (HitReaction->IsDeathInFlight())
+	{
+		GetWorldTimerManager().SetTimer(DeathFadeTimerHandle, this,
+			&AChasingNPC::BeginDeathFade, 0.1f, false);
+		return;
+	}
 	USkeletalMeshComponent* CharacterMesh = GetMesh();
 	if (CharacterMesh)
 	{
@@ -607,6 +633,11 @@ void FNPCReplacementPresentation::Capture(const AChasingNPC& Source)
 	DeathFadeDuration = Source.DeathFadeDuration;
 	DeathFadeMaterials = Source.DeathFadeMaterials;
 	DeathOpacityParameter = Source.DeathOpacityParameter;
+	StaggerDistance = Source.HitReaction->StaggerDistance;
+	StaggerDuration = Source.HitReaction->StaggerDuration;
+	StaggerLeanAngle = Source.HitReaction->StaggerLeanAngle;
+	DeathHorizontalSpeed = Source.HitReaction->DeathHorizontalSpeed;
+	DeathUpwardSpeed = Source.HitReaction->DeathUpwardSpeed;
 }
 
 void FNPCReplacementPresentation::Apply(AChasingNPC& Target) const
@@ -623,4 +654,9 @@ void FNPCReplacementPresentation::Apply(AChasingNPC& Target) const
 	Target.DeathFadeDuration = DeathFadeDuration;
 	Target.DeathFadeMaterials = DeathFadeMaterials;
 	Target.DeathOpacityParameter = DeathOpacityParameter;
+	Target.HitReaction->StaggerDistance = StaggerDistance;
+	Target.HitReaction->StaggerDuration = StaggerDuration;
+	Target.HitReaction->StaggerLeanAngle = StaggerLeanAngle;
+	Target.HitReaction->DeathHorizontalSpeed = DeathHorizontalSpeed;
+	Target.HitReaction->DeathUpwardSpeed = DeathUpwardSpeed;
 }

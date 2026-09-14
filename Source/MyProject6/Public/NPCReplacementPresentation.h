@@ -27,5 +27,10 @@ struct FNPCReplacementPresentation
 	float DeathAnimationPlayRate = 1.0f;
 	float DeathHoldDuration = 3.0f;
 	float DeathFadeDuration = 2.0f;
+	float StaggerDistance = 22.0f;
+	float StaggerDuration = 0.24f;
+	float StaggerLeanAngle = 7.0f;
+	float DeathHorizontalSpeed = 450.0f;
+	float DeathUpwardSpeed = 360.0f;
 	FName DeathOpacityParameter;
 };
