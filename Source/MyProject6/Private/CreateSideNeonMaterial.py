@@ -36,6 +36,7 @@ for parameter, default in {
     "GlowColor": (0.0, 4.0, 8.0, 1.0),
     "BodyColor": (0.015, 0.015, 0.02, 1.0),
     "Stripe": (0.5, 0.08, 0.0, 0.0),
+    "StripeColor": (13.2, 20.4, 24.0, 1.0),
 }.items():
     node = edit.create_material_expression(material, unreal.MaterialExpressionVectorParameter)
     node.set_editor_property("parameter_name", parameter)
@@ -43,7 +44,7 @@ for parameter, default in {
     add_input(parameter, node, "RGBA")
 
 custom = edit.create_material_expression(material, unreal.MaterialExpressionCustom)
-custom.set_editor_property("description", "Antialiased full side / height stripe")
+custom.set_editor_property("description", "Antialiased side glow with independent bright center stripe")
 custom.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT3)
 custom.set_editor_property("inputs", inputs)
 source = Path(unreal.Paths.project_dir()) / "Source/MyProject6/Private/SideNeonMaterial.ush"

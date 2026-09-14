@@ -52,7 +52,8 @@ enum class EFloorSideNeonMode : uint8
 {
 	Off UMETA(DisplayName = "Off"),
 	FullSide UMETA(DisplayName = "Full Side"),
-	Stripe UMETA(DisplayName = "Stripe")
+	Stripe UMETA(DisplayName = "Stripe"),
+	FullSideWithStripe UMETA(DisplayName = "Full Side + Center Stripe")
 };
 
 UENUM(BlueprintType)
@@ -82,12 +83,20 @@ struct FFloorSideNeonSettings
 	float Intensity = 8.0f;
 
 	/** Thickness in the actor's local centimetres; actor scaling scales the stripe too. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::Stripe", EditConditionHides, ClampMin = "0.0", Units = "cm"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::Stripe || Mode == EFloorSideNeonMode::FullSideWithStripe", EditConditionHides, ClampMin = "0.0", Units = "cm"))
 	float StripeWidth = 4.0f;
 
 	/** 0 = bottom edge, 0.5 = middle, 1 = top edge. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::Stripe", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::Stripe || Mode == EFloorSideNeonMode::FullSideWithStripe", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
 	float StripePosition = 0.5f;
+
+	/** Additional light from the thin stripe, layered over the full side glow. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::FullSideWithStripe", EditConditionHides, HideAlphaChannel))
+	FLinearColor StripeColor = FLinearColor(0.55f, 0.85f, 1.0f);
+
+	/** Independent stripe brightness; zero leaves just the full side glow. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::FullSideWithStripe", EditConditionHides, ClampMin = "0.0", ClampMax = "100.0", UIMax = "50.0"))
+	float StripeIntensity = 24.0f;
 
 	/** Unlit side-panel color outside the stripe. Top/bottom and unselected sides keep their materials. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::Stripe", EditConditionHides, HideAlphaChannel))

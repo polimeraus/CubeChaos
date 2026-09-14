@@ -127,6 +127,35 @@ bool FFloorSideNeonTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("Width is normalized to the floor thickness"),
 				OriginalMID->K2_GetVectorParameterValue(TEXT("Stripe")).Equals(FLinearColor(0.25f, 0.14f, 1, 0)));
 
+			Settings = Floor->GetSideNeonSettings();
+			Settings.Mode = EFloorSideNeonMode::FullSideWithStripe;
+			Settings.StripePosition = 0.5f;
+			Settings.StripeWidth = 4;
+			Settings.StripeColor = FLinearColor(0.5f, 0.75f, 1);
+			Settings.StripeIntensity = 24;
+			Floor->SetSideNeonSettings(Settings);
+			TestEqual(TEXT("Adding a center stripe reuses the side material"), Floor->SideNeonMaterialInstance.Get(), OriginalMID);
+			TestTrue(TEXT("Combined mode keeps full-side glow and enables the centered thin stripe"),
+				OriginalMID->K2_GetVectorParameterValue(TEXT("Stripe")).Equals(FLinearColor(0.5f, 0.08f, 1, 1)));
+			TestTrue(TEXT("Center stripe has independent HDR color and intensity"),
+				OriginalMID->K2_GetVectorParameterValue(TEXT("StripeColor")).Equals(FLinearColor(12, 18, 24, 24)));
+			TestTrue(TEXT("Adding the stripe preserves the broad side glow"),
+				OriginalMID->K2_GetVectorParameterValue(TEXT("GlowColor")).Equals(FLinearColor(12, 0, 6, 12)));
+			Settings.StripeIntensity = -10;
+			Floor->SetSideNeonSettings(Settings);
+			TestEqual(TEXT("Negative stripe brightness is clamped to off"), Floor->GetSideNeonSettings().StripeIntensity, 0.0f);
+			TestTrue(TEXT("Disabled stripe contributes no light"),
+				OriginalMID->K2_GetVectorParameterValue(TEXT("StripeColor")).IsAlmostBlack());
+			Settings.StripeIntensity = 24;
+			Floor->SetSideNeonSettings(Settings);
+			TestEqual(TEXT("Center stripe adds no triangles"), Inspect(Floor).Triangles, Baseline.Triangles);
+			TestEqual(TEXT("Center stripe adds no components or lights"), Floor->GetComponents().Num(), ComponentCount);
+			TestFalse(TEXT("Center stripe does not enable actor tick"), Floor->IsActorTickEnabled());
+			for (int32 Index = 0; Index < MeshObjects.Num(); ++Index)
+			{
+				TestEqual(TEXT("Center stripe changes preserve chunk mesh objects"), Floor->ChunkComponents[Index]->GetDynamicMesh(), MeshObjects[Index]);
+			}
+
 			FIntPoint Interior = FIntPoint::NoneValue;
 			for (int32 Y = 2; Y < Floor->CellCount.Y - 2 && Interior == FIntPoint::NoneValue; ++Y)
 			{

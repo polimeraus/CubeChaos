@@ -6,4 +6,5 @@ float aa = max(fwidth(height), 0.00001);
 float band = saturate((halfWidth - abs(height - Stripe.x)) / aa + 0.5);
 band *= step(0.000001, Stripe.y);
 float mask = lerp(band, 1.0, Stripe.z);
-return lerp(BodyColor.rgb, GlowColor.rgb, mask);
+// Stripe.z keeps the broad side glow; Stripe.w adds an independently colored bright core.
+return lerp(BodyColor.rgb, GlowColor.rgb, mask) + StripeColor.rgb * band * Stripe.w;

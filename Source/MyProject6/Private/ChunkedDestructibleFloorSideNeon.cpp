@@ -27,10 +27,14 @@ void AChunkedDestructibleFloor::RefreshSideNeonMaterial()
 	SideNeonMaterialInstance->SetVectorParameterValue(TEXT("GlowColor"),
 		SideNeon.Color.GetClamped(0.0f, 1.0f) * FMath::Clamp(SideNeon.Intensity, 0.0f, 100.0f));
 	SideNeonMaterialInstance->SetVectorParameterValue(TEXT("BodyColor"), SideNeon.BodyColor.GetClamped());
+	SideNeonMaterialInstance->SetVectorParameterValue(TEXT("StripeColor"),
+		SideNeon.StripeColor.GetClamped(0.0f, 1.0f) * FMath::Clamp(SideNeon.StripeIntensity, 0.0f, 100.0f));
+	const bool bFullSideWithStripe = SideNeon.Mode == EFloorSideNeonMode::FullSideWithStripe;
 	SideNeonMaterialInstance->SetVectorParameterValue(TEXT("Stripe"), FLinearColor(
 		FMath::Clamp(SideNeon.StripePosition, 0.0f, 1.0f),
 		FMath::Clamp(SideNeon.StripeWidth / Thickness, 0.0f, 1.0f),
-		SideNeon.Mode == EFloorSideNeonMode::FullSide ? 1.0f : 0.0f, 0.0f));
+		(SideNeon.Mode == EFloorSideNeonMode::FullSide || bFullSideWithStripe) ? 1.0f : 0.0f,
+		bFullSideWithStripe ? 1.0f : 0.0f));
 }
 
 void AChunkedDestructibleFloor::SetSideNeonSettings(const FFloorSideNeonSettings& NewSettings)
@@ -39,6 +43,7 @@ void AChunkedDestructibleFloor::SetSideNeonSettings(const FFloorSideNeonSettings
 	const EFloorSideNeonScope PreviousScope = SideNeon.Scope;
 	SideNeon = NewSettings;
 	SideNeon.Intensity = FMath::Clamp(SideNeon.Intensity, 0.0f, 100.0f);
+	SideNeon.StripeIntensity = FMath::Clamp(SideNeon.StripeIntensity, 0.0f, 100.0f);
 	SideNeon.StripeWidth = FMath::Max(SideNeon.StripeWidth, 0.0f);
 	SideNeon.StripePosition = FMath::Clamp(SideNeon.StripePosition, 0.0f, 1.0f);
 	RefreshSideNeonMaterial();
