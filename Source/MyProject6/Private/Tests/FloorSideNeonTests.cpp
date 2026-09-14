@@ -148,6 +148,16 @@ bool FFloorSideNeonTest::RunTest(const FString& Parameters)
 				OriginalMID->K2_GetVectorParameterValue(TEXT("StripeColor")).IsAlmostBlack());
 			Settings.StripeIntensity = 24;
 			Floor->SetSideNeonSettings(Settings);
+			Settings.StripeIntensity = 250;
+			Settings.StripeGlowWidth = 12;
+			Settings.StripeGlowStrength = 0.15f;
+			Floor->SetSideNeonSettings(Settings);
+			TestTrue(TEXT("Neon intensity can exceed the former 100 limit"),
+				OriginalMID->K2_GetVectorParameterValue(TEXT("StripeColor")).Equals(FLinearColor(125, 187.5f, 250, 250)));
+			TestTrue(TEXT("Halo width scales with floor thickness independently of core width"),
+				OriginalMID->K2_GetVectorParameterValue(TEXT("StripeGlow")).Equals(FLinearColor(0.24f, 0.15f, 0, 0)));
+			Settings.StripeIntensity = 64;
+			Floor->SetSideNeonSettings(Settings);
 			TestEqual(TEXT("Center stripe adds no triangles"), Inspect(Floor).Triangles, Baseline.Triangles);
 			TestEqual(TEXT("Center stripe adds no components or lights"), Floor->GetComponents().Num(), ComponentCount);
 			TestFalse(TEXT("Center stripe does not enable actor tick"), Floor->IsActorTickEnabled());

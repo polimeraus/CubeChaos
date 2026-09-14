@@ -47,6 +47,7 @@ settings.set_editor_property("intensity", 6.0)
 settings.set_editor_property("stripe_width", 12.0)
 cases = ["off", "grid_stripe", "grid_full", "grid_full_stripe",
          "core_full", "core_center", "core_wide", "core_zero", "core_dim", "core_shifted",
+         "core_neon", "core_neon_strong", "core_neon_wide", "core_neon_off", "core_neon_zero",
          "grid_magenta", "triangle", "star", "circle", "hole_outer", "hole_all", "restored"]
 results = {}
 state = {"started": time.monotonic(), "since": time.monotonic(), "case": 0, "prepared": False, "done": False}
@@ -58,13 +59,20 @@ def prepare(name):
     settings.set_editor_property("mode", mode.OFF if name == "off" else mode.STRIPE)
     settings.set_editor_property("stripe_position", .5)
     settings.set_editor_property("stripe_width", 4.0)
-    settings.set_editor_property("stripe_intensity", 24.0)
+    settings.set_editor_property("color", unreal.LinearColor(0, .4, 1, 1))
+    settings.set_editor_property("stripe_intensity", 64.0)
+    settings.set_editor_property("stripe_glow_width", 12.0)
+    settings.set_editor_property("stripe_glow_strength", .15)
     if name == "grid_full":
         settings.set_editor_property("mode", mode.FULL_SIDE)
     if name == "grid_full_stripe" or name.startswith("core_") or name in (
             "triangle", "star", "circle", "hole_outer", "hole_all", "restored"):
         settings.set_editor_property("mode", mode.FULL_SIDE_WITH_STRIPE)
     if name.startswith("core_"):
+        if not name.startswith("core_neon"):
+            # Keep the original sharp-core cases independent of the new halo.
+            settings.set_editor_property("stripe_intensity", 24.0)
+            settings.set_editor_property("stripe_glow_strength", 0.0)
         # Look squarely at the side to measure the core separately from the broad glow.
         front = unreal.Vector(0, -1500, -50)
         camera.set_actor_location(front, False, False)
@@ -79,6 +87,14 @@ def prepare(name):
             settings.set_editor_property("stripe_intensity", 0.0)
         elif name == "core_shifted":
             settings.set_editor_property("stripe_position", .75)
+        elif name == "core_neon_strong":
+            settings.set_editor_property("stripe_intensity", 250.0)
+        elif name == "core_neon_wide":
+            settings.set_editor_property("stripe_glow_width", 24.0)
+        elif name == "core_neon_off":
+            settings.set_editor_property("stripe_glow_strength", 0.0)
+        elif name == "core_neon_zero":
+            settings.set_editor_property("stripe_width", 0.0)
     if name == "grid_magenta":
         settings.set_editor_property("color", unreal.LinearColor(1, 0, .4, 1))
     if name == "triangle":
@@ -122,6 +138,10 @@ def snapshot(name):
             "bright_core_row": sum(i // 512 for i in bright_core) / max(len(bright_core), 1),
             "center_red": sum(pixels[y * 512 + x].r for y in range(255, 257)
                               for x in range(220, 292)) / 144,
+            "halo_red": sum(pixels[y * 512 + x].r for y in (252, 259)
+                            for x in range(220, 292)) / 144,
+            "outer_halo_red": sum(pixels[y * 512 + x].r for y in (249, 262)
+                                  for x in range(220, 292)) / 144,
             "triangles": sum(c.get_dynamic_mesh().get_triangle_count() for c in components),
             "chunks": len(components), "ticking": floor.is_actor_tick_enabled()}
 
@@ -174,6 +194,14 @@ def tick(_delta):
                     raise RuntimeError(name + " did not leave the original full side glow")
             if abs(results["core_shifted"]["bright_core_row"] - results["core_center"]["bright_core_row"]) < 5:
                 raise RuntimeError("Stripe position did not move the bright core")
+            if results["core_neon"]["halo_red"] <= results["core_neon_off"]["halo_red"] + 15:
+                raise RuntimeError("Neon halo did not add soft light outside the sharp stripe")
+            if results["core_neon_strong"]["halo_red"] <= results["core_neon"]["halo_red"] + 5:
+                raise RuntimeError("Increasing neon intensity did not visibly brighten its glow")
+            if results["core_neon_wide"]["outer_halo_red"] <= results["core_neon"]["outer_halo_red"] + 15:
+                raise RuntimeError("Glow width did not expand the halo independently")
+            if abs(results["core_neon_zero"]["center_red"] - results["core_full"]["center_red"]) > 3:
+                raise RuntimeError("Zero-width stripe left a neon halo behind")
             if any(item["ticking"] for item in results.values()):
                 raise RuntimeError("Neon activated actor tick")
             if any(results[name]["triangles"] != results["off"]["triangles"]

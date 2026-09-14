@@ -83,20 +83,28 @@ struct FFloorSideNeonSettings
 	float Intensity = 8.0f;
 
 	/** Thickness in the actor's local centimetres; actor scaling scales the stripe too. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::Stripe || Mode == EFloorSideNeonMode::FullSideWithStripe", EditConditionHides, ClampMin = "0.0", Units = "cm"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (DisplayName = "Center Stripe Width", EditCondition = "Mode == EFloorSideNeonMode::Stripe || Mode == EFloorSideNeonMode::FullSideWithStripe", EditConditionHides, ClampMin = "0.0", UIMax = "30.0", Units = "cm"))
 	float StripeWidth = 4.0f;
 
 	/** 0 = bottom edge, 0.5 = middle, 1 = top edge. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::Stripe || Mode == EFloorSideNeonMode::FullSideWithStripe", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (DisplayName = "Center Stripe Position", EditCondition = "Mode == EFloorSideNeonMode::Stripe || Mode == EFloorSideNeonMode::FullSideWithStripe", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
 	float StripePosition = 0.5f;
 
 	/** Additional light from the thin stripe, layered over the full side glow. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::FullSideWithStripe", EditConditionHides, HideAlphaChannel))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (DisplayName = "Center Stripe Color", EditCondition = "Mode == EFloorSideNeonMode::FullSideWithStripe", EditConditionHides, HideAlphaChannel))
 	FLinearColor StripeColor = FLinearColor(0.55f, 0.85f, 1.0f);
 
-	/** Independent stripe brightness; zero leaves just the full side glow. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::FullSideWithStripe", EditConditionHides, ClampMin = "0.0", ClampMax = "100.0", UIMax = "50.0"))
-	float StripeIntensity = 24.0f;
+	/** Emissive brightness of the neon core and its halo; zero leaves just the full side glow. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (DisplayName = "Center Stripe Intensity", EditCondition = "Mode == EFloorSideNeonMode::FullSideWithStripe", EditConditionHides, ClampMin = "0.0", ClampMax = "1000.0", UIMax = "250.0"))
+	float StripeIntensity = 64.0f;
+
+	/** Soft light spread on each side of the core, in local centimetres. Zero disables the halo. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (DisplayName = "Center Stripe Glow Width", EditCondition = "Mode == EFloorSideNeonMode::FullSideWithStripe", EditConditionHides, ClampMin = "0.0", UIMax = "50.0", Units = "cm"))
+	float StripeGlowWidth = 12.0f;
+
+	/** Halo brightness relative to the core. Zero keeps only the sharp center stripe. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (DisplayName = "Center Stripe Glow Strength", EditCondition = "Mode == EFloorSideNeonMode::FullSideWithStripe", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
+	float StripeGlowStrength = 0.15f;
 
 	/** Unlit side-panel color outside the stripe. Top/bottom and unselected sides keep their materials. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Side Neon", meta = (EditCondition = "Mode == EFloorSideNeonMode::Stripe", EditConditionHides, HideAlphaChannel))

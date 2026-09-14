@@ -3,8 +3,14 @@
 float height = UV.x;
 float halfWidth = Stripe.y * 0.5;
 float aa = max(fwidth(height), 0.00001);
-float band = saturate((halfWidth - abs(height - Stripe.x)) / aa + 0.5);
-band *= step(0.000001, Stripe.y);
+float distanceFromCenter = abs(height - Stripe.x);
+float stripeEnabled = step(0.000001, Stripe.y);
+float band = saturate((halfWidth - distanceFromCenter) / aa + 0.5) * stripeEnabled;
 float mask = lerp(band, 1.0, Stripe.z);
-// Stripe.z keeps the broad side glow; Stripe.w adds an independently colored bright core.
-return lerp(BodyColor.rgb, GlowColor.rgb, mask) + StripeColor.rgb * band * Stripe.w;
+// A smooth halo makes the core read as neon even before the camera's bloom is applied.
+// Keep its width independent of the sharp core; a zero-width core disables both layers.
+float outsideCore = max(distanceFromCenter - halfWidth, 0.0);
+float halo = saturate(1.0 - outsideCore / max(StripeGlow.x, aa));
+halo = halo * halo * step(0.000001, StripeGlow.x) * stripeEnabled;
+float neon = band + (1.0 - band) * halo * StripeGlow.y;
+return lerp(BodyColor.rgb, GlowColor.rgb, mask) + StripeColor.rgb * neon * Stripe.w;
