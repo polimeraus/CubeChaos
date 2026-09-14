@@ -7,6 +7,8 @@
 class UBlendSpace;
 class UAnimSequence;
 class UNPCHealthBarComponent;
+class USphereComponent;
+class UMaterialInterface;
 
 /** Placeable companion using the project's player-following AI and Whisper locomotion. */
 UCLASS(Blueprintable)
@@ -29,6 +31,8 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Whisper|Health")
 	bool IsDead() const { return bIsDead; }
 
+	bool ShouldPauseFollow() const { return bIsDead || bContactAttackActive; }
+
 #if WITH_EDITOR
 	/** Rebuild the interpolation data after creating or editing samples from Python. */
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Whisper|Animation")
@@ -37,6 +41,28 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Whisper|Contact")
+	TObjectPtr<USphereComponent> ContactSensor;
+
+	/** Matches the other NPCs' contact distance. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper|Contact", meta = (ClampMin = "48.0", Units = "cm"))
+	float ContactInteractionRadius = 140.0f;
+
+	/** Energy removed per second while touching the player, independently of the animation. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper|Contact", meta = (ClampMin = "0.0"))
+	float ContactEnergyDrainPerSecond = 20.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper|Contact")
+	TObjectPtr<UMaterialInterface> ContactGlowMaterial;
+
+	/** Repeats while touching the player; empty disables the claw animation. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper|Contact")
+	TObjectPtr<UAnimSequence> ContactAttackAnimation;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper|Contact", meta = (ClampMin = "0.1", ClampMax = "4.0"))
+	float ContactAttackPlayRate = 1.0f;
 
 	/** Idle/walk/run blend space, driven by actual horizontal velocity in cm/s. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Whisper|Animation")
@@ -55,5 +81,11 @@ protected:
 	TObjectPtr<UAnimSequence> DeathAnimation;
 
 private:
+	void SetContactGlowActive(bool bActive);
+	void StopContactInteraction();
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UMaterialInterface>> OriginalMeshMaterials;
+	bool bContactGlowActive = false;
+	bool bContactAttackActive = false;
 	bool bIsDead = false;
 };

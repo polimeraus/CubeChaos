@@ -30,6 +30,10 @@ settings.set_editor_property('override_auto_exposure_bias', True)
 settings.set_editor_property('auto_exposure_bias', 10.0)
 post.set_editor_property('settings', settings)
 actors.spawn_actor_from_class(unreal.PlayerStart, unreal.Vector(-450, 0, 100))
+contact_camera_position = unreal.Vector(-340, -220, 210)
+contact_camera = actors.spawn_actor_from_class(unreal.CameraActor, contact_camera_position,
+    unreal.MathLibrary.find_look_at_rotation(contact_camera_position, unreal.Vector(0, 0, 100)))
+contact_camera.set_editor_property('tags', ['WhisperContactCamera'])
 classes = [unreal.ChasingNPC,
            unreal.load_class(None, '/Game/Characters/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C'),
            unreal.load_class(None, '/Game/Characters/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C')]
@@ -83,9 +87,11 @@ def tick(delta):
                 npc = next(a for a in candidates if not isinstance(a, unreal.RadicalMikeNPC)) if cls == unreal.ChasingNPC else candidates[0]
                 npc.character_movement.disable_movement()
                 npcs.append(npc)
-            state.update(world=world, npcs=npcs, stage='full', since=now)
+            state.update(world=world, player=player, npcs=npcs, stage='full', since=now)
             return
-        if now - state['since'] < 5:
+        wait_seconds = .35 if state['stage'] in ['claw_one', 'claw_two', 'leave_contact',
+                                               'ghoul_claw_one', 'ghoul_claw_two', 'leave_ghoul'] else 5
+        if now - state['since'] < wait_seconds:
             return
         if state['stage'] == 'full':
             for npc in state['npcs']:
@@ -127,6 +133,60 @@ def tick(delta):
         elif state['stage'] == 'restored':
             assert state['npcs'][1].get_component_by_class(unreal.NPCHealthBarComponent).is_visible(), 'Bar did not return after removing cover'
             capture('visible_again')
+            state.update(stage='contact', since=now)
+        elif state['stage'] == 'contact':
+            player = state['player']
+            state['whisper_energy_before'] = player.get_current_energy()
+            player.set_actor_location(unreal.Vector(-125, 0, 100), False, True)
+            player.set_actor_hidden_in_game(True)
+            camera = unreal.GameplayStatics.get_all_actors_with_tag(state['world'], 'WhisperContactCamera')[0]
+            player.get_controller().set_view_target_with_blend(camera, 0)
+            state.update(stage='claw_one', since=now)
+        elif state['stage'] == 'claw_one':
+            whisper = state['npcs'][1]
+            assert whisper.mesh.get_material(0) == whisper.get_editor_property('contact_glow_material'), 'Whisper did not glow on contact'
+            assert whisper.mesh.get_anim_instance().get_animation_asset() == whisper.get_editor_property('contact_attack_animation')
+            assert state['player'].get_current_energy() < state['whisper_energy_before'], 'Whisper must drain player energy during contact'
+            capture('whisper_claw_one')
+            state.update(stage='claw_two', since=now)
+        elif state['stage'] == 'claw_two':
+            capture('whisper_claw_two')
+            state.update(stage='leave_contact', since=now)
+        elif state['stage'] == 'leave_contact':
+            state['player'].set_actor_location(unreal.Vector(-450, 0, 100), False, True)
+            state.update(stage='contact_ended', since=now)
+        elif state['stage'] == 'contact_ended':
+            whisper = state['npcs'][1]
+            assert whisper.mesh.get_material(0) != whisper.get_editor_property('contact_glow_material'), 'Whisper glow did not end'
+            assert whisper.mesh.get_anim_instance().get_animation_asset() == whisper.get_editor_property('locomotion_blend_space')
+            capture('whisper_contact_ended')
+            state.update(stage='ghoul_contact', since=now)
+        elif state['stage'] == 'ghoul_contact':
+            state['ghoul_energy_before'] = state['player'].get_current_energy()
+            state['player'].set_actor_location(unreal.Vector(-125, -190, 100), False, True)
+            camera = unreal.GameplayStatics.get_all_actors_with_tag(state['world'], 'WhisperContactCamera')[0]
+            position = unreal.Vector(-340, -410, 210)
+            camera.set_actor_location(position, False, True)
+            camera.set_actor_rotation(unreal.MathLibrary.find_look_at_rotation(position, unreal.Vector(0, -190, 100)), True)
+            state.update(stage='ghoul_claw_one', since=now)
+        elif state['stage'] == 'ghoul_claw_one':
+            ghoul = state['npcs'][0]
+            assert ghoul.mesh.get_anim_instance().get_animation_asset() == ghoul.get_editor_property('contact_attack_animation')
+            assert state['player'].get_current_energy() < state['ghoul_energy_before'], 'Ghoul must still drain player energy'
+            capture('ghoul_claw_one')
+            state.update(stage='ghoul_claw_two', since=now)
+        elif state['stage'] == 'ghoul_claw_two':
+            capture('ghoul_claw_two')
+            state.update(stage='leave_ghoul', since=now)
+        elif state['stage'] == 'leave_ghoul':
+            state['player'].set_actor_location(unreal.Vector(-450, 0, 100), False, True)
+            state['energy_after_contacts'] = state['player'].get_current_energy()
+            state.update(stage='ghoul_contact_ended', since=now)
+        elif state['stage'] == 'ghoul_contact_ended':
+            ghoul = state['npcs'][0]
+            assert ghoul.mesh.get_animation_mode() == unreal.AnimationMode.ANIMATION_BLUEPRINT, 'Ghoul locomotion did not return'
+            assert state['player'].get_current_energy() == state['energy_after_contacts'], 'Energy must stop draining away from the NPCs'
+            capture('ghoul_contact_ended')
             state.update(stage='finish', since=now)
         elif state['stage'] == 'finish':
             assert all(Path(path).is_file() for path in state['captures']), 'Screenshot was not written'

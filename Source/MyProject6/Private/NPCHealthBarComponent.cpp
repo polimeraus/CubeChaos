@@ -12,7 +12,7 @@ UNPCHealthBarComponent::UNPCHealthBarComponent()
 {
 	SetWidgetClass(UNPCHealthBarWidget::StaticClass());
 	SetWidgetSpace(EWidgetSpace::Screen);
-	SetDrawSize(FVector2D(64.0f, 7.0f));
+	SetDrawSize(FVector2D(64.0f, 6.0f));
 	// Visibility must be rechecked while occluded so the bar can reappear.
 	SetTickMode(ETickMode::Enabled);
 	SetPivot(FVector2D(0.5f, 1.0f));

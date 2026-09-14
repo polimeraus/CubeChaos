@@ -11,6 +11,7 @@ class USphereComponent;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class UAnimSequence;
+class UAnimInstance;
 class AMyProject6Character;
 class ACharacter;
 class UDamageType;
@@ -48,7 +49,7 @@ public:
 
 	float GetChaseAcceptanceRadius() const { return ChaseAcceptanceRadius; }
 	float GetRepathInterval() const { return RepathInterval; }
-	virtual bool ShouldPauseChase() const { return IsDead(); }
+	virtual bool ShouldPauseChase() const { return IsDead() || bContactAttackActive; }
 
 	/** Updates movement so this NPC runs at PlayerSpeedFraction of the player's walk speed. */
 	void UpdateChaseSpeedFromPlayer(const ACharacter* PlayerCharacter);
@@ -83,6 +84,13 @@ protected:
 	/** Emissive material applied to all mesh slots while touching the player. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Contact")
 	TObjectPtr<UMaterialInterface> ContactGlowMaterial;
+
+	/** Optional looping swipe for NPCs using an animation blueprint for locomotion. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Contact")
+	TObjectPtr<UAnimSequence> ContactAttackAnimation;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Contact", meta = (ClampMin = "0.1", ClampMax = "4.0"))
+	float ContactAttackPlayRate = 1.0f;
 
 	/** Short pulse repeated while this NPC is draining player energy. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Contact Audio")
@@ -215,6 +223,8 @@ private:
 
 	void ApplyContactEnergyDrain();
 	void SetContactGlowActive(bool bActive);
+	void UpdateContactAttack(const AMyProject6Character* Target);
+	void StopContactAttack();
 	void PlayFallingSoundIfStillFalling();
 	void Die(bool bShouldSpawnReplacements = true);
 	void BeginDeathFade();
@@ -222,6 +232,8 @@ private:
 
 	TSet<TWeakObjectPtr<AMyProject6Character>> ContactingPlayers;
 	TArray<TObjectPtr<UMaterialInterface>> OriginalMeshMaterials;
+	UPROPERTY(Transient)
+	TSubclassOf<UAnimInstance> ContactLocomotionClass;
 	FTimerHandle ContactDrainTimerHandle;
 	FTimerHandle FallingSoundTimerHandle;
 	FTimerHandle DeathFadeTimerHandle;
@@ -232,5 +244,6 @@ private:
 	float ContactSoundCooldown = 0.0f;
 	bool bIsDead = false;
 	bool bContactGlowActive = false;
+	bool bContactAttackActive = false;
 	bool bFallingSoundPlayed = false;
 };

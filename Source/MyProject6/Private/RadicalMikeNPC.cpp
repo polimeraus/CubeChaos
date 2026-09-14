@@ -19,6 +19,8 @@ ARadicalMikeNPC::ARadicalMikeNPC()
 {
 	MaxHealth = 200.0f;
 	CurrentHealth = MaxHealth;
+	// Mike uses his own armed animation system instead of Ghoul's contact swipe.
+	ContactAttackAnimation = nullptr;
 	// The head bone sits inside the oversized helmet, below its antenna.
 	HealthBar->HeadClearance = 60.0f;
 	PrimaryActorTick.bStartWithTickEnabled = true;

@@ -15,7 +15,7 @@ class MYPROJECT6_API ARadicalMikeNPC : public AChasingNPC
 	GENERATED_BODY()
 public:
 	ARadicalMikeNPC();
-	virtual bool ShouldPauseChase() const override { return IsDead() || bAttackInProgress; }
+	virtual bool ShouldPauseChase() const override { return Super::ShouldPauseChase() || bAttackInProgress; }
 	virtual void Tick(float DeltaSeconds) override;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "RadicalMike|Weapon")

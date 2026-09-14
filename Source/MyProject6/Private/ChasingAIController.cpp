@@ -3,6 +3,7 @@
 #include "ChasingAIController.h"
 
 #include "ChasingNPC.h"
+#include "WhisperFollower.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
@@ -75,7 +76,8 @@ void AChasingAIController::RefreshChasePath()
 	SetFocus(PlayerPawn);
 
 	AChasingNPC* NPC = Cast<AChasingNPC>(ControlledPawn);
-	if (NPC && NPC->ShouldPauseChase())
+	const AWhisperFollower* Follower = Cast<AWhisperFollower>(ControlledPawn);
+	if ((NPC && NPC->ShouldPauseChase()) || (Follower && Follower->ShouldPauseFollow()))
 	{
 		StopMovement();
 		bUseDirectMovementFallback = false;
@@ -116,7 +118,8 @@ void AChasingAIController::Tick(const float DeltaSeconds)
 	}
 
 	const AChasingNPC* NPC = Cast<AChasingNPC>(ControlledPawn);
-	if (NPC && NPC->ShouldPauseChase())
+	const AWhisperFollower* Follower = Cast<AWhisperFollower>(ControlledPawn);
+	if ((NPC && NPC->ShouldPauseChase()) || (Follower && Follower->ShouldPauseFollow()))
 	{
 		return;
 	}

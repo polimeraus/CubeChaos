@@ -85,6 +85,13 @@ AChasingNPC::AChasingNPC()
 		GetMesh()->SetAnimInstanceClass(AnimationBlueprint.Class);
 	}
 
+	static ConstructorHelpers::FObjectFinder<UAnimSequence> DefaultContactAttack(
+		TEXT("/Game/Characters/Ghoul/Animations/Anim_Ghoul_Claw.Anim_Ghoul_Claw"));
+	if (DefaultContactAttack.Succeeded())
+	{
+		ContactAttackAnimation = DefaultContactAttack.Object;
+	}
+
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> DefaultDeathAnimation(
 		TEXT("/Game/Characters/Mannequins/Anims/Death/MM_Death_Front_01.MM_Death_Front_01"));
 	if (DefaultDeathAnimation.Succeeded())
@@ -168,6 +175,7 @@ void AChasingNPC::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	GetWorldTimerManager().ClearTimer(DeathFadeTimerHandle);
 	DeathMaterialInstances.Reset();
 	ContactingPlayers.Reset();
+	StopContactAttack();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -231,13 +239,14 @@ void AChasingNPC::OnContactBegin(
 	const FHitResult& SweepResult)
 {
 	AMyProject6Character* PlayerCharacter = Cast<AMyProject6Character>(OtherActor);
-	if (bIsDead || !PlayerCharacter || !PlayerCharacter->IsPlayerControlled())
+	if (bIsDead || !PlayerCharacter || !PlayerCharacter->IsPlayerControlled() || PlayerCharacter->IsEnergyDepleted())
 	{
 		return;
 	}
 
 	ContactingPlayers.Add(PlayerCharacter);
 	SetContactGlowActive(true);
+	UpdateContactAttack(PlayerCharacter);
 	ContactSoundCooldown = 0.0f;
 
 	if (!GetWorldTimerManager().IsTimerActive(ContactDrainTimerHandle))
@@ -268,6 +277,7 @@ void AChasingNPC::OnContactEnd(
 	{
 		GetWorldTimerManager().ClearTimer(ContactDrainTimerHandle);
 		SetContactGlowActive(false);
+		StopContactAttack();
 		ContactSoundCooldown = 0.0f;
 	}
 }
@@ -277,6 +287,7 @@ void AChasingNPC::ApplyContactEnergyDrain()
 	const float SafeInterval = FMath::Clamp(ContactDrainInterval, 0.02f, 0.5f);
 	ContactSoundCooldown -= SafeInterval;
 	bool bDrainedAnyEnergy = false;
+	const AMyProject6Character* AttackTarget = nullptr;
 	for (auto It = ContactingPlayers.CreateIterator(); It; ++It)
 	{
 		AMyProject6Character* PlayerCharacter = It->Get();
@@ -288,7 +299,10 @@ void AChasingNPC::ApplyContactEnergyDrain()
 
 		PlayerCharacter->DrainEnergy(FMath::Max(0.0f, ContactEnergyDrainPerSecond) * SafeInterval);
 		bDrainedAnyEnergy = true;
+		if (PlayerCharacter->IsEnergyDepleted()) { It.RemoveCurrent(); }
+		else if (!AttackTarget) { AttackTarget = PlayerCharacter; }
 	}
+	UpdateContactAttack(AttackTarget);
 
 	if (bDrainedAnyEnergy && ContactDrainSound && ContactSoundCooldown <= 0.0f)
 	{
@@ -306,6 +320,44 @@ void AChasingNPC::ApplyContactEnergyDrain()
 		GetWorldTimerManager().ClearTimer(ContactDrainTimerHandle);
 		SetContactGlowActive(false);
 	}
+}
+
+void AChasingNPC::UpdateContactAttack(const AMyProject6Character* Target)
+{
+	if (!Target || bIsDead)
+	{
+		StopContactAttack();
+		return;
+	}
+	USkeletalMeshComponent* CharacterMesh = GetMesh();
+	if (!bContactAttackActive)
+	{
+		if (!ContactAttackAnimation || CharacterMesh->GetAnimationMode() != EAnimationMode::AnimationBlueprint)
+		{
+			return;
+		}
+		ContactLocomotionClass = CharacterMesh->GetAnimClass();
+		bContactAttackActive = true;
+		if (GetController()) { GetController()->StopMovement(); }
+		GetCharacterMovement()->StopMovementImmediately();
+		ConsumeMovementInputVector();
+		CharacterMesh->PlayAnimation(ContactAttackAnimation, true);
+		CharacterMesh->SetPlayRate(FMath::Clamp(ContactAttackPlayRate, 0.1f, 4.0f));
+	}
+	const FVector Direction = Target->GetActorLocation() - GetActorLocation();
+	SetActorRotation(FRotator(0.0f, Direction.Rotation().Yaw, 0.0f));
+}
+
+void AChasingNPC::StopContactAttack()
+{
+	if (!bContactAttackActive) { return; }
+	bContactAttackActive = false;
+	if (!bIsDead)
+	{
+		GetMesh()->SetAnimInstanceClass(ContactLocomotionClass);
+		GetMesh()->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+	}
+	ContactLocomotionClass = nullptr;
 }
 
 void AChasingNPC::SetContactGlowActive(const bool bActive)
@@ -390,6 +442,7 @@ void AChasingNPC::Die(const bool bShouldSpawnReplacements)
 	GetWorldTimerManager().ClearTimer(FallingSoundTimerHandle);
 	ContactingPlayers.Reset();
 	SetContactGlowActive(false);
+	StopContactAttack();
 
 	if (AController* ExistingController = GetController())
 	{

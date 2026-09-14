@@ -163,7 +163,7 @@ bool FNPCHealthBarVisibilityTest::RunTest(const FString& Parameters)
 		for (int32 Frame = 0; Frame < 3; ++Frame) { ++GFrameCounter; World->Tick(LEVELTICK_All, 1.0f / 60.0f); }
 	};
 	Advance();
-	TestEqual(TEXT("Bar is thinner"), Bar->GetDrawSize(), FVector2D(64.0f, 7.0f));
+	TestEqual(TEXT("Bar is thinner"), Bar->GetDrawSize(), FVector2D(64.0f, 6.0f));
 	TestEqual(TEXT("Original green remains the default"), Gauge->GetBarColor(), FLinearColor(0.04f, 0.9f, 0.08f, 1.0f));
 	TestTrue(TEXT("Visible character has a visible bar"), Bar->IsVisible());
 	Gauge->TakeWidget();
