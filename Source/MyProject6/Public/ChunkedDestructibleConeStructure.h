@@ -80,6 +80,8 @@ class MYPROJECT6_API AChunkedDestructibleConeStructure : public AChunkedDestruct
 	GENERATED_BODY()
 	friend class FDestructibleMusicAnimationTest;
 	friend class FDestructibleConeMusicGroupsTest;
+	friend class FDestructibleConeSpiralCutFacesTest;
+	friend class FDestructibleConeSurfaceTest;
 
 public:
 	virtual bool UsesPlanarAnimation() const override { return false; }
@@ -635,14 +637,6 @@ private:
 	void AppendPlatformSurfaces(UE::Geometry::FDynamicMesh3& Mesh, int32 ChunkIndex) const;
 	void AppendSpiralSurfaces(UE::Geometry::FDynamicMesh3& Mesh, int32 ChunkIndex) const;
 	bool IsPointInsideRenderedStructure(const FVector3d& LocalPoint) const;
-	void AppendSampledDestructionCutFace(
-		UE::Geometry::FDynamicMesh3& Mesh,
-		const FVector3d& A,
-		const FVector3d& B,
-		const FVector3d& C,
-		const FVector3d& D,
-		const FVector3f& Normal,
-		int32 MaterialIndex) const;
 	void AppendClippedDestructionCutFace(
 		UE::Geometry::FDynamicMesh3& Mesh,
 		const FVector3d& A,

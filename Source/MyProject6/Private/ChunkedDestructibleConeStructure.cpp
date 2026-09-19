@@ -4,6 +4,9 @@
 
 #include "Components/DynamicMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "CompGeom/PolygonTriangulation.h"
+#include "ConstrainedDelaunay2.h"
+#include "Curve/PolygonIntersectionUtils.h"
 #include "DynamicMesh/DynamicMesh3.h"
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
 #include "EngineUtils.h"
@@ -2416,16 +2419,23 @@ void AChunkedDestructibleConeStructure::AppendClippedSurfaceTriangle(
 	const double VisualHalfX = BlockDimensions.X * 0.5 + BlockSpacing.X * 0.5 * SealFraction;
 	const double VisualHalfY = BlockDimensions.Y * 0.5 + BlockSpacing.Y * 0.5 * SealFraction;
 	const double VisualHalfZ = BlockDimensions.Z * 0.5 + BlockSpacing.Z * 0.5 * SealFraction;
+	const FVector3d VisualHalfSize(VisualHalfX, VisualHalfY, VisualHalfZ);
+	FIntVector ClipMinimum(0, 0, 0), ClipMaximum(GridDiameterBlocks, GridDiameterBlocks, GridHeightBlocks);
+	if (ChunkIndex != INDEX_NONE && (!GetSpatialChunkBounds(ChunkIndex, ClipMinimum, ClipMaximum) ||
+		LogicalZ < ClipMinimum.Z || LogicalZ >= ClipMaximum.Z)) { return; }
+	const bool bOnGridPlane[3] = {
+		FMath::IsNearlyEqual(TriangleMin.X, TriangleMax.X, ConeSurfaceTolerance),
+		FMath::IsNearlyEqual(TriangleMin.Y, TriangleMax.Y, ConeSurfaceTolerance),
+		FMath::IsNearlyEqual(TriangleMin.Z, TriangleMax.Z, ConeSurfaceTolerance)};
 
-	for (int32 Y = MinimumY; Y <= MaximumY; ++Y)
+	for (int32 Y = FMath::Max(MinimumY, ClipMinimum.Y); Y <= FMath::Min(MaximumY, ClipMaximum.Y - 1); ++Y)
 	{
-		for (int32 X = MinimumX; X <= MaximumX; ++X)
+		for (int32 X = FMath::Max(MinimumX, ClipMinimum.X); X <= FMath::Min(MaximumX, ClipMaximum.X - 1); ++X)
 		{
 			const FIntPoint Cell = EncodeCell(X, Y, LogicalZ);
 			const bool bBuildingSurfaceFlash = !SurfaceFlashCellFilter.IsEmpty();
 			const bool bSelectedFlashCell = bBuildingSurfaceFlash && SurfaceFlashCellFilter.Contains(Cell);
 			if (Cell == FIntPoint::NoneValue ||
-				(ChunkIndex != INDEX_NONE && GetSpatialChunkIndex(X, Y, LogicalZ) != ChunkIndex) ||
 				!Cells.IsValidIndex(ToCellIndex(Cell)) ||
 				(bBuildingSurfaceFlash && !bSelectedFlashCell) ||
 				(!Cells[ToCellIndex(Cell)].bExists && !bSelectedFlashCell))
@@ -2434,6 +2444,20 @@ void AChunkedDestructibleConeStructure::AppendClippedSurfaceTriangle(
 			}
 
 			const FVector CellCenter = GetCellLocalCenter(Cell);
+			// A face on a shared cell plane belongs only to the cell on its solid side.
+			// Inclusive clipping otherwise emits it twice, and leaves a floating face when
+			// that solid-side cell is destroyed but the cell on the empty side survives.
+			bool bOwnsSurface = true;
+			for (int32 Axis = 0; Axis < 3; ++Axis)
+			{
+				if (bOnGridPlane[Axis] && FMath::Abs(Normal[Axis]) > .5f)
+				{
+					const double SolidSample = TriangleMin[Axis] - Normal[Axis] * ConeSurfaceTolerance * 4;
+					bOwnsSurface &= SolidSample > CellCenter[Axis] - VisualHalfSize[Axis] &&
+						SolidSample < CellCenter[Axis] + VisualHalfSize[Axis];
+				}
+			}
+			if (!bOwnsSurface) { continue; }
 			const double CellMinX = CellCenter.X - VisualHalfX;
 			const double CellMaxX = CellCenter.X + VisualHalfX;
 			const double CellMinY = CellCenter.Y - VisualHalfY;
@@ -3379,158 +3403,6 @@ bool AChunkedDestructibleConeStructure::IsPointInsideRenderedStructure(
 	return false;
 }
 
-void AChunkedDestructibleConeStructure::AppendSampledDestructionCutFace(
-	FDynamicMesh3 &Mesh,
-	const FVector3d &A,
-	const FVector3d &B,
-	const FVector3d &C,
-	const FVector3d &D,
-	const FVector3f &Normal,
-	int32 MaterialIndex) const
-{
-	const FVector3d AxisU = B - A;
-	const FVector3d AxisV = D - A;
-	const double LengthU = AxisU.Length();
-	const double LengthV = AxisV.Length();
-	if (LengthU <= ConeSurfaceTolerance || LengthV <= ConeSurfaceTolerance)
-	{
-		return;
-	}
-	(void)C;
-
-	const double TargetEdgeLength = FMath::Clamp(
-		static_cast<double>(CachedRadialBlockUnit) * 0.25,
-		10.0,
-		50.0);
-	const int32 SubdivisionsU = FMath::Clamp(FMath::CeilToInt(LengthU / TargetEdgeLength), 1, 48);
-	const int32 SubdivisionsV = FMath::Clamp(FMath::CeilToInt(LengthV / TargetEdgeLength), 1, 48);
-	const float SafeUVScale = FMath::Max(UVWorldUnits, 1.0f);
-
-	auto MakeUV = [Normal, SafeUVScale](const FVector3d &Point)
-	{
-		if (FMath::Abs(Normal.Z) > 0.75f)
-		{
-			return FVector2f(Point.X / SafeUVScale, Point.Y / SafeUVScale);
-		}
-		return FMath::Abs(Normal.X) > FMath::Abs(Normal.Y)
-				   ? FVector2f(Point.Y / SafeUVScale, Point.Z / SafeUVScale)
-				   : FVector2f(Point.X / SafeUVScale, Point.Z / SafeUVScale);
-	};
-
-	auto FindBoundary = [this](const FVector3d &First, const FVector3d &Second, bool bFirstInside)
-	{
-		FVector3d Inside = bFirstInside ? First : Second;
-		FVector3d Outside = bFirstInside ? Second : First;
-		for (int32 Iteration = 0; Iteration < 10; ++Iteration)
-		{
-			const FVector3d Midpoint = (Inside + Outside) * 0.5;
-			if (IsPointInsideRenderedStructure(Midpoint))
-			{
-				Inside = Midpoint;
-			}
-			else
-			{
-				Outside = Midpoint;
-			}
-		}
-		return (Inside + Outside) * 0.5;
-	};
-
-	auto AppendPolygon = [&](TArray<FVector3d> &Polygon)
-	{
-		RemoveDuplicateSurfacePoints(Polygon);
-		if (Polygon.Num() < 3)
-		{
-			return;
-		}
-		for (int32 PointIndex = 1; PointIndex + 1 < Polygon.Num(); ++PointIndex)
-		{
-			FVector3d PointA = Polygon[0];
-			FVector3d PointB = Polygon[PointIndex];
-			FVector3d PointC = Polygon[PointIndex + 1];
-			const FVector3d GeometricNormal = FVector3d::CrossProduct(PointB - PointA, PointC - PointA);
-			if (GeometricNormal.SquaredLength() <= FMath::Square(ConeSurfaceTolerance))
-			{
-				continue;
-			}
-			if (FVector3d::DotProduct(GeometricNormal, FVector3d(Normal)) < 0.0)
-			{
-				Swap(PointB, PointC);
-			}
-			AppendMeshTriangle(
-				Mesh,
-				PointA,
-				PointB,
-				PointC,
-				Normal,
-				MaterialIndex,
-				MakeUV(PointA),
-				MakeUV(PointB),
-				MakeUV(PointC));
-		}
-	};
-
-	auto AppendClippedTriangle = [&](const FVector3d &PointA, const FVector3d &PointB,
-									 const FVector3d &PointC)
-	{
-		const FVector3d Points[] = {PointA, PointB, PointC};
-		const bool bInside[] = {
-			IsPointInsideRenderedStructure(PointA),
-			IsPointInsideRenderedStructure(PointB),
-			IsPointInsideRenderedStructure(PointC)};
-		const int32 InsideCount = static_cast<int32>(bInside[0]) +
-								  static_cast<int32>(bInside[1]) + static_cast<int32>(bInside[2]);
-		TArray<FVector3d> Polygon;
-		if (InsideCount == 0)
-		{
-			const FVector3d Center = (PointA + PointB + PointC) / 3.0;
-			if (!IsPointInsideRenderedStructure(Center))
-			{
-				return;
-			}
-			Polygon.Add(FindBoundary(Center, PointA, true));
-			Polygon.Add(FindBoundary(Center, PointB, true));
-			Polygon.Add(FindBoundary(Center, PointC, true));
-			AppendPolygon(Polygon);
-			return;
-		}
-
-		for (int32 CurrentIndex = 0; CurrentIndex < 3; ++CurrentIndex)
-		{
-			const int32 PreviousIndex = (CurrentIndex + 2) % 3;
-			if (bInside[PreviousIndex] != bInside[CurrentIndex])
-			{
-				Polygon.Add(FindBoundary(
-					Points[PreviousIndex],
-					Points[CurrentIndex],
-					bInside[PreviousIndex]));
-			}
-			if (bInside[CurrentIndex])
-			{
-				Polygon.Add(Points[CurrentIndex]);
-			}
-		}
-		AppendPolygon(Polygon);
-	};
-
-	for (int32 VIndex = 0; VIndex < SubdivisionsV; ++VIndex)
-	{
-		const double V0 = static_cast<double>(VIndex) / SubdivisionsV;
-		const double V1 = static_cast<double>(VIndex + 1) / SubdivisionsV;
-		for (int32 UIndex = 0; UIndex < SubdivisionsU; ++UIndex)
-		{
-			const double U0 = static_cast<double>(UIndex) / SubdivisionsU;
-			const double U1 = static_cast<double>(UIndex + 1) / SubdivisionsU;
-			const FVector3d Point00 = A + AxisU * U0 + AxisV * V0;
-			const FVector3d Point10 = A + AxisU * U1 + AxisV * V0;
-			const FVector3d Point11 = A + AxisU * U1 + AxisV * V1;
-			const FVector3d Point01 = A + AxisU * U0 + AxisV * V1;
-			AppendClippedTriangle(Point00, Point10, Point11);
-			AppendClippedTriangle(Point00, Point11, Point01);
-		}
-	}
-}
-
 void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
 	FDynamicMesh3 &Mesh,
 	const FVector3d &A,
@@ -3567,28 +3439,91 @@ void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
 	const FVector3d SortAxisV = (D - A).GetSafeNormal();
 	const float SafeUVScale = FMath::Max(UVWorldUnits, 1.0f);
 	constexpr double IntersectionTolerance = 0.001;
-	static const FIntPoint ElementEdges[] = {
+	TArray<FGeneralPolygon2d> CutRegions[2];
+	auto EmitCutRegions = [&]()
+	{
+		// Merge adjacent sections before triangulating. A shared wall/platform cell contains
+		// both solids, regardless of its material label. Emit their union exactly once;
+		// retain the cell's preferred material only where the two solids overlap.
+		for (auto& Regions : CutRegions)
+		{
+			if (Regions.IsEmpty()) { continue; }
+			TArray<FGeneralPolygon2d> Merged;
+			if (ensure(PolygonsUnion(Regions, Merged, false))) { Regions = MoveTemp(Merged); }
+		}
+		const int32 Preferred = FMath::Clamp(MaterialIndex, 0, 1);
+		const int32 Other = 1 - Preferred;
+		if (!CutRegions[Preferred].IsEmpty() && !CutRegions[Other].IsEmpty())
+		{
+			TArray<FGeneralPolygon2d> Difference;
+			if (ensure(PolygonsDifference(CutRegions[Other], CutRegions[Preferred], Difference)))
+			{
+				CutRegions[Other] = MoveTemp(Difference);
+			}
+		}
+		for (int32 SurfaceMaterial = 0; SurfaceMaterial < 2; ++SurfaceMaterial)
+		{
+			for (FGeneralPolygon2d Region : CutRegions[SurfaceMaterial])
+			{
+				// Adjacent sections can leave coincident/collinear vertices after the union.
+				// Clean at the same precision as surface clipping, then triangulate the outline
+				// directly. Only sections with an actual hole need constrained triangulation.
+				Region.Simplify(ConeSurfaceTolerance, ConeSurfaceTolerance);
+				Region.FilterHoles([](const FPolygon2d& Hole) { return Hole.VertexCount() < 3 || Hole.Area() <= ConeSurfaceTolerance; });
+				if (Region.GetOuter().VertexCount() < 3 || Region.GetOuter().Area() <= ConeSurfaceTolerance) { continue; }
+				TArray<FVector2d> Vertices;
+				TArray<FIndex3i> Triangles;
+				if (!Region.HasHoles())
+				{
+					Vertices = Region.GetOuter().GetVertices();
+					PolygonTriangulation::TriangulateSimplePolygon(Vertices, Triangles, false);
+				}
+				else
+				{
+					FConstrainedDelaunay2d Triangulation;
+					Triangulation.Add(Region);
+					if (!ensure(Triangulation.Triangulate())) { continue; }
+					Vertices = MoveTemp(Triangulation.Vertices);
+					Triangles = MoveTemp(Triangulation.Triangles);
+				}
+				auto ToLocal = [&](int32 Index)
+				{
+					const FVector2d& Point = Vertices[Index];
+					return A + SortAxisU * Point.X + SortAxisV * Point.Y;
+				};
+				auto MakeCutUV = [&](const FVector3d& Point)
+				{
+					if (FMath::Abs(Normal.Z) > .75f) { return FVector2f(Point.X / SafeUVScale, Point.Y / SafeUVScale); }
+					return FMath::Abs(Normal.X) > FMath::Abs(Normal.Y)
+						? FVector2f(Point.Y / SafeUVScale, Point.Z / SafeUVScale)
+						: FVector2f(Point.X / SafeUVScale, Point.Z / SafeUVScale);
+				};
+				for (const FIndex3i& Triangle : Triangles)
+				{
+					FVector3d P = ToLocal(Triangle.A), Q = ToLocal(Triangle.B), R = ToLocal(Triangle.C);
+					const FVector3d Cross = (Q - P).Cross(R - P);
+					if (Cross.SquaredLength() <= FMath::Square(ConeSurfaceTolerance)) { continue; }
+					if (Cross.Dot(FVector3d(Normal)) < 0) { Swap(Q, R); }
+					AppendMeshTriangle(Mesh, P, Q, R, Normal, SurfaceMaterial, MakeCutUV(P), MakeCutUV(Q), MakeCutUV(R));
+				}
+			}
+		}
+	};
+	static const FIntPoint HexahedronEdges[] = {
 		FIntPoint(0, 1), FIntPoint(0, 2), FIntPoint(1, 3), FIntPoint(2, 3),
 		FIntPoint(4, 5), FIntPoint(4, 6), FIntPoint(5, 7), FIntPoint(6, 7),
 		FIntPoint(0, 4), FIntPoint(1, 5), FIntPoint(2, 6), FIntPoint(3, 7)};
+	// Spiral slices are triangular prisms: three bottom vertices followed by three top
+	// vertices. Their cut faces must use all nine prism edges, including the diagonal
+	// shared by the two slices. Treating them as eight-vertex elements left cuts open.
+	static const FIntPoint TriangularPrismEdges[] = {
+		FIntPoint(0, 1), FIntPoint(1, 2), FIntPoint(2, 0),
+		FIntPoint(3, 4), FIntPoint(4, 5), FIntPoint(5, 3),
+		FIntPoint(0, 3), FIntPoint(1, 4), FIntPoint(2, 5)};
 
-	auto MakeUV = [Normal, SafeUVScale](const FVector3d &Point)
+	auto AppendElementIntersection = [&](const TArray<FVector3d, TInlineAllocator<8>> &Vertices,
+		TConstArrayView<FIntPoint> ElementEdges, int32 SurfaceMaterial)
 	{
-		if (FMath::Abs(Normal.Z) > 0.75f)
-		{
-			return FVector2f(Point.X / SafeUVScale, Point.Y / SafeUVScale);
-		}
-		return FMath::Abs(Normal.X) > FMath::Abs(Normal.Y)
-				   ? FVector2f(Point.Y / SafeUVScale, Point.Z / SafeUVScale)
-				   : FVector2f(Point.X / SafeUVScale, Point.Z / SafeUVScale);
-	};
-
-	auto AppendElementIntersection = [&](const TArray<FVector3d, TInlineAllocator<8>> &Vertices)
-	{
-		if (Vertices.Num() != 8)
-		{
-			return;
-		}
 		FVector3d ElementMinimum = Vertices[0];
 		FVector3d ElementMaximum = Vertices[0];
 		for (const FVector3d &Vertex : Vertices)
@@ -3604,6 +3539,10 @@ void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
 		{
 			return;
 		}
+		// The surviving solid is behind the outward normal. Merely touching a plane
+		// from its removed side cannot create a cap (or revive a deleted layer).
+		if ((Normal[PlaneAxis] > 0 && ElementMinimum[PlaneAxis] >= Plane - IntersectionTolerance) ||
+			(Normal[PlaneAxis] < 0 && ElementMaximum[PlaneAxis] <= Plane + IntersectionTolerance)) { return; }
 		for (int32 Axis = 0; Axis < 3; ++Axis)
 		{
 			if (Axis != PlaneAxis &&
@@ -3687,31 +3626,15 @@ void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
 			return;
 		}
 
-		for (int32 PointIndex = 1; PointIndex + 1 < Polygon.Num(); ++PointIndex)
+		FPolygon2d Region;
+		for (const FVector3d& Point : Polygon)
 		{
-			FVector3d PointA = Polygon[0];
-			FVector3d PointB = Polygon[PointIndex];
-			FVector3d PointC = Polygon[PointIndex + 1];
-			const FVector3d GeometricNormal = FVector3d::CrossProduct(PointB - PointA, PointC - PointA);
-			if (GeometricNormal.SquaredLength() <= FMath::Square(ConeSurfaceTolerance))
-			{
-				continue;
-			}
-			if (FVector3d::DotProduct(GeometricNormal, FVector3d(Normal)) < 0.0)
-			{
-				Swap(PointB, PointC);
-			}
-			AppendMeshTriangle(
-				Mesh,
-				PointA,
-				PointB,
-				PointC,
-				Normal,
-				MaterialIndex,
-				MakeUV(PointA),
-				MakeUV(PointB),
-				MakeUV(PointC));
+			const FVector3d Relative = Point - A;
+			Region.AppendVertex(FVector2d(Relative.Dot(SortAxisU), Relative.Dot(SortAxisV)));
 		}
+		if (Region.Area() <= ConeSurfaceTolerance) { return; }
+		if (Region.IsClockwise()) { Region.Reverse(); }
+		CutRegions[SurfaceMaterial].Emplace(Region);
 	};
 
 	const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
@@ -3720,7 +3643,7 @@ void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
 	const float VerticalSeal = BlockSpacing.Z * 0.5f *
 							   FMath::Clamp(SurfaceGapSealFraction, 0.0f, 1.0f);
 
-	if (MaterialIndex == 0 || !bGeneratePlatforms)
+	// Always intersect the shell; a material label cannot exclude part of the volume.
 	{
 		const int32 SegmentCount = GetEffectiveCircularSegments();
 		const int32 MinimumLayer = FMath::Clamp(
@@ -3737,8 +3660,8 @@ void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
 			const float TopZ = FMath::Min(Z * PitchZ + BlockDimensions.Z + VerticalSeal, TotalHeight);
 			const float OuterBottomRadius = GetConeOuterRadiusAtHeight(BottomZ);
 			const float OuterTopRadius = GetConeOuterRadiusAtHeight(TopZ);
-			const float InnerBottomRadius = GetConeInnerRadiusAtHeight(BottomZ);
-			const float InnerTopRadius = GetConeInnerRadiusAtHeight(TopZ);
+			const float InnerBottomRadius = bGenerateConeBase && Z == 0 ? 0.0f : GetConeInnerRadiusAtHeight(BottomZ);
+			const float InnerTopRadius = bGenerateConeBase && Z == 0 ? 0.0f : GetConeInnerRadiusAtHeight(TopZ);
 			for (int32 SegmentIndex = 0; SegmentIndex < SegmentCount; ++SegmentIndex)
 			{
 				const double AngleA = UE_TWO_PI * SegmentIndex / SegmentCount;
@@ -3752,9 +3675,13 @@ void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
 					FVector3d(FMath::Cos(AngleB) * OuterBottomRadius, FMath::Sin(AngleB) * OuterBottomRadius, BottomZ),
 					FVector3d(FMath::Cos(AngleB) * InnerTopRadius, FMath::Sin(AngleB) * InnerTopRadius, TopZ),
 					FVector3d(FMath::Cos(AngleB) * OuterTopRadius, FMath::Sin(AngleB) * OuterTopRadius, TopZ)};
-				AppendElementIntersection(Vertices);
+				AppendElementIntersection(Vertices, HexahedronEdges, 0);
 			}
 		}
+	}
+	if (!bGeneratePlatforms)
+	{
+		EmitCutRegions();
 		return;
 	}
 
@@ -3797,9 +3724,10 @@ void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
 					FVector3d(FMath::Cos(AngleB) * OuterRadius, FMath::Sin(AngleB) * OuterRadius, BottomZ),
 					FVector3d(FMath::Cos(AngleB) * InnerRadius, FMath::Sin(AngleB) * InnerRadius, TopZ),
 					FVector3d(FMath::Cos(AngleB) * OuterRadius, FMath::Sin(AngleB) * OuterRadius, TopZ)};
-				AppendElementIntersection(Vertices);
+				AppendElementIntersection(Vertices, HexahedronEdges, 1);
 			}
 		}
+		EmitCutRegions();
 		return;
 	}
 
@@ -3845,16 +3773,17 @@ void AChunkedDestructibleConeStructure::AppendClippedDestructionCutFace(
 			TArray<FVector3d, TInlineAllocator<8>> OuterTriangleVertices = {
 				InnerBottomA, OuterBottomA, OuterBottomB,
 				InnerTopA, OuterTopA, OuterTopB};
-			AppendElementIntersection(OuterTriangleVertices);
+			AppendElementIntersection(OuterTriangleVertices, TriangularPrismEdges, 1);
 		}
 		if (!IsSpiralTriangleSliceDestroyed(SegmentIndex, 1))
 		{
 			TArray<FVector3d, TInlineAllocator<8>> InnerTriangleVertices = {
 				InnerBottomA, OuterBottomB, InnerBottomB,
 				InnerTopA, OuterTopB, InnerTopB};
-			AppendElementIntersection(InnerTriangleVertices);
+			AppendElementIntersection(InnerTriangleVertices, TriangularPrismEdges, 1);
 		}
 	}
+	EmitCutRegions();
 }
 
 bool AChunkedDestructibleConeStructure::ShouldAppendPlanarCutFace(
@@ -3897,15 +3826,17 @@ void AChunkedDestructibleConeStructure::AppendDestroyedCellCutFaces(
 	}
 
 	const FVector Center = GetCellLocalCenter(Cell);
-	const double MinX = Center.X - BlockDimensions.X * 0.5;
-	const double MaxX = Center.X + BlockDimensions.X * 0.5;
-	const double MinY = Center.Y - BlockDimensions.Y * 0.5;
-	const double MaxY = Center.Y + BlockDimensions.Y * 0.5;
-	const double MinZ = Center.Z - BlockDimensions.Z * 0.5;
-	const double MaxZ = Center.Z + BlockDimensions.Z * 0.5;
+	const double Seal = FMath::Clamp(SurfaceGapSealFraction, 0.0f, 1.0f);
+	const FVector VisualHalfSize = (BlockDimensions + BlockSpacing * Seal) * .5;
+	const double MinX = Center.X - VisualHalfSize.X;
+	const double MaxX = Center.X + VisualHalfSize.X;
+	const double MinY = Center.Y - VisualHalfSize.Y;
+	const double MaxY = Center.Y + VisualHalfSize.Y;
+	const double MinZ = Center.Z - VisualHalfSize.Z;
+	const double MaxZ = Center.Z + VisualHalfSize.Z;
 	const int32 MaterialIndex = CellData.MaterialIndex;
 
-	if (BlockSpacing.X <= ConeSpacingTolerance && CellExists3D(X - 1, Y, Z))
+	if (BlockSpacing.X * (1.0 - Seal) <= ConeSpacingTolerance && CellExists3D(X - 1, Y, Z))
 	{
 		const int32 FirstTriangle = Mesh.MaxTriangleID();
 		AppendClippedDestructionCutFace(Mesh,
@@ -3914,7 +3845,7 @@ void AChunkedDestructibleConeStructure::AppendDestroyedCellCutFaces(
 										FVector3f::UnitX(), MaterialIndex);
 		SetMusicTriangleCells(Mesh, FirstTriangle, EncodeCell(X - 1, Y, Z));
 	}
-	if (BlockSpacing.X <= ConeSpacingTolerance && CellExists3D(X + 1, Y, Z))
+	if (BlockSpacing.X * (1.0 - Seal) <= ConeSpacingTolerance && CellExists3D(X + 1, Y, Z))
 	{
 		const int32 FirstTriangle = Mesh.MaxTriangleID();
 		AppendClippedDestructionCutFace(Mesh,
@@ -3923,7 +3854,7 @@ void AChunkedDestructibleConeStructure::AppendDestroyedCellCutFaces(
 										-FVector3f::UnitX(), MaterialIndex);
 		SetMusicTriangleCells(Mesh, FirstTriangle, EncodeCell(X + 1, Y, Z));
 	}
-	if (BlockSpacing.Y <= ConeSpacingTolerance && CellExists3D(X, Y - 1, Z))
+	if (BlockSpacing.Y * (1.0 - Seal) <= ConeSpacingTolerance && CellExists3D(X, Y - 1, Z))
 	{
 		const int32 FirstTriangle = Mesh.MaxTriangleID();
 		AppendClippedDestructionCutFace(Mesh,
@@ -3932,7 +3863,7 @@ void AChunkedDestructibleConeStructure::AppendDestroyedCellCutFaces(
 										FVector3f::UnitY(), MaterialIndex);
 		SetMusicTriangleCells(Mesh, FirstTriangle, EncodeCell(X, Y - 1, Z));
 	}
-	if (BlockSpacing.Y <= ConeSpacingTolerance && CellExists3D(X, Y + 1, Z))
+	if (BlockSpacing.Y * (1.0 - Seal) <= ConeSpacingTolerance && CellExists3D(X, Y + 1, Z))
 	{
 		const int32 FirstTriangle = Mesh.MaxTriangleID();
 		AppendClippedDestructionCutFace(Mesh,
@@ -3941,7 +3872,7 @@ void AChunkedDestructibleConeStructure::AppendDestroyedCellCutFaces(
 										-FVector3f::UnitY(), MaterialIndex);
 		SetMusicTriangleCells(Mesh, FirstTriangle, EncodeCell(X, Y + 1, Z));
 	}
-	if (BlockSpacing.Z <= ConeSpacingTolerance && CellExists3D(X, Y, Z - 1))
+	if (BlockSpacing.Z * (1.0 - Seal) <= ConeSpacingTolerance && CellExists3D(X, Y, Z - 1))
 	{
 		const int32 FirstTriangle = Mesh.MaxTriangleID();
 		AppendClippedDestructionCutFace(Mesh,
@@ -3950,7 +3881,7 @@ void AChunkedDestructibleConeStructure::AppendDestroyedCellCutFaces(
 										FVector3f::UnitZ(), MaterialIndex);
 		SetMusicTriangleCells(Mesh, FirstTriangle, EncodeCell(X, Y, Z - 1));
 	}
-	if (BlockSpacing.Z <= ConeSpacingTolerance && CellExists3D(X, Y, Z + 1))
+	if (BlockSpacing.Z * (1.0 - Seal) <= ConeSpacingTolerance && CellExists3D(X, Y, Z + 1))
 	{
 		const int32 FirstTriangle = Mesh.MaxTriangleID();
 		AppendClippedDestructionCutFace(Mesh,
@@ -4080,14 +4011,16 @@ void AChunkedDestructibleConeStructure::BuildChunkMesh(
 					continue;
 				}
 				const int32 DecodedZ = Z;
+				const double Seal = FMath::Clamp(SurfaceGapSealFraction, 0.0f, 1.0f);
+				const FVector VisualHalfSize = (BlockDimensions + BlockSpacing * Seal) * .5;
 				const int32 FirstCellTriangle = OutMesh.MaxTriangleID();
 				const FVector Center = GetPhysicalCellLocalCenter(X, Y, Z);
-				const double MinX = Center.X - BlockDimensions.X * 0.5;
-				const double MaxX = Center.X + BlockDimensions.X * 0.5;
-				const double MinY = Center.Y - BlockDimensions.Y * 0.5;
-				const double MaxY = Center.Y + BlockDimensions.Y * 0.5;
-				const double MinCellZ = Center.Z - BlockDimensions.Z * 0.5;
-				const double MaxCellZ = Center.Z + BlockDimensions.Z * 0.5;
+				const double MinX = Center.X - VisualHalfSize.X;
+				const double MaxX = Center.X + VisualHalfSize.X;
+				const double MinY = Center.Y - VisualHalfSize.Y;
+				const double MaxY = Center.Y + VisualHalfSize.Y;
+				const double MinCellZ = Center.Z - VisualHalfSize.Z;
+				const double MaxCellZ = Center.Z + VisualHalfSize.Z;
 				const int32 MaterialIndex = CellData.MaterialIndex;
 				auto NeedsFace = [this](int32 NeighborX, int32 NeighborY, int32 NeighborZ, bool bAxisHasGap)
 				{
@@ -4095,47 +4028,47 @@ void AChunkedDestructibleConeStructure::BuildChunkMesh(
 						   (bAxisHasGap && CellExists3D(NeighborX, NeighborY, NeighborZ));
 				};
 
-				if (NeedsFace(X - 1, Y, DecodedZ, BlockSpacing.X > ConeSpacingTolerance))
+				if (NeedsFace(X - 1, Y, DecodedZ, BlockSpacing.X * (1.0 - Seal) > ConeSpacingTolerance))
 				{
-					AppendMeshQuad(OutMesh,
+					AppendClippedDestructionCutFace(OutMesh,
 								   FVector3d(MinX, MinY, MinCellZ), FVector3d(MinX, MinY, MaxCellZ),
 								   FVector3d(MinX, MaxY, MaxCellZ), FVector3d(MinX, MaxY, MinCellZ),
-								   -FVector3f::UnitX(), MaterialIndex, BlockDimensions.Z, BlockDimensions.Y, UVWorldUnits);
+								   -FVector3f::UnitX(), MaterialIndex);
 				}
-				if (NeedsFace(X + 1, Y, DecodedZ, BlockSpacing.X > ConeSpacingTolerance))
+				if (NeedsFace(X + 1, Y, DecodedZ, BlockSpacing.X * (1.0 - Seal) > ConeSpacingTolerance))
 				{
-					AppendMeshQuad(OutMesh,
+					AppendClippedDestructionCutFace(OutMesh,
 								   FVector3d(MaxX, MaxY, MinCellZ), FVector3d(MaxX, MaxY, MaxCellZ),
 								   FVector3d(MaxX, MinY, MaxCellZ), FVector3d(MaxX, MinY, MinCellZ),
-								   FVector3f::UnitX(), MaterialIndex, BlockDimensions.Z, BlockDimensions.Y, UVWorldUnits);
+								   FVector3f::UnitX(), MaterialIndex);
 				}
-				if (NeedsFace(X, Y - 1, DecodedZ, BlockSpacing.Y > ConeSpacingTolerance))
+				if (NeedsFace(X, Y - 1, DecodedZ, BlockSpacing.Y * (1.0 - Seal) > ConeSpacingTolerance))
 				{
-					AppendMeshQuad(OutMesh,
+					AppendClippedDestructionCutFace(OutMesh,
 								   FVector3d(MaxX, MinY, MinCellZ), FVector3d(MaxX, MinY, MaxCellZ),
 								   FVector3d(MinX, MinY, MaxCellZ), FVector3d(MinX, MinY, MinCellZ),
-								   -FVector3f::UnitY(), MaterialIndex, BlockDimensions.Z, BlockDimensions.X, UVWorldUnits);
+								   -FVector3f::UnitY(), MaterialIndex);
 				}
-				if (NeedsFace(X, Y + 1, DecodedZ, BlockSpacing.Y > ConeSpacingTolerance))
+				if (NeedsFace(X, Y + 1, DecodedZ, BlockSpacing.Y * (1.0 - Seal) > ConeSpacingTolerance))
 				{
-					AppendMeshQuad(OutMesh,
+					AppendClippedDestructionCutFace(OutMesh,
 								   FVector3d(MinX, MaxY, MinCellZ), FVector3d(MinX, MaxY, MaxCellZ),
 								   FVector3d(MaxX, MaxY, MaxCellZ), FVector3d(MaxX, MaxY, MinCellZ),
-								   FVector3f::UnitY(), MaterialIndex, BlockDimensions.Z, BlockDimensions.X, UVWorldUnits);
+								   FVector3f::UnitY(), MaterialIndex);
 				}
-				if (NeedsFace(X, Y, DecodedZ - 1, BlockSpacing.Z > ConeSpacingTolerance))
+				if (NeedsFace(X, Y, DecodedZ - 1, BlockSpacing.Z * (1.0 - Seal) > ConeSpacingTolerance))
 				{
-					AppendMeshQuad(OutMesh,
+					AppendClippedDestructionCutFace(OutMesh,
 								   FVector3d(MinX, MaxY, MinCellZ), FVector3d(MaxX, MaxY, MinCellZ),
 								   FVector3d(MaxX, MinY, MinCellZ), FVector3d(MinX, MinY, MinCellZ),
-								   -FVector3f::UnitZ(), MaterialIndex, BlockDimensions.X, BlockDimensions.Y, UVWorldUnits);
+								   -FVector3f::UnitZ(), MaterialIndex);
 				}
-				if (NeedsFace(X, Y, DecodedZ + 1, BlockSpacing.Z > ConeSpacingTolerance))
+				if (NeedsFace(X, Y, DecodedZ + 1, BlockSpacing.Z * (1.0 - Seal) > ConeSpacingTolerance))
 				{
-					AppendMeshQuad(OutMesh,
+					AppendClippedDestructionCutFace(OutMesh,
 								   FVector3d(MinX, MinY, MaxCellZ), FVector3d(MaxX, MinY, MaxCellZ),
 								   FVector3d(MaxX, MaxY, MaxCellZ), FVector3d(MinX, MaxY, MaxCellZ),
-								   FVector3f::UnitZ(), MaterialIndex, BlockDimensions.X, BlockDimensions.Y, UVWorldUnits);
+								   FVector3f::UnitZ(), MaterialIndex);
 				}
 				SetMusicTriangleCells(OutMesh, FirstCellTriangle, Cell);
 			}
