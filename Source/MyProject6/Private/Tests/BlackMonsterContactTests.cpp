@@ -84,15 +84,24 @@ bool FBlackMonsterContactTest::RunTest(const FString& Parameters)
 	UAnimSequence* Attack = Cast<UAnimSequence>(Instance->GetCurrentAsset());
 	if (!TestNotNull(TEXT("Claw sequence plays"), Attack)) { return false; }
 	TestEqual(TEXT("Uses Black Monster's own skeleton and claw sequence"), Attack->GetFName(), FName(TEXT("Anim_BlackMonster_Claw")));
-	const FVector Hand = Mesh->GetSocketLocation(TEXT("RightHand"));
-	const FVector LeftHand = Mesh->GetSocketLocation(TEXT("LeftHand"));
 	const FVector PlantedLocation = NPC->GetActorLocation();
 	const float Energy = Player->GetCurrentEnergy();
-	Advance(0.45f);
-	TestTrue(TEXT("Claw really sweeps through space"), FVector::Dist(Hand, Mesh->GetSocketLocation(TEXT("RightHand"))) > 35);
-	TestTrue(TEXT("The second arm participates in the combo"), FVector::Dist(LeftHand, Mesh->GetSocketLocation(TEXT("LeftHand"))) > 35);
+	Advance(0.15f);
+	const FVector RightWindup = Mesh->GetSocketLocation(TEXT("RightHand"));
+	TestTrue(TEXT("Right slash winds up above the head"), RightWindup.Z > Mesh->GetSocketLocation(TEXT("Head")).Z + 25);
+	Advance(0.15f);
+	TestTrue(TEXT("Right claw makes a broad overhead downswing"), FVector::Dist(RightWindup, Mesh->GetSocketLocation(TEXT("RightHand"))) > 75);
+	TestTrue(TEXT("The right claw strikes first while the left guards"), FVector::DotProduct(
+		Mesh->GetSocketLocation(TEXT("RightHand"))-Mesh->GetSocketLocation(TEXT("LeftHand")), NPC->GetActorForwardVector()) > 35);
 	TestTrue(TEXT("Attack stays planted"), NPC->GetActorLocation().Equals(PlantedLocation, 0.1));
-	TestTrue(TEXT("Contact drains the same energy rate as other enemies"), FMath::IsNearlyEqual(Player->GetCurrentEnergy(), Energy - 9.0f, 0.05f));
+	TestTrue(TEXT("Contact drains the same energy rate as other enemies"), FMath::IsNearlyEqual(Player->GetCurrentEnergy(), Energy - 6.0f, 0.05f));
+	Advance(0.85f);
+	const FVector LeftWindup = Mesh->GetSocketLocation(TEXT("LeftHand"));
+	TestTrue(TEXT("Left slash winds up above the head"), LeftWindup.Z > Mesh->GetSocketLocation(TEXT("Head")).Z + 25);
+	Advance(0.15f);
+	TestTrue(TEXT("Left claw makes the next broad overhead downswing"), FVector::Dist(LeftWindup, Mesh->GetSocketLocation(TEXT("LeftHand"))) > 75);
+	TestTrue(TEXT("The left claw strikes second while the right guards"), FVector::DotProduct(
+		Mesh->GetSocketLocation(TEXT("LeftHand"))-Mesh->GetSocketLocation(TEXT("RightHand")), NPC->GetActorForwardVector()) > 35);
 	Advance(Attack->GetPlayLength() + 0.1f);
 	TestEqual(TEXT("Attack loops while player stays close"), Instance->GetCurrentAsset(), static_cast<UAnimationAsset*>(Attack));
 	Player->SetActorLocation(NPC->GetActorLocation() + FVector(650, 0, 0));

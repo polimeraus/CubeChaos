@@ -25,11 +25,11 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* TickFunction) override;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Reaction", meta = (ClampMin = "0.0", Units = "cm"))
-	float StaggerDistance = 22.0f;
+	float StaggerDistance = 100.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Reaction", meta = (ClampMin = "0.05", Units = "s"))
-	float StaggerDuration = 0.24f;
+	float StaggerDuration = 0.42f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Reaction", meta = (ClampMin = "0.0", ClampMax = "20.0", Units = "deg"))
-	float StaggerLeanAngle = 7.0f;
+	float StaggerLeanAngle = 16.0f;
 	/** At normal gravity, 450 horizontal / 360 upward travels about 3.3 metres on level ground. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death Flight", meta = (ClampMin = "0.0", Units = "cm/s"))
 	float DeathHorizontalSpeed = 450.0f;

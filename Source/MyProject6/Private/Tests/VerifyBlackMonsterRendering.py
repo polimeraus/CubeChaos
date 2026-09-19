@@ -5,7 +5,7 @@ from pathlib import Path
 import unreal
 
 root = '/Game/Characters/black-monster'
-output = Path(unreal.Paths.project_saved_dir()) / 'BlackMonster/Preview'
+output = Path(unreal.Paths.project_saved_dir()) / 'BlackMonster/ClawPreview'
 output.mkdir(parents=True, exist_ok=True)
 world = unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
 actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
@@ -19,13 +19,16 @@ for rotation, intensity in [(unreal.Rotator(pitch=-40, yaw=-30, roll=0), 45), (u
 floor = actors.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(0, 0, -6))
 floor.static_mesh_component.set_static_mesh(unreal.load_asset('/Engine/BasicShapes/Cube'))
 floor.set_actor_scale3d(unreal.Vector(12, 12, .1))
-position = unreal.Vector(360, 440, 250)
+backdrop = actors.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(-350, 0, 300))
+backdrop.static_mesh_component.set_static_mesh(unreal.load_asset('/Engine/BasicShapes/Cube'))
+backdrop.set_actor_scale3d(unreal.Vector(.1, 24, 12))
+position = unreal.Vector(440, 300, 260)
 camera = actors.spawn_actor_from_class(unreal.SceneCapture2D, position)
-camera.set_actor_rotation(unreal.MathLibrary.find_look_at_rotation(position, unreal.Vector(0, 0, 100)), False)
+camera.set_actor_rotation(unreal.MathLibrary.find_look_at_rotation(position, unreal.Vector(0, 0, 145)), False)
 capture = camera.get_component_by_class(unreal.SceneCaptureComponent2D)
 capture.set_editor_property('projection_type', unreal.CameraProjectionMode.ORTHOGRAPHIC)
-capture.set_editor_property('ortho_width', 360.0)
-capture.set_editor_property('capture_every_frame', True)
+capture.set_editor_property('ortho_width', 440.0)
+capture.set_editor_property('capture_every_frame', False)
 capture.set_editor_property('always_persist_rendering_state', True)
 capture.set_editor_property('capture_source', unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR)
 target = unreal.RenderingLibrary.create_render_target2d(world, 800, 800, unreal.TextureRenderTargetFormat.RTF_RGBA8)
@@ -36,7 +39,7 @@ post.set_editor_property('auto_exposure_method', unreal.AutoExposureMethod.AEM_M
 post.set_editor_property('override_auto_exposure_bias', True)
 post.set_editor_property('auto_exposure_bias', 10.0)
 capture.set_editor_property('post_process_settings', post)
-poses = [('Idle', 0.0), ('Run', .18), ('Claw', .35), ('Claw', .72), ('Claw', 1.1), ('Claw', 1.35), ('Hit', .12), ('Death', .45), ('Death', 1.0)]
+poses = [('Claw', frame/20) for frame in range(40)]
 state = {'index': 0, 'since': time.monotonic(), 'report': []}
 
 
@@ -55,14 +58,14 @@ def pose():
 
 
 def tick(delta):
-    if time.monotonic() - state['since'] < (12 if state['index'] == 0 else 2):
+    if time.monotonic() - state['since'] < (12 if state['index'] == 0 else .5):
         return
     try:
         name, seconds = poses[state['index']]
         capture.capture_scene()
         filename = f'{state["index"]}_{name}.png'
         unreal.RenderingLibrary.export_render_target(world, target, str(output), filename)
-        state['report'].append({'image': filename, 'head': str(mesh.get_socket_location('Head')),
+        state['report'].append({'image': filename, 'seconds': seconds, 'head': str(mesh.get_socket_location('Head')),
                                 'hand': str(mesh.get_socket_location('RightHand')),
                                 'left_hand': str(mesh.get_socket_location('LeftHand')),
                                 'foot': str(mesh.get_socket_location('LeftToeBase'))})

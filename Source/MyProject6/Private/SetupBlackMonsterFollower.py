@@ -229,22 +229,77 @@ def blend_pose(a, b, alpha):
     return a
 
 
-# Retarget an authored two-arm combo: preserve the source's anticipation,
-# alternating swipes, wrist follow-through and recovery on this longer-limbed rig.
-combo = require('/Game/Characters/Whisper/Animations/Anim_Whisper_Attack1')
-source_reference = EXT.get_reference_pose(combo.get_editor_property('skeleton'))
-forward = EXT.get_bone_pose(source_reference, 'ball_l', WORLD).translation - EXT.get_bone_pose(source_reference, 'foot_l', WORLD).translation
-source_sign = 1 if forward.y >= 0 else -1
+whisper_attack = require('/Game/Characters/Whisper/Animations/Anim_Whisper_Attack2')
+whisper_start = sample(whisper_attack, 0)
 
 
-def mapped(v):
-    return unreal.Vector(v.x*source_sign, v.y*source_sign, v.z)
+def whisper_strike(seconds, mirrored=False):
+    """Transfer Whisper's shoulder-led slash, retaining this rig's bone lengths.
+
+    World-space anatomical directions avoid copying incompatible bind rotations.
+    The opposite slash reflects the whole performance, including its body recoil
+    and counterbalancing arm, rather than moving only the other wrist.
+    """
+    source = sample(whisper_attack, seconds)
+    mirror = -1 if mirrored else 1
+
+    def position(bone, sampled=source):
+        p = EXT.get_bone_pose(sampled, bone, WORLD).translation
+        return unreal.Vector(p.x*mirror, p.y, p.z)
+
+    def direction(parent, child):
+        return position(child)-position(parent)
+
+    pose = idle_pose()
+    shoulders = direction('upperarm_r', 'upperarm_l')*mirror
+    turn = math.degrees(math.atan2(shoulders.y, shoulders.x))
+    spine = direction('pelvis', 'head')
+    lean = math.degrees(math.atan2(spine.y, spine.z))
+    displacement = position('pelvis')-position('pelvis', whisper_start)
+    hip = EXT.get_bone_pose(pose, 'Hips', LOCAL)
+    hip.translation = hip.translation + unreal.Vector(displacement.x*.6, displacement.y*.55,
+                                                       displacement.z*.6-9)
+    pose = EXT.set_bone_pose(pose, hip, 'Hips', LOCAL)
+    pose = rotate_world(pose, 'Hips', turn*.15)
+    pose = pin_feet(pose)
+    pose = rotate_world(pose, 'Spine02', turn*.35)
+    pose = rotate_world(pose, 'Spine', turn*.5)
+    pose = rotate_axis(pose, 'Spine02', (1,0,0), -lean*.65)
+    pose = rotate_world(pose, 'Head', -turn*.3)
+
+    for source_side, target_side in [('r', 'Left' if mirrored else 'Right'),
+                                     ('l', 'Right' if mirrored else 'Left')]:
+        upper, lower, wrist = ('upperarm_'+source_side, 'lowerarm_'+source_side, 'hand_'+source_side)
+        pose = aim(pose, target_side+'Arm', target_side+'ForeArm', xyz(direction(upper, lower)))
+        pose = aim(pose, target_side+'ForeArm', target_side+'Hand', xyz(direction(lower, wrist)))
+        hand = EXT.get_bone_pose(pose, target_side+'Hand', WORLD)
+        current = rotate_vector(hand.rotation, unreal.Vector(0,-1,0))
+        claw = direction(wrist, 'index_01_'+source_side)
+        hand.rotation = quat_mul(between(xyz(current), xyz(claw)), hand.rotation)
+        pose = EXT.set_bone_pose(pose, hand, target_side+'Hand', WORLD)
+    return pose
 
 
-left = EXT.get_bone_pose(source_reference, 'upperarm_l', WORLD).translation
-source_sides = [('Left', 'l'), ('Right', 'r')] if mapped(left).x > 0 else [('Left', 'r'), ('Right', 'l')]
-source_start = sample(combo, 0)
-source_hip = EXT.get_bone_pose(source_start, 'pelvis', WORLD).translation
+def claw_pose(t):
+    # Keep the source's acceleration through the overhead arc: independently
+    # easing every wrist key used to stop the arm in mid-swing. Each one-second
+    # slash now has a long wind-up, a fast downswing and a full cross-body finish.
+    mirrored = t >= .5
+    phase = (t*2) % 1
+    timing = [(0,.12), (.24,.433), (.32,.542), (.42,.65), (.58,.84), (.76,1.04), (1,1.30)]
+    for (start, a), (end, b) in zip(timing, timing[1:]):
+        if phase <= end:
+            seconds = a+(b-a)*(phase-start)/(end-start)
+            break
+    pose = whisper_strike(seconds, mirrored)
+    if phase > .76:
+        # Flow out of the follow-through into the opposite shoulder's wind-up.
+        # At the loop boundary both poses match exactly, without an idle pause.
+        transition = (phase-.76)/.24
+        next_pose = whisper_strike(.12*transition, not mirrored)
+        pose = blend_pose(pose, next_pose, transition*transition*(3-2*transition))
+        pose = pin_feet(pose)
+    return pose
 
 
 def make_pose(kind, t):
@@ -252,35 +307,7 @@ def make_pose(kind, t):
         return idle_pose(t)
     pose = idle_pose()
     if kind == 'Claw':
-        source = sample(combo, combo.get_play_length()*t)
-        shift = mapped(EXT.get_bone_pose(source, 'pelvis', WORLD).translation-source_hip)*.4
-        hip = EXT.get_bone_pose(pose, 'Hips', LOCAL)
-        hip.translation = hip.translation + shift
-        pose = EXT.set_bone_pose(pose, hip, 'Hips', LOCAL)
-        source_left = source_sides[0][1]
-        source_right = source_sides[1][1]
-        across = mapped(EXT.get_bone_pose(source, 'upperarm_'+source_left, WORLD).translation
-                        - EXT.get_bone_pose(source, 'upperarm_'+source_right, WORLD).translation)
-        turn = max(-65, min(65, math.degrees(math.atan2(across.y, across.x))))
-        pose = rotate_world(pose, 'Hips', turn*.15)
-        pose = pin_feet(pose)
-        pose = rotate_world(pose, 'Spine02', turn*.35)
-        pose = rotate_world(pose, 'Spine', turn*.50)
-        for target_side, source_side in source_sides:
-            for target_bone, target_child, source_bone, source_child in [
-                ('Arm','ForeArm','upperarm_','lowerarm_'), ('ForeArm','Hand','lowerarm_','hand_')]:
-                direction = mapped(EXT.get_bone_pose(source, source_child+source_side, WORLD).translation
-                                   - EXT.get_bone_pose(source, source_bone+source_side, WORLD).translation)
-                pose = aim(pose, target_side+target_bone, target_side+target_child, xyz(direction))
-            hand = EXT.get_bone_pose(pose, target_side+'Hand', WORLD)
-            direction = mapped(EXT.get_bone_pose(source, 'middle_03_'+source_side, WORLD).translation
-                               - EXT.get_bone_pose(source, 'hand_'+source_side, WORLD).translation)
-            current = rotate_vector(hand.rotation, unreal.Vector(0, -1, 0))
-            hand.rotation = quat_mul(between(xyz(current), xyz(direction)), hand.rotation)
-            pose = EXT.set_bone_pose(pose, hand, target_side+'Hand', WORLD)
-        envelope = min(1, t/.12, (1-t)/.14)
-        envelope = envelope*envelope*(3-2*envelope)
-        return blend_pose(idle_pose(), pose, envelope)
+        return claw_pose(t if t < 1 else 0)
     if kind == 'Hit':
         recoil = smooth_keys(t, [(0,(0,)), (.22,(1,)), (.50,(.7,)), (1,(0,))])[0]
         hip = EXT.get_bone_pose(pose, 'Hips', LOCAL)
@@ -310,7 +337,7 @@ def make_pose(kind, t):
     raise ValueError(kind)
 
 
-for kind, frames in [('Idle', 60), ('Claw', 55), ('Hit', 12), ('Death', 30)]:
+for kind, frames in [('Idle', 60), ('Claw', 60), ('Hit', 12), ('Death', 30)]:
     factory = unreal.AnimSequenceFactory()
     factory.target_skeleton = skeleton
     factory.preview_skeletal_mesh = mesh
@@ -391,9 +418,9 @@ defaults.set_editor_property('death_animation', animations['Death'])
 defaults.set_editor_property('hit_reaction_animation', animations['Hit'])
 defaults.get_component_by_class(unreal.NPCHealthBarComponent).set_editor_property('head_clearance', 62.0)
 reaction = defaults.get_component_by_class(unreal.NPCHitReactionComponent)
-reaction.set_editor_property('stagger_distance', 55.0)
-reaction.set_editor_property('stagger_duration', .38)
-reaction.set_editor_property('stagger_lean_angle', 12.0)
+reaction.set_editor_property('stagger_distance', 100.0)
+reaction.set_editor_property('stagger_duration', .42)
+reaction.set_editor_property('stagger_lean_angle', 16.0)
 reaction.set_editor_property('death_horizontal_speed', 550.0)
 reaction.set_editor_property('death_upward_speed', 360.0)
 defaults.set_editor_property('contact_interaction_radius', 140.0)

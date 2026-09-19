@@ -108,10 +108,11 @@ bool FNPCHitReactionTest::RunTest(const FString& Parameters)
 				? CastChecked<AChasingNPC>(NPC)->ShouldPauseChase() : CastChecked<AWhisperFollower>(NPC)->ShouldPauseFollow());
 			Scene.Advance(0.12f, FPS);
 			TestTrue(TEXT("The body visibly leans on impact"), !RestRotation.Equals(NPC->GetMesh()->GetRelativeRotation().Quaternion(), 0.01f));
-			Scene.Advance(0.3f, FPS);
+			Scene.Advance(0.4f, FPS);
 			const FVector Recoil = NPC->GetActorLocation() - Start;
-			TestTrue(TEXT("A light hit steps back 15-30 cm along the shot"),
-				FVector::DotProduct(Recoil, ShotDirection) > 15 && Recoil.Size2D() < 30);
+			AddInfo(FString::Printf(TEXT("%s at %d FPS: recoil %.1f cm"), *Class->GetName(), FPS, Recoil.Size2D()));
+			TestTrue(TEXT("Every NPC recoils about one metre along the shot"),
+				FVector::DotProduct(Recoil, ShotDirection) > 90 && Recoil.Size2D() < 110);
 			TestTrue(TEXT("Mesh returns to its authored rotation"), RestRotation.Equals(NPC->GetMesh()->GetRelativeRotation().Quaternion(), 0.001f));
 			TestFalse(TEXT("The stagger ends"), Reaction->IsStaggering());
 			TestFalse(TEXT("The reaction stops ticking after recovery"), Reaction->IsComponentTickEnabled());
@@ -234,7 +235,7 @@ bool FBlackMonsterProjectileReactionTest::RunTest(const FString& Parameters)
 			TestEqual(TEXT("Each projectile plays the recoil animation"), Mesh->GetSingleNodeInstance()->GetCurrentAsset()->GetFName(), FName(TEXT("Anim_BlackMonster_Hit")));
 			Scene.Advance(.45f, FPS);
 			const double Step = NPC->GetActorLocation().X-Before.X;
-			TestTrue(TEXT("Each hit visibly steps backward about half a metre"), Step > 45 && Step < 65);
+			TestTrue(TEXT("Each hit visibly steps backward about one metre"), Step > 90 && Step < 110);
 			TestFalse(TEXT("Monster recovers after each nonfatal shot"), Reaction->IsStaggering());
 			TestTrue(TEXT("Recovery restores locomotion"), Mesh->GetSingleNodeInstance()->GetCurrentAsset()->IsA<UBlendSpace>());
 			TestTrue(TEXT("Recovery restores mesh orientation"), RestRotation.Equals(Mesh->GetRelativeRotation().Quaternion(), .001));
