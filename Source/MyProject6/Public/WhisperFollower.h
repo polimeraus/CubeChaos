@@ -84,6 +84,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Whisper|Health")
 	TObjectPtr<UAnimSequence> DeathAnimation;
 
+	/** Optional recoil pose; restarts on each hit and lasts for the stagger. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Whisper|Hit Reaction")
+	TObjectPtr<UAnimSequence> HitReactionAnimation;
+
 private:
 	void SetContactGlowActive(bool bActive);
 	void StopContactInteraction();
@@ -91,5 +95,6 @@ private:
 	TArray<TObjectPtr<UMaterialInterface>> OriginalMeshMaterials;
 	bool bContactGlowActive = false;
 	bool bContactAttackActive = false;
+	bool bHitReactionAnimationActive = false;
 	bool bIsDead = false;
 };

@@ -92,6 +92,7 @@ float AWhisperFollower::TakeDamage(float DamageAmount, const FDamageEvent& Damag
 	if (CurrentHealth <= 0.0f)
 	{
 		bIsDead = true;
+		bHitReactionAnimationActive = false;
 		StopContactInteraction();
 		SetCanBeDamaged(false);
 		if (GetController()) { GetController()->StopMovement(); }
@@ -117,7 +118,19 @@ float AWhisperFollower::TakeDamage(float DamageAmount, const FDamageEvent& Damag
 	else
 	{
 		HitReaction->Stagger(UNPCHitReactionComponent::ResolveImpactDirection(*this, DamageEvent, EventInstigator, DamageCauser));
-		if (HitReaction->IsStaggering()) { StopContactInteraction(); }
+		if (HitReaction->IsStaggering())
+		{
+			StopContactInteraction();
+			if (HitReactionAnimation)
+			{
+				bHitReactionAnimationActive = true;
+				GetMesh()->PlayAnimation(HitReactionAnimation, false);
+				// Include asset RateScale so the last pose coincides with recovery.
+				GetMesh()->SetPlayRate(HitReactionAnimation->GetPlayLength()
+					/ (FMath::Max(0.05f, HitReaction->StaggerDuration)
+						* FMath::Max(0.01f, HitReactionAnimation->RateScale)));
+			}
+		}
 	}
 	return AppliedDamage;
 }
@@ -139,6 +152,15 @@ void AWhisperFollower::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	if (bIsDead) { return; }
+	if (bHitReactionAnimationActive && !HitReaction->IsStaggering())
+	{
+		bHitReactionAnimationActive = false;
+		if (LocomotionBlendSpace)
+		{
+			GetMesh()->PlayAnimation(LocomotionBlendSpace, true);
+			GetMesh()->SetPlayRate(1.0f);
+		}
+	}
 	AMyProject6Character* Player = Cast<AMyProject6Character>(UGameplayStatics::GetPlayerCharacter(this, 0));
 	const bool bTouchingPlayer = Player && Player->IsPlayerControlled() && !Player->IsEnergyDepleted()
 		&& ContactSensor->IsOverlappingActor(Player);

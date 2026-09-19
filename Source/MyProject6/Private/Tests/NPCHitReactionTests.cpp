@@ -4,9 +4,11 @@
 #include "ChasingNPC.h"
 #include "WhisperFollower.h"
 #include "MyProject6Character.h"
+#include "NPCHealthBarComponent.h"
 #include "BallProjectile.h"
 #include "CannonballProjectile.h"
 #include "Animation/AnimSingleNodeInstance.h"
+#include "Animation/BlendSpace.h"
 #include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -201,6 +203,69 @@ bool FPlayerMovementBoostTest::RunTest(const FString& Parameters)
 	AddInfo(FString::Printf(TEXT("Player jump: ground Z %.1f, current Z %.1f, velocity %s, movement %d"),
 		GroundZ, Player->GetActorLocation().Z, *Movement->Velocity.ToString(), int32(Movement->MovementMode)));
 	TestTrue(TEXT("Actual jump rises over 1.5 metres"), Player->GetActorLocation().Z > GroundZ + 150);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBlackMonsterProjectileReactionTest, "MyProject6.NPC.BlackMonsterProjectileReactions",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBlackMonsterProjectileReactionTest::RunTest(const FString& Parameters)
+{
+	UClass* Class = LoadClass<AWhisperFollower>(nullptr,
+		TEXT("/Game/Characters/black-monster/BP_BlackMonster_Follower.BP_BlackMonster_Follower_C"));
+	if (!TestNotNull(TEXT("Black Monster Blueprint loads"), Class)) { return false; }
+	for (int32 FPS : {30, 120})
+	{
+		FHitReactionWorld Scene;
+		AWhisperFollower* NPC = CastChecked<AWhisperFollower>(Scene.Spawn(Class));
+		USkeletalMeshComponent* Mesh = NPC->GetMesh();
+		Mesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+		UNPCHitReactionComponent* Reaction = NPC->FindComponentByClass<UNPCHitReactionComponent>();
+		const FQuat RestRotation = Mesh->GetRelativeRotation().Quaternion();
+		// Real shots exercise the collision -> damage -> animation/knockback route.
+		for (int32 Shot = 0; Shot < 3; ++Shot)
+		{
+			const FVector Before = NPC->GetActorLocation();
+			const float Health = NPC->GetCurrentHealth();
+			Scene.World->SpawnActor<ABallProjectile>(Before-FVector(250,0,0), FRotator::ZeroRotator);
+			Scene.Advance(.16f, FPS);
+			TestTrue(TEXT("Every projectile starts a new stagger"), Reaction->IsStaggering());
+			TestEqual(TEXT("Each yellow projectile damages the monster"), NPC->GetCurrentHealth(), Health-25.0f);
+			TestEqual(TEXT("Each projectile plays the recoil animation"), Mesh->GetSingleNodeInstance()->GetCurrentAsset()->GetFName(), FName(TEXT("Anim_BlackMonster_Hit")));
+			Scene.Advance(.45f, FPS);
+			const double Step = NPC->GetActorLocation().X-Before.X;
+			TestTrue(TEXT("Each hit visibly steps backward about half a metre"), Step > 45 && Step < 65);
+			TestFalse(TEXT("Monster recovers after each nonfatal shot"), Reaction->IsStaggering());
+			TestTrue(TEXT("Recovery restores locomotion"), Mesh->GetSingleNodeInstance()->GetCurrentAsset()->IsA<UBlendSpace>());
+			TestTrue(TEXT("Recovery restores mesh orientation"), RestRotation.Equals(Mesh->GetRelativeRotation().Quaternion(), .001));
+		}
+		// A hit while already recoiling restarts the animation instead of being ignored.
+		Scene.Hit(NPC, 1, FVector(1,0,0));
+		Scene.Advance(.12f, FPS);
+		const float FirstPosition = Mesh->GetSingleNodeInstance()->GetCurrentTime();
+		Scene.Hit(NPC, 1, FVector(1,0,0));
+		TestTrue(TEXT("Rapid repeated hits restart recoil"), Mesh->GetSingleNodeInstance()->GetCurrentTime() < FirstPosition);
+		Scene.Advance(.45f, FPS);
+		// Finish with an actual red shot after reducing health to its lethal range.
+		Scene.Hit(NPC, NPC->GetCurrentHealth()-40, FVector(1,0,0));
+		Scene.Advance(.45f, FPS);
+		const FVector DeathStart = NPC->GetActorLocation();
+		Scene.World->SpawnActor<ACannonballProjectile>(DeathStart-FVector(250,0,0), FRotator::ZeroRotator);
+		Scene.Advance(.2f, FPS);
+		TestTrue(TEXT("Lethal projectile starts death flight"), NPC->IsDead() && Reaction->IsDeathInFlight());
+		TestEqual(TEXT("Death plays the falling animation"), Mesh->GetSingleNodeInstance()->GetCurrentAsset()->GetFName(), FName(TEXT("Anim_BlackMonster_Death")));
+		TestFalse(TEXT("Death hides the green bar"), NPC->FindComponentByClass<UNPCHealthBarComponent>()->IsVisible());
+		Scene.Advance(.2f, FPS);
+		TestTrue(TEXT("Body rises during backward flight"), NPC->GetActorLocation().Z > DeathStart.Z + 35);
+		Scene.Advance(1.1f, FPS);
+		const double Travel = NPC->GetActorLocation().X-DeathStart.X;
+		AddInfo(FString::Printf(TEXT("Black Monster at %d FPS: death flight %.1f cm"), FPS, Travel));
+		TestTrue(TEXT("Lethal shot throws the monster three to five metres"), Travel > 300 && Travel < 500);
+		TestFalse(TEXT("Death flight stops on landing"), Reaction->IsDeathInFlight());
+		TestTrue(TEXT("Dead body lies down rather than continuing to attack"), Mesh->GetSocketLocation(TEXT("Head")).Z < DeathStart.Z);
+		Scene.Advance(5, FPS);
+		TestTrue(TEXT("Dead body is eventually removed"), NPC->IsActorBeingDestroyed());
+	}
 	return true;
 }
 #endif
