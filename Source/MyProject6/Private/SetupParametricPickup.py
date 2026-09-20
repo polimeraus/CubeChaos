@@ -47,7 +47,7 @@ def vector(name, color):
 nodes = {'UV': expression(unreal.MaterialExpressionTextureCoordinate), 'Clock': expression(unreal.MaterialExpressionTime)}
 nodes['Clock'].set_editor_property('ignore_pause', False)
 for key, value, group in [
-    ('Motif', 0, 'Motif'), ('IconScale', .72, 'Motif'), ('IconRotation', 0, 'Motif'),
+    ('Motif', 0, 'Icon'), ('IconScale', .72, 'Icon'), ('IconRotation', 0, 'Icon'),
     ('PulseEnabled', 1, 'Glow'), ('PulsePeriod', 2, 'Glow'), ('PulsePhase', 0, 'Glow'),
     ('MinimumGlow', 0, 'Glow'), ('MaximumGlow', 6, 'Glow')]:
     nodes[key] = scalar(key, value, group)

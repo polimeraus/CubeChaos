@@ -76,7 +76,7 @@ bool FParametricPickupTest::RunTest(const FString&)
         && TestNotNull(TEXT("Second actor has its own material"), Second->GetDynamicMaterial()))
     {
         TestTrue(TEXT("Actors do not share dynamic material instances"), Pickup->GetDynamicMaterial() != Second->GetDynamicMaterial());
-        Pickup->Motif = EPickupMotif::Rocket;
+        Pickup->Icon = EPickupMotif::Rocket;
         Pickup->IconColor = FLinearColor::Red;
         Pickup->PulsePeriod = 3.5f;
         Pickup->RefreshMaterial();

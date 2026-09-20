@@ -260,7 +260,8 @@ void AParametricPickup::RefreshMaterial()
     if (!MaterialInstance || MaterialInstance->Parent != SurfaceMaterial)
         MaterialInstance = UMaterialInstanceDynamic::Create(SurfaceMaterial, this);
     Body->SetMaterial(0, MaterialInstance);
-    MaterialInstance->SetScalarParameterValue(TEXT("Motif"), static_cast<uint8>(Motif));
+    // Preserve the material parameter name used by existing material instances.
+    MaterialInstance->SetScalarParameterValue(TEXT("Motif"), static_cast<uint8>(Icon));
     MaterialInstance->SetVectorParameterValue(TEXT("IconColor"), IconColor);
     MaterialInstance->SetVectorParameterValue(TEXT("BodyColor"), BodyColor);
     MaterialInstance->SetScalarParameterValue(TEXT("IconScale"), SafeValue(IconScale, .1f, 1, .72f));

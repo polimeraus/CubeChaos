@@ -22,7 +22,7 @@ modes = [unreal.PickupMotion.STATIONARY, unreal.PickupMotion.SPIN, unreal.Pickup
 for i, mode in enumerate(modes):
     pickup = actors.spawn_actor_from_class(bp.generated_class(), unreal.Vector((5-i) * 180, 0, 0))
     for key, value in {'motion': mode, 'auto_collect': False, 'player_only': False,
-                       'shape': unreal.PickupShape.ROUNDED_CUBE, 'motif': unreal.PickupMotif.QUESTION_MARK,
+                       'shape': unreal.PickupShape.ROUNDED_CUBE, 'icon': unreal.PickupMotif.QUESTION_MARK,
                        'bob_height': 70., 'hover_height': 25., 'pulse': False}.items():
         pickup.set_editor_property(key, value)
     pickup.set_editor_property('tags', ['PickupMotionPreview' + str(i)])

@@ -44,7 +44,12 @@ enum class EPickupMotif : uint8
     QuestionMark UMETA(DisplayName="Question Mark"),
     Crescent,
     Cross,
-    Rocket
+    Rocket,
+    Bomb,
+    AerialBomb UMETA(DisplayName="Aerial Bomb"),
+    RetroRocket UMETA(DisplayName="Retro Rocket"),
+    RadiationBomb UMETA(DisplayName="Radiation Bomb"),
+    BombCluster UMETA(DisplayName="Bomb Cluster")
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FParametricPickupCollected, AParametricPickup*, Pickup, APawn*, Collector);
@@ -75,16 +80,16 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="Pickup|Shape", meta=(ClampMin="4", ClampMax="32", EditCondition="Shape == EPickupShape::Sphere || Shape == EPickupShape::RoundedCube"))
     int32 SurfaceSubdivisions = 16;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Motif")
-    EPickupMotif Motif = EPickupMotif::Star;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Icon")
+    EPickupMotif Icon = EPickupMotif::Star;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Motif")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Icon")
     FLinearColor IconColor = FLinearColor(0.03f, 0.75f, 1.f, 1.f);
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Motif", meta=(ClampMin="0.1", ClampMax="1"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Icon", meta=(ClampMin="0.1", ClampMax="1"))
     float IconScale = 0.72f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Motif", meta=(Units="deg"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Icon", meta=(Units="deg"))
     float IconRotation = 0;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Body")
