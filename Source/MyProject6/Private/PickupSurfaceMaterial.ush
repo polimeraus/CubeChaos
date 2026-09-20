@@ -1,0 +1,100 @@
+// Analytic icons in face-local UVs. No texture/font dependency; enum order is EPickupMotif.
+struct PickupSymbols
+{
+    float Segment(float2 p, float2 a, float2 b)
+    {
+        float2 ab = b - a;
+        return length(p - a - ab * saturate(dot(p - a, ab) / max(dot(ab, ab), .000001)));
+    }
+    float Box(float2 p, float2 size)
+    {
+        float2 q = abs(p) - size;
+        return length(max(q, 0)) + min(max(q.x, q.y), 0);
+    }
+    float Polygon(float2 p, float2 points[12], int count)
+    {
+        float d = 100;
+        float signValue = 1;
+        for (int i = 0, j = count - 1; i < count; j = i, ++i)
+        {
+            float2 a = points[i];
+            float2 b = points[j];
+            d = min(d, Segment(p, a, b));
+            if ((a.y > p.y) != (b.y > p.y))
+            {
+                float x = a.x + (p.y - a.y) * (b.x - a.x) / (b.y - a.y);
+                if (p.x < x) signValue = -signValue;
+            }
+        }
+        return d * signValue;
+    }
+};
+PickupSymbols symbols;
+float2 p = float2(UV.x - .5, .5 - UV.y) * 2 / max(IconScale, .1);
+float angle = IconRotation * .01745329252;
+float c = cos(angle), s = sin(angle);
+p = float2(c * p.x + s * p.y, -s * p.x + c * p.y);
+float distance = 1;
+if (Motif < .5)
+{
+    float2 points[12];
+    for (int i = 0; i < 10; ++i)
+    {
+        float a = 1.57079632679 + i * .62831853072;
+        float radius = (i % 2 == 0) ? .84 : .37;
+        points[i] = float2(cos(a), sin(a)) * radius;
+    }
+    distance = symbols.Polygon(p, points, 10);
+}
+else if (Motif < 1.5)
+{
+    float curve = 10;
+    float2 last = float2(cos(2.7925268), sin(2.7925268)) * .36 + float2(0, .30);
+    for (int i = 1; i <= 24; ++i)
+    {
+        float a = lerp(2.7925268, -1.0471976, i / 24.0);
+        float2 next = float2(cos(a), sin(a)) * .36 + float2(0, .30);
+        curve = min(curve, symbols.Segment(p, last, next));
+        last = next;
+    }
+    curve = min(curve, symbols.Segment(p, last, float2(0, -.22)));
+    curve = min(curve, symbols.Segment(p, float2(0, -.22), float2(0, -.30)));
+    distance = min(curve - .10, length(p - float2(0, -.61)) - .115);
+}
+else if (Motif < 2.5)
+{
+    distance = max(length(p) - .79, .69 - length(p - float2(.32, .13)));
+}
+else if (Motif < 3.5)
+{
+    distance = min(symbols.Box(p, float2(.135, .77)), symbols.Box(p - float2(0, .22), float2(.61, .135)));
+}
+else
+{
+    // Pointed fuselage, tail fins, exhaust flame and a circular window.
+    float2 points[12];
+    points[0] = float2(0, .85);
+    points[1] = float2(.22, .43);
+    points[2] = float2(.22, -.17);
+    points[3] = float2(.48, -.48);
+    points[4] = float2(.48, -.63);
+    points[5] = float2(.20, -.48);
+    points[6] = float2(-.20, -.48);
+    points[7] = float2(-.48, -.63);
+    points[8] = float2(-.48, -.48);
+    points[9] = float2(-.22, -.17);
+    points[10] = float2(-.22, .43);
+    distance = symbols.Polygon(p, points, 11);
+    distance = max(distance, .105 - length(p - float2(0, .25)));
+    float2 flame[12];
+    flame[0] = float2(-.12, -.56);
+    flame[1] = float2(.12, -.56);
+    flame[2] = float2(0, -.86);
+    distance = min(distance, symbols.Polygon(p, flame, 3));
+}
+float aa = max(length(fwidth(p)) * .65, .001);
+float mask = 1 - smoothstep(-aa, aa, distance);
+float wave = .5 + .5 * cos(6.28318530718 * (Clock / max(PulsePeriod, .05) + PulsePhase));
+wave = wave * wave * (3 - 2 * wave);
+float glow = lerp(MinimumGlow, MaximumGlow, PulseEnabled > .5 ? wave : 1);
+return float2(mask, mask * glow);
