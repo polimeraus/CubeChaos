@@ -82,6 +82,7 @@ class MYPROJECT6_API AChunkedDestructibleConeStructure : public AChunkedDestruct
 	friend class FDestructibleConeMusicGroupsTest;
 	friend class FDestructibleConeSpiralCutFacesTest;
 	friend class FDestructibleConeSurfaceTest;
+	friend class FDestructibleConeSurfaceCoverageTest;
 
 public:
 	virtual bool UsesPlanarAnimation() const override { return false; }

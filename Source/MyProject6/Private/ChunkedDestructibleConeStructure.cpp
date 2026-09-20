@@ -31,6 +31,9 @@ namespace
 	constexpr float MinimumConeDimension = 1.0f;
 	constexpr float ConeSpacingTolerance = 0.01f;
 	constexpr double ConeSurfaceTolerance = 0.001;
+	// Surface clipping must retain sub-millimeter corners. The larger tolerance used
+	// for solid queries/booleans can erase a long, thin triangle and expose the sky.
+	constexpr double ConeClipTolerance = 1.e-8;
 
 	void ClipSurfacePolygonToPlane(
 		TArray<FVector3d> &Polygon,
@@ -45,31 +48,32 @@ namespace
 		const TArray<FVector3d> Input = Polygon;
 		Polygon.Reset();
 		FVector3d Previous = Input.Last();
-		double PreviousDistance = bKeepGreater
+		const double PreviousDistance = bKeepGreater
 									  ? Previous[Axis] - Plane
 									  : Plane - Previous[Axis];
-		bool bPreviousInside = PreviousDistance >= -ConeSurfaceTolerance;
+		bool bPreviousInside = PreviousDistance >= 0.0;
 		for (const FVector3d &Current : Input)
 		{
 			const double CurrentDistance = bKeepGreater
 											   ? Current[Axis] - Plane
 											   : Plane - Current[Axis];
-			const bool bCurrentInside = CurrentDistance >= -ConeSurfaceTolerance;
+			const bool bCurrentInside = CurrentDistance >= 0.0;
 			if (bCurrentInside != bPreviousInside)
 			{
-				const double Denominator = PreviousDistance - CurrentDistance;
-				if (!FMath::IsNearlyZero(Denominator))
-				{
-					const double Alpha = FMath::Clamp(PreviousDistance / Denominator, 0.0, 1.0);
-					Polygon.Add(Previous + (Current - Previous) * Alpha);
-				}
+				// Always intersect an edge in the same direction, then snap the clipped
+				// coordinate. Neighboring cells/triangles get exactly the same endpoint.
+				const FVector3d& Low = Previous[Axis] < Current[Axis] ? Previous : Current;
+				const FVector3d& High = Previous[Axis] < Current[Axis] ? Current : Previous;
+				const double Alpha = (Plane - Low[Axis]) / (High[Axis] - Low[Axis]);
+				FVector3d Intersection = Low + (High - Low) * Alpha;
+				Intersection[Axis] = Plane;
+				Polygon.Add(Intersection);
 			}
 			if (bCurrentInside)
 			{
 				Polygon.Add(Current);
 			}
 			Previous = Current;
-			PreviousDistance = CurrentDistance;
 			bPreviousInside = bCurrentInside;
 		}
 	}
@@ -80,7 +84,7 @@ namespace
 		{
 			const int32 PreviousIndex = (Index - 1 + Polygon.Num()) % Polygon.Num();
 			if ((Polygon[Index] - Polygon[PreviousIndex]).SquaredLength() <=
-				FMath::Square(ConeSurfaceTolerance))
+				FMath::Square(ConeClipTolerance))
 			{
 				Polygon.RemoveAt(Index, 1, EAllowShrinking::No);
 			}
@@ -133,6 +137,41 @@ namespace
 	{
 		return DoesSurfaceTriangleIntersectBox(A, B, C, BoxMinimum, BoxMaximum) ||
 			   DoesSurfaceTriangleIntersectBox(A, C, D, BoxMinimum, BoxMaximum);
+	}
+
+	bool SpiralIntersectsCellBounds(const FVector& Center, const FVector& Dimensions,
+		float MinimumRadius, float MaximumRadius, float StartBottom, float EndBottom,
+		float Thickness, float TotalAngle, float StartAngle, float Direction,
+		int32 SegmentCount, float InnerStart, float InnerEnd, float OuterStart, float OuterEnd)
+	{
+		const double Radius = FVector2D(Center.X, Center.Y).Size();
+		const double HalfDiagonal = FVector2D(Dimensions.X, Dimensions.Y).Size() * .5;
+		const double AngularHalfWidth = Radius <= HalfDiagonal ? UE_DOUBLE_PI :
+			FMath::Asin(FMath::Clamp(HalfDiagonal / Radius, 0.0, 1.0));
+		// A rendered chord uses both section endpoints, which can lie outside the
+		// cell's angular footprint. Bound their heights AND radii, not just the height
+		// at the cell center; taper otherwise drops corners on the outside of a turn.
+		const double SegmentAngle = double(TotalAngle) / SegmentCount;
+		const double Margin = AngularHalfWidth + SegmentAngle;
+		double Progress = FMath::Fmod(Direction * (FMath::Atan2(Center.Y, Center.X) - StartAngle), UE_DOUBLE_TWO_PI);
+		if (Progress < 0) { Progress += UE_DOUBLE_TWO_PI; }
+		const double InnerChordScale = FMath::Cos(SegmentAngle * .5);
+		for (int32 Turn = -1; Turn <= FMath::CeilToInt(TotalAngle / UE_TWO_PI); ++Turn)
+		{
+			const double Mid = Progress + UE_DOUBLE_TWO_PI * Turn;
+			if (Mid + Margin < 0 || Mid - Margin > TotalAngle) { continue; }
+			const float Alpha0 = FMath::Clamp((Mid - Margin) / TotalAngle, 0.0, 1.0);
+			const float Alpha1 = FMath::Clamp((Mid + Margin) / TotalAngle, 0.0, 1.0);
+			const float Bottom0 = FMath::Lerp(StartBottom, EndBottom, Alpha0);
+			const float Bottom1 = FMath::Lerp(StartBottom, EndBottom, Alpha1);
+			if (Center.Z + Dimensions.Z * .5 < FMath::Min(Bottom0, Bottom1) - ConeSpacingTolerance ||
+				Center.Z - Dimensions.Z * .5 > FMath::Max(Bottom0, Bottom1) + Thickness + ConeSpacingTolerance) { continue; }
+			const float Inner = FMath::Max(0.0f, FMath::Min(FMath::Lerp(InnerStart, InnerEnd, Alpha0), FMath::Lerp(InnerStart, InnerEnd, Alpha1)));
+			const float Outer = FMath::Max(FMath::Lerp(OuterStart, OuterEnd, Alpha0), FMath::Lerp(OuterStart, OuterEnd, Alpha1));
+			if (MinimumRadius <= Outer + ConeSpacingTolerance &&
+				MaximumRadius >= Inner * InnerChordScale - ConeSpacingTolerance) { return true; }
+		}
+		return false;
 	}
 }
 
@@ -1100,8 +1139,10 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 		// steep cone bands and was the source of pinholes in the intact smooth surface.
 		const float MaximumOuterRadius = FMath::Max(GetOuterRadius(BottomZ), GetOuterRadius(TopZ));
 		const float MinimumInnerRadius = FMath::Min(GetInnerRadius(BottomZ), GetInnerRadius(TopZ));
+		// The rendered inner wall follows polygon chords inside the analytic circle.
+		// Keep cells touching those chords too, including tiny corners at layer edges.
 		return MinimumRadius <= MaximumOuterRadius + ConeSpacingTolerance &&
-			   MaximumCellRadius >= MinimumInnerRadius - ConeSpacingTolerance;
+			   MaximumCellRadius >= MinimumInnerRadius * FMath::Cos(UE_PI / GetEffectiveCircularSegments()) - ConeSpacingTolerance;
 	};
 	auto IsConeBaseBackingCell = [&](int32 X, int32 Y, int32 Z)
 	{
@@ -1161,8 +1202,6 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 			LowestPlatformHeightBlocks * PitchZ, 0.0f, MaximumSpiralBottom);
 		const float EndBottom = FMath::Clamp(
 			SpiralEndHeightBlocks * PitchZ, 0.0f, MaximumSpiralBottom);
-		const float CellBottom = Z * PitchZ;
-		const float CellTop = CellBottom + BlockDimensions.Z;
 		const FVector Center = GetPhysicalCenter(X, Y, Z);
 		const FVector3d CellMinimum = FVector3d(Center - BlockDimensions * 0.5f);
 		const FVector3d CellMaximum = FVector3d(Center + BlockDimensions * 0.5f);
@@ -1195,53 +1234,16 @@ bool AChunkedDestructibleConeStructure::CalculateLayout()
 			return true;
 		}
 
-		const float CenterRadius = FVector2D(Center.X, Center.Y).Size();
-		const float HalfDiagonal = FVector2D(BlockDimensions.X, BlockDimensions.Y).Size() * 0.5f;
-		const float CellAngularHalfWidth = FMath::Atan2(
-			HalfDiagonal, FMath::Max(CenterRadius - HalfDiagonal, NewRadialBlockUnit * 0.25f));
-		const float HeightPerRadian = FMath::Abs(EndBottom - StartBottom) /
-									  FMath::Max(TotalSpiralAngle, KINDA_SMALL_NUMBER);
-		const float HeightMargin = HeightPerRadian *
-									   (CellAngularHalfWidth + UE_PI / SpiralSegmentsPerTurn) +
-								   ConeSpacingTolerance;
-		const float Angle = FMath::Atan2(Center.Y, Center.X);
-		float BaseProgressAngle = FMath::Fmod(Direction * (Angle - StartAngle), UE_TWO_PI);
-		if (BaseProgressAngle < 0.0f)
-		{
-			BaseProgressAngle += UE_TWO_PI;
-		}
-		float MinimumRadius;
-		float MaximumCellRadius;
+		float MinimumRadius, MaximumCellRadius;
 		GetRadialRange(X, Y, MinimumRadius, MaximumCellRadius);
-		const int32 RevolutionCount = FMath::CeilToInt(PlatformSpiralTurns);
-		for (int32 Revolution = 0; Revolution <= RevolutionCount; ++Revolution)
+		auto InnerAtTop = [&](float Top)
 		{
-			const float ProgressAngle = BaseProgressAngle + UE_TWO_PI * Revolution;
-			if (ProgressAngle > TotalSpiralAngle + CellAngularHalfWidth)
-			{
-				continue;
-			}
-			const float Alpha = FMath::Clamp(ProgressAngle / TotalSpiralAngle, 0.0f, 1.0f);
-			const float SpiralBottom = FMath::Lerp(StartBottom, EndBottom, Alpha);
-			if (CellTop < SpiralBottom - HeightMargin ||
-				CellBottom > SpiralBottom + SpiralThickness + HeightMargin)
-			{
-				continue;
-			}
-			const float ReferenceZ = SpiralBottom + SpiralThickness;
-			const float ConeRadius = GetOuterRadius(ReferenceZ);
-			const float InnerRadius = FMath::Max(
-				ConeRadius - SpiralWallOverlapBlocks * NewRadialBlockUnit *
-								 GetPlatformWidthScale(ReferenceZ),
-				0.0f);
-			const float OuterRadius = GetPlatformOuterRadius(ReferenceZ);
-			if (MinimumRadius <= OuterRadius + ConeSpacingTolerance &&
-				MaximumCellRadius >= InnerRadius - ConeSpacingTolerance)
-			{
-				return true;
-			}
-		}
-		return false;
+			return GetOuterRadius(Top) - SpiralWallOverlapBlocks * NewRadialBlockUnit * GetPlatformWidthScale(Top);
+		};
+		return SpiralIntersectsCellBounds(Center, BlockDimensions, MinimumRadius, MaximumCellRadius,
+			StartBottom, EndBottom, SpiralThickness, TotalSpiralAngle, StartAngle, Direction,
+			GetSpiralSegmentCount(), InnerAtTop(StartBottom + SpiralThickness), InnerAtTop(EndBottom + SpiralThickness),
+			GetPlatformOuterRadius(StartBottom + SpiralThickness), GetPlatformOuterRadius(EndBottom + SpiralThickness));
 	};
 
 	// Store only cells that can own cone/platform geometry. The previous diameter^2*height
@@ -1547,7 +1549,7 @@ bool AChunkedDestructibleConeStructure::IsConeShellCell(int32 X, int32 Y, int32 
 	float MaximumRadius;
 	GetCellRadialRange(X, Y, MinimumRadius, MaximumRadius);
 	return MinimumRadius <= OuterRadius + ConeSpacingTolerance &&
-		   MaximumRadius >= InnerRadius - ConeSpacingTolerance;
+		   MaximumRadius >= InnerRadius * FMath::Cos(UE_PI / GetEffectiveCircularSegments()) - ConeSpacingTolerance;
 }
 
 bool AChunkedDestructibleConeStructure::IsConeBaseCell(int32 X, int32 Y, int32 Z) const
@@ -2101,12 +2103,9 @@ bool AChunkedDestructibleConeStructure::IsSpiralPlatformCell(int32 X, int32 Y, i
 		return false;
 	}
 
-	const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
 	const float SpiralThickness = GetSpiralThickness();
 	const float StartBottom = GetSpiralBottomHeight(false);
 	const float EndBottom = GetSpiralBottomHeight(true);
-	const float CellBottom = Z * PitchZ;
-	const float CellTop = CellBottom + BlockDimensions.Z;
 	const FVector Center = GetPhysicalCellLocalCenter(X, Y, Z);
 	const FVector3d CellMinimum = FVector3d(Center - BlockDimensions * 0.5f);
 	const FVector3d CellMaximum = FVector3d(Center + BlockDimensions * 0.5f);
@@ -2139,52 +2138,16 @@ bool AChunkedDestructibleConeStructure::IsSpiralPlatformCell(int32 X, int32 Y, i
 		return true;
 	}
 
-	const float CenterRadius = FVector2D(Center.X, Center.Y).Size();
-	const float HalfDiagonal = FVector2D(BlockDimensions.X, BlockDimensions.Y).Size() * 0.5f;
-	const float CellAngularHalfWidth = FMath::Atan2(
-		HalfDiagonal, FMath::Max(CenterRadius - HalfDiagonal, CachedRadialBlockUnit * 0.25f));
-	const float HeightPerRadian = FMath::Abs(EndBottom - StartBottom) /
-								  FMath::Max(TotalSpiralAngle, KINDA_SMALL_NUMBER);
-	const float HeightMargin = HeightPerRadian *
-								   (CellAngularHalfWidth + UE_PI / SpiralSegmentsPerTurn) +
-							   ConeSpacingTolerance;
-	const float Angle = FMath::Atan2(Center.Y, Center.X);
-	float BaseProgressAngle = FMath::Fmod(Direction * (Angle - StartAngle), UE_TWO_PI);
-	if (BaseProgressAngle < 0.0f)
-	{
-		BaseProgressAngle += UE_TWO_PI;
-	}
-	float MinimumRadius;
-	float MaximumRadius;
+	float MinimumRadius, MaximumRadius;
 	GetCellRadialRange(X, Y, MinimumRadius, MaximumRadius);
-	const int32 RevolutionCount = FMath::CeilToInt(PlatformSpiralTurns);
-	for (int32 Revolution = 0; Revolution <= RevolutionCount; ++Revolution)
+	auto InnerAtTop = [&](float Top)
 	{
-		const float ProgressAngle = BaseProgressAngle + UE_TWO_PI * Revolution;
-		if (ProgressAngle > TotalSpiralAngle + CellAngularHalfWidth)
-		{
-			continue;
-		}
-		const float Alpha = FMath::Clamp(ProgressAngle / TotalSpiralAngle, 0.0f, 1.0f);
-		const float SpiralBottom = FMath::Lerp(StartBottom, EndBottom, Alpha);
-		if (CellTop < SpiralBottom - HeightMargin ||
-			CellBottom > SpiralBottom + SpiralThickness + HeightMargin)
-		{
-			continue;
-		}
-		const float ConeRadius = GetConeOuterRadiusAtHeight(SpiralBottom + SpiralThickness);
-		const float InnerRadius = FMath::Max(
-			ConeRadius - SpiralWallOverlapBlocks * CachedRadialBlockUnit *
-							 GetPlatformWidthScaleAtHeight(SpiralBottom + SpiralThickness),
-			0.0f);
-		const float OuterRadius = GetPlatformOuterRadiusAtHeight(SpiralBottom + SpiralThickness);
-		if (MinimumRadius <= OuterRadius + ConeSpacingTolerance &&
-			MaximumRadius >= InnerRadius - ConeSpacingTolerance)
-		{
-			return true;
-		}
-	}
-	return false;
+		return GetConeOuterRadiusAtHeight(Top) - SpiralWallOverlapBlocks * CachedRadialBlockUnit * GetPlatformWidthScaleAtHeight(Top);
+	};
+	return SpiralIntersectsCellBounds(Center, BlockDimensions, MinimumRadius, MaximumRadius,
+		StartBottom, EndBottom, SpiralThickness, TotalSpiralAngle, StartAngle, Direction,
+		GetSpiralSegmentCount(), InnerAtTop(StartBottom + SpiralThickness), InnerAtTop(EndBottom + SpiralThickness),
+		GetPlatformOuterRadiusAtHeight(StartBottom + SpiralThickness), GetPlatformOuterRadiusAtHeight(EndBottom + SpiralThickness));
 }
 
 bool AChunkedDestructibleConeStructure::IsEntranceCell(int32 X, int32 Y, int32 Z) const
@@ -2424,9 +2387,9 @@ void AChunkedDestructibleConeStructure::AppendClippedSurfaceTriangle(
 	if (ChunkIndex != INDEX_NONE && (!GetSpatialChunkBounds(ChunkIndex, ClipMinimum, ClipMaximum) ||
 		LogicalZ < ClipMinimum.Z || LogicalZ >= ClipMaximum.Z)) { return; }
 	const bool bOnGridPlane[3] = {
-		FMath::IsNearlyEqual(TriangleMin.X, TriangleMax.X, ConeSurfaceTolerance),
-		FMath::IsNearlyEqual(TriangleMin.Y, TriangleMax.Y, ConeSurfaceTolerance),
-		FMath::IsNearlyEqual(TriangleMin.Z, TriangleMax.Z, ConeSurfaceTolerance)};
+		FMath::IsNearlyEqual(TriangleMin.X, TriangleMax.X, ConeClipTolerance),
+		FMath::IsNearlyEqual(TriangleMin.Y, TriangleMax.Y, ConeClipTolerance),
+		FMath::IsNearlyEqual(TriangleMin.Z, TriangleMax.Z, ConeClipTolerance)};
 
 	for (int32 Y = FMath::Max(MinimumY, ClipMinimum.Y); Y <= FMath::Min(MaximumY, ClipMaximum.Y - 1); ++Y)
 	{
@@ -2452,7 +2415,7 @@ void AChunkedDestructibleConeStructure::AppendClippedSurfaceTriangle(
 			{
 				if (bOnGridPlane[Axis] && FMath::Abs(Normal[Axis]) > .5f)
 				{
-					const double SolidSample = TriangleMin[Axis] - Normal[Axis] * ConeSurfaceTolerance * 4;
+					const double SolidSample = TriangleMin[Axis] - Normal[Axis] * ConeClipTolerance * 4;
 					bOwnsSurface &= SolidSample > CellCenter[Axis] - VisualHalfSize[Axis] &&
 						SolidSample < CellCenter[Axis] + VisualHalfSize[Axis];
 				}
@@ -2483,7 +2446,7 @@ void AChunkedDestructibleConeStructure::AppendClippedSurfaceTriangle(
 				FVector3d PointB = Polygon[PointIndex];
 				FVector3d PointC = Polygon[PointIndex + 1];
 				FVector3d GeometricNormal = FVector3d::CrossProduct(PointB - PointA, PointC - PointA);
-				if (GeometricNormal.SquaredLength() <= FMath::Square(ConeSurfaceTolerance))
+				if (GeometricNormal.SquaredLength() <= FMath::Square(ConeClipTolerance))
 				{
 					continue;
 				}
