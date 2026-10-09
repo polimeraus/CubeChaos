@@ -57,7 +57,7 @@ if not unreal.EditorAssetLibrary.does_asset_exist(arms_path):
     mask.set_editor_property('output_type', unreal.CustomMaterialOutputType.CMOT_FLOAT1)
     # Manny's reference-pose arms extend along local X. Clip the torso/head/legs
     # before skinning so camera pitch and the equipped animation cannot expose them.
-    mask.set_editor_property('code', 'return (abs(Position.x) > 25.0 && Position.z > 65.0) ? 1.0 : 0.0;')
+    mask.set_editor_property('code', 'return (abs(Position.x) > 32.0 && Position.z > 65.0) ? 1.0 : 0.0;')
     interpolator = edit.create_material_expression(material, unreal.MaterialExpressionVertexInterpolator)
     edit.connect_material_expressions(position, '', interpolator, '')
     edit.connect_material_expressions(interpolator, '', mask, 'Position')
@@ -69,7 +69,7 @@ if not unreal.EditorAssetLibrary.does_asset_exist(arms_path):
 arms_material = unreal.load_asset(arms_path)
 nodes = list(edit.get_material_expressions(arms_material))
 mask = edit.get_material_property_input_node(arms_material, unreal.MaterialProperty.MP_OPACITY_MASK)
-mask_code = 'return (abs(Position.x) > 25.0 && Position.z > 65.0) ? 1.0 : 0.0;'
+mask_code = 'return (abs(Position.x) > 32.0 && Position.z > 65.0) ? 1.0 : 0.0;'
 if mask.get_editor_property('code') != mask_code:
     mask.set_editor_property('code', mask_code)
     edit.recompile_material(arms_material)

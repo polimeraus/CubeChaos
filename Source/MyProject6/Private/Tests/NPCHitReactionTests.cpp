@@ -20,6 +20,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/AutomationTest.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/UnrealType.h"
 
 namespace
@@ -100,10 +101,14 @@ bool FNPCHitReactionTest::RunTest(const FString& Parameters)
 			if (!TestNotNull(TEXT("Actual NPC has a hit reaction component"), Reaction)) { return false; }
 			const FVector Start = NPC->GetActorLocation();
 			const FQuat RestRotation = NPC->GetMesh()->GetRelativeRotation().Quaternion();
+			const FVector RestLocation = NPC->GetMesh()->GetRelativeLocation();
+			UMaterialInterface* OriginalSkin = NPC->GetMesh()->GetMaterial(0);
 			const FVector ShotDirection = FVector(1, 1, 0).GetSafeNormal();
 			TestFalse(TEXT("Idle reaction does not tick"), Reaction->IsComponentTickEnabled());
 			Scene.Hit(NPC, 25.0f, ShotDirection);
 			TestTrue(TEXT("Hit immediately starts a stagger"), Reaction->IsStaggering());
+			TestNotNull(TEXT("Damage immediately adds the white flash overlay"), Cast<UMaterialInstanceDynamic>(NPC->GetMesh()->GetOverlayMaterial()));
+			TestEqual(TEXT("Flash preserves the original skin"), NPC->GetMesh()->GetMaterial(0), OriginalSkin);
 			TestTrue(TEXT("AI pauses during the stagger"), Cast<AChasingNPC>(NPC)
 				? CastChecked<AChasingNPC>(NPC)->ShouldPauseChase() : CastChecked<AWhisperFollower>(NPC)->ShouldPauseFollow());
 			Scene.Advance(0.12f, FPS);
@@ -111,10 +116,12 @@ bool FNPCHitReactionTest::RunTest(const FString& Parameters)
 			Scene.Advance(0.4f, FPS);
 			const FVector Recoil = NPC->GetActorLocation() - Start;
 			AddInfo(FString::Printf(TEXT("%s at %d FPS: recoil %.1f cm"), *Class->GetName(), FPS, Recoil.Size2D()));
-			TestTrue(TEXT("Every NPC recoils about one metre along the shot"),
-				FVector::DotProduct(Recoil, ShotDirection) > 90 && Recoil.Size2D() < 110);
+			TestTrue(TEXT("Every NPC takes a restrained 28 cm backward step along the shot"),
+				FVector::DotProduct(Recoil, ShotDirection) > 26 && Recoil.Size2D() < 30);
 			TestTrue(TEXT("Mesh returns to its authored rotation"), RestRotation.Equals(NPC->GetMesh()->GetRelativeRotation().Quaternion(), 0.001f));
 			TestFalse(TEXT("The stagger ends"), Reaction->IsStaggering());
+			TestTrue(TEXT("Compression recovers the authored mesh height"), NPC->GetMesh()->GetRelativeLocation().Equals(RestLocation, .001));
+			TestNull(TEXT("Flash is removed after the impact"), NPC->GetMesh()->GetOverlayMaterial());
 			TestFalse(TEXT("The reaction stops ticking after recovery"), Reaction->IsComponentTickEnabled());
 
 			// A second hit interrupts recoil, and the lethal hit's direction wins.
@@ -182,6 +189,52 @@ bool FNPCHitObstructionTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNPCDamageFlashTest, "MyProject6.NPC.DamageFlashAndRepeatedImpacts",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FNPCDamageFlashTest::RunTest(const FString& Parameters)
+{
+	FHitReactionWorld Scene;
+	ACharacter* NPC = Scene.Spawn(AChasingNPC::StaticClass());
+	UNPCHitReactionComponent* Reaction = NPC->FindComponentByClass<UNPCHitReactionComponent>();
+	USkeletalMeshComponent* Mesh = NPC->GetMesh();
+	UMaterialInterface* Skin = Mesh->GetMaterial(0);
+	UMaterialInterface* ExistingOverlay = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/NPC/Materials/M_NPCContactGlow.M_NPCContactGlow"));
+	Mesh->SetOverlayMaterial(ExistingOverlay);
+	Reaction->HitFlashColor = FLinearColor(.1f, .3f, 1.f);
+	Reaction->HitFlashIntensity = 1.5f;
+	TestEqual(TEXT("Zero damage is rejected"), Scene.Hit(NPC, 0.f, FVector::ForwardVector), 0.f);
+	TestEqual(TEXT("Rejected damage preserves the existing overlay"), Mesh->GetOverlayMaterial(), ExistingOverlay);
+	UGameplayStatics::ApplyDamage(NPC, 1.f, nullptr, nullptr, nullptr);
+	TestFalse(TEXT("Directionless damage does not invent a knockback direction"), Reaction->IsStaggering());
+	auto* Flash = Cast<UMaterialInstanceDynamic>(Mesh->GetOverlayMaterial());
+	if (!TestNotNull(TEXT("Directionless accepted damage still flashes"), Flash)) return false;
+	TestTrue(TEXT("Editable flash color reaches the material"), Flash->K2_GetVectorParameterValue(TEXT("HitFlashColor")).Equals(Reaction->HitFlashColor));
+	TestEqual(TEXT("Editable brightness reaches the material"), Flash->K2_GetScalarParameterValue(TEXT("HitFlashIntensity")), 1.5f);
+	Scene.Advance(.07f);
+	TestTrue(TEXT("Flash fades before it disappears"), Flash->K2_GetScalarParameterValue(TEXT("HitFlashAmount")) < 1.f);
+	Scene.Hit(NPC, 1.f, FVector::ForwardVector);
+	TestEqual(TEXT("Consecutive hits reuse the material instance"), Mesh->GetOverlayMaterial(), static_cast<UMaterialInterface*>(Flash));
+	TestEqual(TEXT("New hit renews the flash immediately"), Flash->K2_GetScalarParameterValue(TEXT("HitFlashAmount")), 1.f);
+	Scene.Advance(.06f);
+	const FQuat BeforeRepeat = Mesh->GetRelativeRotation().Quaternion();
+	Scene.Hit(NPC, 1.f, FVector::ForwardVector);
+	TestTrue(TEXT("A repeated impact does not snap the torso to rest"), BeforeRepeat.Equals(Mesh->GetRelativeRotation().Quaternion(), .0001f));
+	Scene.Advance(.5f);
+	TestEqual(TEXT("Recovery restores an existing overlay exactly"), Mesh->GetOverlayMaterial(), ExistingOverlay);
+	TestEqual(TEXT("Recovery preserves original skin material"), Mesh->GetMaterial(0), Skin);
+	Reaction->bEnableHitFlash = false;
+	Scene.Hit(NPC, 1.f, FVector::ForwardVector);
+	TestTrue(TEXT("Flash can be disabled while stagger remains active"), Reaction->IsStaggering() && Mesh->GetOverlayMaterial() == ExistingOverlay);
+	Reaction->bEnableHitFlash = true;
+	Scene.Hit(NPC, 1000.f, FVector::ForwardVector);
+	TestTrue(TEXT("Lethal damage flashes during the death reaction"), Reaction->IsDeathInFlight() && Mesh->GetOverlayMaterial() == Flash);
+	Scene.Advance(.2f);
+	TestEqual(TEXT("Death does not leave the white overlay stuck"), Mesh->GetOverlayMaterial(), ExistingOverlay);
+	TestFalse(TEXT("Further damage to corpse cannot renew flash"), Scene.Hit(NPC, 1.f, FVector::ForwardVector) > 0.f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlayerMovementBoostTest, "MyProject6.Gameplay.FasterRunAndJump",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
@@ -235,7 +288,7 @@ bool FBlackMonsterProjectileReactionTest::RunTest(const FString& Parameters)
 			TestEqual(TEXT("Each projectile plays the recoil animation"), Mesh->GetSingleNodeInstance()->GetCurrentAsset()->GetFName(), FName(TEXT("Anim_BlackMonster_Hit")));
 			Scene.Advance(.45f, FPS);
 			const double Step = NPC->GetActorLocation().X-Before.X;
-			TestTrue(TEXT("Each hit visibly steps backward about one metre"), Step > 90 && Step < 110);
+			TestTrue(TEXT("Each hit takes a short backward step"), Step > 26 && Step < 30);
 			TestFalse(TEXT("Monster recovers after each nonfatal shot"), Reaction->IsStaggering());
 			TestTrue(TEXT("Recovery restores locomotion"), Mesh->GetSingleNodeInstance()->GetCurrentAsset()->IsA<UBlendSpace>());
 			TestTrue(TEXT("Recovery restores mesh orientation"), RestRotation.Equals(Mesh->GetRelativeRotation().Quaternion(), .001));

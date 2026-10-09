@@ -27,9 +27,15 @@ struct FNPCReplacementPresentation
 	float DeathAnimationPlayRate = 1.0f;
 	float DeathHoldDuration = 3.0f;
 	float DeathFadeDuration = 2.0f;
-	float StaggerDistance = 100.0f;
-	float StaggerDuration = 0.42f;
-	float StaggerLeanAngle = 16.0f;
+	float StaggerDistance = 28.0f;
+	float StaggerDuration = 0.34f;
+	float StaggerLeanAngle = 7.0f;
+	float StaggerCompression = 2.0f;
+	bool bEnableHitFlash = true;
+	FLinearColor HitFlashColor = FLinearColor::White;
+	float HitFlashDuration = .12f;
+	float HitFlashIntensity = 2.f;
+	UPROPERTY() TObjectPtr<UMaterialInterface> HitFlashMaterial;
 	float DeathHorizontalSpeed = 450.0f;
 	float DeathUpwardSpeed = 360.0f;
 	FName DeathOpacityParameter;

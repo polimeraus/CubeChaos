@@ -440,6 +440,7 @@ float AChasingNPC::TakeDamage(
 		if (IsStaggering()) { StopContactAttack(); }
 	}
 
+	HitReaction->PlayDamageFlash();
 	return AppliedDamage;
 }
 
@@ -636,6 +637,12 @@ void FNPCReplacementPresentation::Capture(const AChasingNPC& Source)
 	StaggerDistance = Source.HitReaction->StaggerDistance;
 	StaggerDuration = Source.HitReaction->StaggerDuration;
 	StaggerLeanAngle = Source.HitReaction->StaggerLeanAngle;
+	StaggerCompression = Source.HitReaction->StaggerCompression;
+	bEnableHitFlash = Source.HitReaction->bEnableHitFlash;
+	HitFlashColor = Source.HitReaction->HitFlashColor;
+	HitFlashDuration = Source.HitReaction->HitFlashDuration;
+	HitFlashIntensity = Source.HitReaction->HitFlashIntensity;
+	HitFlashMaterial = Source.HitReaction->HitFlashMaterial;
 	DeathHorizontalSpeed = Source.HitReaction->DeathHorizontalSpeed;
 	DeathUpwardSpeed = Source.HitReaction->DeathUpwardSpeed;
 }
@@ -657,6 +664,12 @@ void FNPCReplacementPresentation::Apply(AChasingNPC& Target) const
 	Target.HitReaction->StaggerDistance = StaggerDistance;
 	Target.HitReaction->StaggerDuration = StaggerDuration;
 	Target.HitReaction->StaggerLeanAngle = StaggerLeanAngle;
+	Target.HitReaction->StaggerCompression = StaggerCompression;
+	Target.HitReaction->bEnableHitFlash = bEnableHitFlash;
+	Target.HitReaction->HitFlashColor = HitFlashColor;
+	Target.HitReaction->HitFlashDuration = HitFlashDuration;
+	Target.HitReaction->HitFlashIntensity = HitFlashIntensity;
+	Target.HitReaction->HitFlashMaterial = HitFlashMaterial;
 	Target.HitReaction->DeathHorizontalSpeed = DeathHorizontalSpeed;
 	Target.HitReaction->DeathUpwardSpeed = DeathUpwardSpeed;
 }

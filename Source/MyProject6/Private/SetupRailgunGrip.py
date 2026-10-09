@@ -51,7 +51,11 @@ for frame in range(frames+1):
     direction=unit(sub(goal,shoulder))
     distance=length(sub(goal,shoulder))
     assert abs(upper_len-lower_len) < distance < upper_len+lower_len, 'Grip is outside arm reach'
-    pole=unit(sub(sub(elbow,shoulder),mul(direction,dot(sub(elbow,shoulder),direction))))
+    # Tuck the elbow down/back with two-bone IK, preserving both bone lengths.
+    # The forearm keeps its cylindrical anatomy instead of stretching vertices in a shader.
+    elbow_guide = vec(unreal.MathLibrary.transform_location(grip, unreal.Vector(26, -12, -24)))
+    pole_offset = sub(elbow_guide, shoulder)
+    pole=unit(sub(pole_offset,mul(direction,dot(pole_offset,direction))))
     along=(upper_len*upper_len-lower_len*lower_len+distance*distance)/(2*distance)
     height=math.sqrt(max(0,upper_len*upper_len-along*along))
     new_elbow=add(add(shoulder,mul(direction,along)),mul(pole,height))
@@ -83,6 +87,10 @@ for sample in report:
     actual = vec(unreal.MathLibrary.inverse_transform_location(actual_grip, actual_wrist.translation))
     sample['wrist_actual'] = actual
     assert length(sub(actual, sample['wrist_target'])) < 0.1, f'Grip mismatch: {sample}'
+    for start, end in [('upperarm_l', 'lowerarm_l'), ('lowerarm_l', 'hand_l')]:
+        original_length = length(sub(vec(ext.get_bone_pose(source_pose,end,world).translation), vec(ext.get_bone_pose(source_pose,start,world).translation)))
+        actual_length = length(sub(vec(ext.get_bone_pose(corrected,end,world).translation), vec(ext.get_bone_pose(corrected,start,world).translation)))
+        assert abs(original_length - actual_length) < .01, 'Arm bone was stretched'
     original_right = ext.get_bone_pose(source_pose, 'hand_r', world)
     actual_right = ext.get_bone_pose(corrected, 'hand_r', world)
     assert length(sub(vec(actual_right.translation), vec(original_right.translation))) < 0.01

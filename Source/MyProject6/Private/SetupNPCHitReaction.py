@@ -1,6 +1,7 @@
-"""Apply the stronger recoil to NPC Blueprints and existing level instances.
+"""Apply restrained impact reactions to NPC Blueprints and existing level instances.
 
 Run in an isolated Unreal Python commandlet after building the editor target.
+On a fresh checkout, run SetupNPCHitFlash.py first to create the shared flash material.
 Changed assets/maps are backed up before saving.
 """
 from datetime import datetime
@@ -12,7 +13,7 @@ import unreal
 content = Path(unreal.Paths.project_content_dir())
 output = Path(unreal.Paths.project_saved_dir()) / 'NPCHitReaction'
 backup = output / 'Backup' / datetime.now().strftime('%Y%m%d_%H%M%S')
-settings = {'stagger_distance':100.0, 'stagger_duration':.42, 'stagger_lean_angle':16.0}
+settings = {'stagger_distance':28.0, 'stagger_duration':.34, 'stagger_lean_angle':7.0, 'stagger_compression':2.0}
 
 
 def backup_file(source):

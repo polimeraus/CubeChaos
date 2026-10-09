@@ -132,6 +132,7 @@ float AWhisperFollower::TakeDamage(float DamageAmount, const FDamageEvent& Damag
 			}
 		}
 	}
+	HitReaction->PlayDamageFlash();
 	return AppliedDamage;
 }
 
