@@ -1,0 +1,21 @@
+// Soft optical profile with small irregularities, rather than a solid mesh tube.
+float along = UV.x * BeamLength * 0.065;
+float across = (UV.y - 0.5) * 2.0;
+float2 p = float2(along - Age * 4.0, UV.y * 7.0);
+float2 cell = floor(p);
+float2 f = frac(p);
+f = f * f * (3.0 - 2.0 * f);
+float a = frac(sin(dot(cell, float2(127.1, 311.7))) * 43758.5453);
+float b = frac(sin(dot(cell + float2(1,0), float2(127.1,311.7))) * 43758.5453);
+float c = frac(sin(dot(cell + float2(0,1), float2(127.1,311.7))) * 43758.5453);
+float d = frac(sin(dot(cell + float2(1,1), float2(127.1,311.7))) * 43758.5453);
+float grain = lerp(lerp(a,b,f.x), lerp(c,d,f.x), f.y);
+float core = exp(-across * across * 55.0);
+float halo = exp(-across * across * 4.5);
+float edge = 1.0 - smoothstep(0.7, 1.0, abs(across));
+float ends = smoothstep(0.0, 3.0, UV.x * BeamLength)
+    * smoothstep(0.0, 6.0, (1.0 - UV.x) * BeamLength);
+float profile = core * 0.9 + halo * (0.55 + grain * 0.35);
+float opacity = (1.0 - exp(-max(0.0, Density) * profile)) * edge * ends * Fade;
+// Premultiplied color keeps a dense red trail saturated against bright surfaces.
+return float4(Tint * Brightness * (0.7 + core * 0.3) * opacity, opacity);

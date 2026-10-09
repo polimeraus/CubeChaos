@@ -46,6 +46,15 @@ TSharedRef<SWidget> UEnergyHUDWidget::RebuildWidget()
 	TSharedRef<SWidget> RootWidget =
 		SNew(SOverlay)
 
+		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+		[
+			SNew(STextBlock)
+			.Text(FText::FromString(TEXT("+")))
+			.Font(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 16))
+			.ColorAndOpacity(FLinearColor(.65f, .95f, 1.f, .85f))
+			.Visibility(EVisibility::HitTestInvisible)
+		]
+
 		+ SOverlay::Slot()
 		.HAlign(HAlign_Left)
 		.VAlign(VAlign_Top)
@@ -181,7 +190,7 @@ TSharedRef<SWidget> UEnergyHUDWidget::RebuildWidget()
 								.Padding(14)
 								[
 									SNew(STextBlock)
-									.Text(NSLOCTEXT("EnergyHUD", "ControlsHelp", "W A S D   ·   Hareket\nFare   ·   Etrafa bak\nBoşluk   ·   Zıpla\nSol tık   ·   Ateş et\nBackspace   ·   Havadayken platform oluştur"))
+									.Text(NSLOCTEXT("EnergyHUD", "ControlsHelp", "W A S D   ·   Hareket\nFare   ·   Etrafa bak\nBoşluk   ·   Zıpla\nSol tık   ·   Ateş et\nOrta fare / 1   ·   Railgun\nBackspace   ·   Havadayken platform oluştur"))
 									.Font(CaptionFont).ColorAndOpacity(FLinearColor(0.75f, 0.83f, 0.91f))
 									.AutoWrapText(true)
 								]
