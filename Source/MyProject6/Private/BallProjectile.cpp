@@ -3,6 +3,7 @@
 #include "BallProjectile.h"
 
 #include "ChunkedDestructibleConeStructure.h"
+#include "QuadPanelConeStructure.h"
 #include "ChunkedDestructibleFloor.h"
 #include "RoundedBoxActor.h"
 #include "SimpleHouseActor.h"
@@ -127,7 +128,27 @@ void ABallProjectile::NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPri
 		return;
 	}
 
-	if (AChunkedDestructibleConeStructure* Cone = Cast<AChunkedDestructibleConeStructure>(Other))
+	if (AQuadPanelConeStructure* QuadCone = Cast<AQuadPanelConeStructure>(Other))
+	{
+		bHasCarvedSurface = true;
+		if (bExplodeChunkedFloor)
+		{
+			if (bDestroyChunkedCellsInBlast)
+			{
+				QuadCone->DestroyConeCellsFromHit(Hit, FloorExplosionRadius);
+			}
+			else
+			{
+				QuadCone->ApplyExplosionFromHit(Hit, FloorExplosionRadius, FloorDamage);
+			}
+		}
+		else
+		{
+			QuadCone->DestroyConeCellFromHit(Hit);
+		}
+		Destroy();
+	}
+	else if (AChunkedDestructibleConeStructure* Cone = Cast<AChunkedDestructibleConeStructure>(Other))
 	{
 		bHasCarvedSurface = true;
 		if (bExplodeChunkedFloor)

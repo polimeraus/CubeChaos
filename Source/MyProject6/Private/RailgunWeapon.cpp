@@ -2,6 +2,7 @@
 #include "RailgunBeam.h"
 #include "MyProject6Character.h"
 #include "ChunkedDestructibleConeStructure.h"
+#include "QuadPanelConeStructure.h"
 #include "ChunkedDestructibleFloor.h"
 #include "RoundedBoxActor.h"
 #include "SimpleHouseActor.h"
@@ -144,7 +145,9 @@ FVector ARailgunWeapon::GetVisualMuzzleLocation() const
 void ARailgunWeapon::ApplyHit(const FHitResult& Hit, const FVector& Direction)
 {
     AActor* Target = Hit.GetActor();
-    if (AChunkedDestructibleConeStructure* Cone = Cast<AChunkedDestructibleConeStructure>(Target))
+    if (AQuadPanelConeStructure* QuadCone = Cast<AQuadPanelConeStructure>(Target))
+        QuadCone->DestroyConeCellFromHit(Hit);
+    else if (AChunkedDestructibleConeStructure* Cone = Cast<AChunkedDestructibleConeStructure>(Target))
         Cone->DestroyConeCellFromHit(Hit);
     else if (AChunkedDestructibleFloor* Floor = Cast<AChunkedDestructibleFloor>(Target))
         Floor->DamageCellFromHit(Hit, FMath::Max(0.f, Damage));
