@@ -33,6 +33,7 @@ bool FQuadPanelConeTest::RunTest(const FString& Parameters)
 	Cone->WallPanelSegments = 24;
 	Cone->PanelJointWidth = 0;
 	Cone->ConfigureConeStructure(12, 5, 2, .5, FVector(100), FVector::ZeroVector);
+	TestEqual(TEXT("Panel surface lighting is smooth by default"), Cone->PanelShadingSmoothness, 1.f);
 	TestEqual(TEXT("Only whole wall panels own live cells"), Cone->GetConeStructureMetrics().GeneratedBlockCount, 12 * 24);
 	for (int32 Row = 0; Row < 12; ++Row)
 	{
@@ -49,7 +50,71 @@ bool FQuadPanelConeTest::RunTest(const FString& Parameters)
 			Mesh.Attributes()->SetNumUVLayers(1); Mesh.Attributes()->EnableMaterialID();
 			Cone->AppendPanel(Mesh, Cell);
 			TestEqual(TEXT("A whole piece has exactly six quad faces"), Mesh.TriangleCount(), 12);
+			FDynamicMesh3 FlatMesh;
+			FlatMesh.EnableVertexNormals(FVector3f::UnitZ()); FlatMesh.EnableAttributes();
+			FlatMesh.Attributes()->SetNumUVLayers(1); FlatMesh.Attributes()->EnableMaterialID();
+			{
+				TGuardValue<float> FlatShading(Cone->PanelShadingSmoothness, 0.f);
+				Cone->AppendPanel(FlatMesh, Cell);
+			}
+			TestEqual(TEXT("Smoothing adds no vertices"), Mesh.VertexCount(), FlatMesh.VertexCount());
+			TestEqual(TEXT("Smoothing adds no normal elements"), Mesh.Attributes()->PrimaryNormals()->ElementCount(), FlatMesh.Attributes()->PrimaryNormals()->ElementCount());
+			for (int32 Vertex : Mesh.VertexIndicesItr())
+			{
+				TestTrue(TEXT("Smoothing leaves render and collision positions identical"), Mesh.GetVertex(Vertex) == FlatMesh.GetVertex(Vertex));
+				TestTrue(TEXT("Smoothed vertex normals stay finite and unit length"), FMath::IsNearlyEqual(Mesh.GetVertexNormal(Vertex).SizeSquared(), 1.f, 1.e-5f));
+			}
+			for (int32 Triangle : Mesh.TriangleIndicesItr())
+			{
+				const FIndex3i Vertices = Mesh.GetTriangle(Triangle);
+				const auto* Normals = Mesh.Attributes()->PrimaryNormals();
+				const FIndex3i NormalElements = Normals->GetTriangle(Triangle);
+				TestTrue(TEXT("Smoothing preserves triangle topology and winding"), Vertices == FlatMesh.GetTriangle(Triangle));
+				for (int32 Corner = 0; Corner < 3; ++Corner)
+				{
+					TestTrue(TEXT("The render overlay uses the vertex's smooth normal"), Normals->GetElement(NormalElements[Corner]) == Mesh.GetVertexNormal(Vertices[Corner]));
+					if (Triangle >= 4)
+					{
+						TestTrue(TEXT("End caps and exposed damage cuts retain flat shading"),
+							Mesh.GetVertexNormal(Vertices[Corner]) == FlatMesh.GetVertexNormal(Vertices[Corner]));
+					}
+				}
+			}
 			for (int32 Triangle : Mesh.TriangleIndicesItr()) { TestTrue(TEXT("No degenerate triangles"), Mesh.GetTriArea(Triangle) > 0.01); }
+		}
+	}
+	// Verify shading continuity at both horizontal/vertical chunk boundaries and
+	// the angular wrap. Shared shell positions must have identical lighting normals.
+	for (const FIntPoint SeamCell : { Cone->PanelCell(7, 3), Cone->PanelCell(23, 3) })
+	{
+		for (const FIntPoint Offset : { FIntPoint(1, 0), FIntPoint(0, 1) })
+		{
+			FDynamicMesh3 Left, Right;
+			for (FDynamicMesh3* M : { &Left, &Right }) { M->EnableVertexNormals(FVector3f::UnitZ()); }
+			Cone->AppendPanel(Left, SeamCell);
+			Cone->AppendPanel(Right, Cone->PanelCell(SeamCell.X - Cone->PanelCellOffset + Offset.X, SeamCell.Y + Offset.Y));
+			int32 SharedCorners = 0;
+			for (int32 A = 0; A < 8; ++A)
+			{
+				for (int32 B = 0; B < 8; ++B)
+				{
+					if (!Left.GetVertex(A).Equals(Right.GetVertex(B), 1.e-6)) { continue; }
+					++SharedCorners;
+					TestTrue(TEXT("Joined shell panels have continuous lighting across chunk/wrap seams"),
+						Left.GetVertexNormal(A).Equals(Right.GetVertexNormal(B), 1.e-6f));
+				}
+			}
+			TestEqual(TEXT("Both outer and inner shell edges meet"), SharedCorners, 4);
+		}
+	}
+	{
+		TGuardValue<float> PointedTop(Cone->TopRadiusBlocks, 0.f);
+		FDynamicMesh3 Tip;
+		Tip.EnableVertexNormals(FVector3f::UnitZ()); Tip.EnableAttributes();
+		Cone->AppendPanel(Tip, Cone->PanelCell(0, 11));
+		for (int32 Vertex : Tip.VertexIndicesItr())
+		{
+			TestTrue(TEXT("The pointed apex has finite unit normals"), FMath::IsNearlyEqual(Tip.GetVertexNormal(Vertex).SizeSquared(), 1.f, 1.e-5f));
 		}
 	}
 	const FIntPoint Cell = Cone->PanelCell(2, 5), Neighbor = Cone->PanelCell(3, 5);

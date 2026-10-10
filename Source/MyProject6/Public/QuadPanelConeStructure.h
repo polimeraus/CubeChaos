@@ -33,6 +33,10 @@ public:
 	/** Narrow joints make the four-sided panels readable. Zero creates a seamless shell. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quad Cone", meta = (ClampMin = "0", ClampMax = "5", Units = "cm"))
 	float PanelJointWidth = 0.6f;
+	/** Blends the inner/outer shell's lighting normals toward a smooth cone, without
+	 * adding geometry or changing collision. Zero restores flat panel shading. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quad Cone", meta = (ClampMin = "0", ClampMax = "1"))
+	float PanelShadingSmoothness = 1.0f;
 
 	virtual bool UsesPlanarAnimation() const override { return false; }
 

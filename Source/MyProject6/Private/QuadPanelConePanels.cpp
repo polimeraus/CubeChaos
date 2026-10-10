@@ -117,14 +117,20 @@ void AQuadPanelConeStructure::AppendPanel(FDynamicMesh3& Mesh, FIntPoint Cell, i
 	FVector3d Center = FVector3d::Zero();
 	for (const FVector3d& Point : V) { Center += Point / 8.; }
 	const int32 First = Mesh.MaxTriangleID();
+	const double Smoothness = FMath::IsFinite(PanelShadingSmoothness) ? FMath::Clamp(PanelShadingSmoothness, 0.f, 1.f) : 1.0;
+	const double Height = FMath::Max(BlockDimensions.Z * GridHeightBlocks +
+		BlockSpacing.Z * FMath::Max(GridHeightBlocks - 1, 0), 1.0);
+	const double NormalZ = (BottomRadiusBlocks - TopRadiusBlocks) * CachedRadialBlockUnit / Height;
 	// Each piece has six planar faces. A face consists of two render triangles,
 	// but ownership, collision and destruction always operate on the whole panel.
-	auto Face = [&](int32 IA, int32 IB, int32 IC, int32 ID)
+	auto Face = [&](int32 IA, int32 IB, int32 IC, int32 ID, double ShellSide = 0.)
 	{
 		FVector3d A = V[IA], B = V[IB], C = V[IC], D = V[ID];
 		FVector3d Normal = (B - A).Cross(C - A) + (C - A).Cross(D - A);
 		if (!Normal.Normalize()) { return; }
 		if (Normal.Dot((A + B + C + D) * .25 - Center) < 0.) { Swap(B, D); Normal = -Normal; }
+		const int32 FirstVertex = Mesh.MaxVertexID();
+		const int32 FirstFaceTriangle = Mesh.MaxTriangleID();
 		if ((B - A).Cross(C - A).SquaredLength() > 1.e-8 && (C - A).Cross(D - A).SquaredLength() > 1.e-8)
 		{
 			AppendMeshQuad(Mesh, A, B, C, D, FVector3f(Normal), Material,
@@ -137,8 +143,30 @@ void AQuadPanelConeStructure::AppendPanel(FDynamicMesh3& Mesh, FIntPoint Cell, i
 			if ((C - A).Cross(D - A).SquaredLength() > 1.e-8)
 				AppendMeshTriangle(Mesh, A, C, D, FVector3f(Normal), Material, FVector2f(0,0), FVector2f(1,1), FVector2f(0,1));
 		}
+		if (ShellSide == 0. || Smoothness <= 0.) { return; }
+		// An analytic normal agrees across panel and chunk boundaries without a
+		// neighbor search or welded geometry. End caps and destruction cuts stay flat.
+		for (int32 Vertex = FirstVertex; Vertex < Mesh.MaxVertexID(); ++Vertex)
+		{
+			const FVector3d Point = Mesh.GetVertex(Vertex);
+			FVector3d SmoothNormal = FVector3d(Point.X, Point.Y, 0).GetSafeNormal();
+			SmoothNormal = SmoothNormal.IsNearlyZero() ? FVector3d::UnitZ() :
+				FVector3d(SmoothNormal.X, SmoothNormal.Y, NormalZ).GetSafeNormal();
+			Mesh.SetVertexNormal(Vertex, FVector3f(FMath::Lerp(Normal, SmoothNormal * ShellSide, Smoothness).GetSafeNormal()));
+		}
+		if (Mesh.HasAttributes())
+		{
+			if (FDynamicMeshNormalOverlay* Normals = Mesh.Attributes()->PrimaryNormals())
+			{
+				for (int32 Triangle = FirstFaceTriangle; Triangle < Mesh.MaxTriangleID(); ++Triangle)
+				{
+					const FIndex3i Vertices = Mesh.GetTriangle(Triangle), Elements = Normals->GetTriangle(Triangle);
+					for (int32 Corner = 0; Corner < 3; ++Corner) { Normals->SetElement(Elements[Corner], Mesh.GetVertexNormal(Vertices[Corner])); }
+				}
+			}
+		}
 	};
-	Face(0, 1, 2, 3); Face(4, 7, 6, 5);
+	Face(0, 1, 2, 3, 1.); Face(4, 7, 6, 5, -1.);
 	Face(0, 4, 5, 1); Face(3, 2, 6, 7);
 	Face(0, 3, 7, 4); Face(1, 5, 6, 2);
 	SetMusicTriangleCells(Mesh, First, Cell);
