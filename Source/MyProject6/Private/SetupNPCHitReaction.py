@@ -13,7 +13,8 @@ import unreal
 content = Path(unreal.Paths.project_content_dir())
 output = Path(unreal.Paths.project_saved_dir()) / 'NPCHitReaction'
 backup = output / 'Backup' / datetime.now().strftime('%Y%m%d_%H%M%S')
-settings = {'stagger_distance':28.0, 'stagger_duration':.34, 'stagger_lean_angle':7.0, 'stagger_compression':2.0}
+settings = {'stagger_distance':28.0, 'stagger_duration':.34, 'forward_bend_angle':42.0,
+            'forward_bend_attack_time':.065, 'stagger_compression':2.0}
 
 
 def backup_file(source):

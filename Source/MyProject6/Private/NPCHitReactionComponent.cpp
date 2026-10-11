@@ -1,4 +1,5 @@
 #include "NPCHitReactionComponent.h"
+#include "NPCHitBendAnimInstance.h"
 
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -13,9 +14,30 @@ UNPCHitReactionComponent::UNPCHitReactionComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = false;
-	PrimaryComponentTick.TickGroup = TG_PostPhysics;
+	PrimaryComponentTick.TickGroup = TG_PrePhysics;
+	ForwardBendAnimClass = TSoftClassPtr<UAnimInstance>(FSoftObjectPath(TEXT("/Game/NPC/Animations/ABP_NPCHitBend.ABP_NPCHitBend_C")));
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> Flash(TEXT("/Game/NPC/Materials/M_NPCHitFlash.M_NPCHitFlash"));
 	HitFlashMaterial = Flash.Object;
+}
+
+void UNPCHitReactionComponent::BeginPlay()
+{
+	Super::BeginPlay();
+	if (ACharacter* Character = Cast<ACharacter>(GetOwner()))
+	{
+		AddTickPrerequisiteComponent(Character->GetCharacterMovement());
+		Character->GetMesh()->AddTickPrerequisiteComponent(this);
+		if (UClass* BendClass = ForwardBendAnimClass.LoadSynchronous())
+		{
+			Character->GetMesh()->SetOverridePostProcessAnimBP(BendClass);
+		}
+	}
+}
+
+bool UNPCHitReactionComponent::IsUsingForwardBend() const
+{
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	return Character && Cast<UNPCHitBendAnimInstance>(Character->GetMesh()->GetPostProcessInstance());
 }
 
 FVector UNPCHitReactionComponent::ResolveImpactDirection(const ACharacter& Victim,
@@ -49,19 +71,13 @@ void UNPCHitReactionComponent::Stagger(const FVector& Direction)
 	if (!Character || bDeathInFlight || Direction.IsNearlyZero()) { return; }
 	if (!bStaggering)
 	{
-		RestMeshRotation = Character->GetMesh()->GetRelativeRotation().Quaternion();
 		RestMeshLocation = Character->GetMesh()->GetRelativeLocation();
-		Tilt = TiltVelocity = FVector::ZeroVector;
-		Compression = CompressionVelocity = 0.f;
 	}
+	// Renew the reaction from the current fold, without snapping upright on repeated hits.
+	StartBendAngle = CurrentBendAngle;
 	bStaggering = true;
 	StaggerElapsed = 0.0f;
 	StaggerDirection = Direction.GetSafeNormal2D();
-	const FVector LocalDirection = Character->GetActorQuat().UnrotateVector(StaggerDirection);
-	const FVector LeanAxis = FVector::CrossProduct(FVector::UpVector, LocalDirection).GetSafeNormal();
-	// Impulses accumulate without snapping the body back to rest on rapid repeated hits.
-	TiltVelocity = (TiltVelocity + LeanAxis * FMath::Clamp(StaggerLeanAngle, 0.f, 20.f) * 40.f).GetClampedToMaxSize(600.f);
-	CompressionVelocity = FMath::Max(CompressionVelocity - FMath::Clamp(StaggerCompression, 0.f, 6.f) * 40.f, -200.f);
 	UCharacterMovementComponent* Movement = Character->GetCharacterMovement();
 	const float FallingVelocity = Movement->IsFalling() ? Movement->Velocity.Z : 0.0f;
 	if (Character->GetController()) { Character->GetController()->StopMovement(); }
@@ -77,11 +93,11 @@ void UNPCHitReactionComponent::ResetStagger()
 	{
 		if (ACharacter* Character = Cast<ACharacter>(GetOwner()))
 		{
-			Character->GetMesh()->SetRelativeRotation(RestMeshRotation);
 			Character->GetMesh()->SetRelativeLocation(RestMeshLocation);
 		}
 	}
 	bStaggering = false;
+	CurrentBendAngle = StartBendAngle = 0.f;
 	RefreshTickEnabled();
 }
 
@@ -198,18 +214,21 @@ void UNPCHitReactionComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 	// Integrate an easing curve so the displacement is the same at different frame rates.
 	const float DistanceFraction = FMath::Pow(1.0f - PreviousAlpha, 3.f) - FMath::Pow(1.0f - Alpha, 3.f);
 	Character->AddActorWorldOffset(StaggerDirection * FMath::Max(0.0f, StaggerDistance) * DistanceFraction, true);
-	const float StepTime = FMath::Clamp(DeltaTime, 0.f, .1f);
-	const int32 Steps = FMath::Max(1, FMath::CeilToInt(StepTime * 120.f));
-	const float Step = StepTime / Steps;
-	for (int32 Index = 0; Index < Steps; ++Index)
+	const float PeakAngle = FMath::Clamp(ForwardBendAngle, 0.f, 70.f);
+	const float Attack = FMath::Clamp(ForwardBendAttackTime, .01f, Duration * .3f);
+	const float HoldEnd = Attack + Duration * .12f;
+	if (StaggerElapsed < Attack)
 	{
-		TiltVelocity += (-400.f * Tilt - 30.f * TiltVelocity) * Step;
-		Tilt += TiltVelocity * Step;
-		Tilt = Tilt.GetClampedToMaxSize(FMath::Clamp(StaggerLeanAngle, 0.f, 20.f) * 1.35f);
-		CompressionVelocity += (-400.f * Compression - 30.f * CompressionVelocity) * Step;
-		Compression = FMath::Clamp(Compression + CompressionVelocity * Step, -6.f, 1.f);
+		const float T = FMath::Clamp(StaggerElapsed / Attack, 0.f, 1.f);
+		CurrentBendAngle = FMath::Lerp(StartBendAngle, PeakAngle, 1.f - FMath::Square(1.f - T));
 	}
-	Character->GetMesh()->SetRelativeRotation(FQuat::MakeFromRotationVector(Tilt * (PI / 180.f)) * RestMeshRotation);
+	else
+	{
+		const float T = FMath::Clamp((StaggerElapsed - HoldEnd) / (Duration - HoldEnd), 0.f, 1.f);
+		CurrentBendAngle = PeakAngle * (1.f - T * T * (3.f - 2.f * T));
+	}
+	const float Compression = -FMath::Clamp(StaggerCompression, 0.f, 6.f)
+		* (PeakAngle > SMALL_NUMBER ? CurrentBendAngle / PeakAngle : 0.f);
 	Character->GetMesh()->SetRelativeLocation(RestMeshLocation + FVector(0, 0, Compression));
 	if (Alpha >= 1.0f) { ResetStagger(); }
 }

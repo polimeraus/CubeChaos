@@ -6,6 +6,7 @@
 class AChasingNPC;
 class USoundBase;
 class UAnimSequence;
+class UAnimInstance;
 class UMaterialInterface;
 
 /** Value snapshot survives the defeated actor's fade/destruction while a spawn is queued. */
@@ -29,7 +30,9 @@ struct FNPCReplacementPresentation
 	float DeathFadeDuration = 2.0f;
 	float StaggerDistance = 28.0f;
 	float StaggerDuration = 0.34f;
-	float StaggerLeanAngle = 7.0f;
+	float ForwardBendAngle = 42.f;
+	float ForwardBendAttackTime = .065f;
+	UPROPERTY() TSoftClassPtr<UAnimInstance> ForwardBendAnimClass;
 	float StaggerCompression = 2.0f;
 	bool bEnableHitFlash = true;
 	FLinearColor HitFlashColor = FLinearColor::White;

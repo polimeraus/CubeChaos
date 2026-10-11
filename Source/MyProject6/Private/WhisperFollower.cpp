@@ -121,7 +121,7 @@ float AWhisperFollower::TakeDamage(float DamageAmount, const FDamageEvent& Damag
 		if (HitReaction->IsStaggering())
 		{
 			StopContactInteraction();
-			if (HitReactionAnimation)
+			if (HitReactionAnimation && !HitReaction->IsUsingForwardBend())
 			{
 				bHitReactionAnimationActive = true;
 				GetMesh()->PlayAnimation(HitReactionAnimation, false);

@@ -420,7 +420,7 @@ defaults.get_component_by_class(unreal.NPCHealthBarComponent).set_editor_propert
 reaction = defaults.get_component_by_class(unreal.NPCHitReactionComponent)
 reaction.set_editor_property('stagger_distance', 100.0)
 reaction.set_editor_property('stagger_duration', .42)
-reaction.set_editor_property('stagger_lean_angle', 16.0)
+reaction.set_editor_property('forward_bend_angle', 42.0)
 reaction.set_editor_property('death_horizontal_speed', 550.0)
 reaction.set_editor_property('death_upward_speed', 360.0)
 defaults.set_editor_property('contact_interaction_radius', 140.0)

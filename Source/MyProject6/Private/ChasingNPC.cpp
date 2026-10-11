@@ -636,7 +636,9 @@ void FNPCReplacementPresentation::Capture(const AChasingNPC& Source)
 	DeathOpacityParameter = Source.DeathOpacityParameter;
 	StaggerDistance = Source.HitReaction->StaggerDistance;
 	StaggerDuration = Source.HitReaction->StaggerDuration;
-	StaggerLeanAngle = Source.HitReaction->StaggerLeanAngle;
+	ForwardBendAngle = Source.HitReaction->ForwardBendAngle;
+	ForwardBendAttackTime = Source.HitReaction->ForwardBendAttackTime;
+	ForwardBendAnimClass = Source.HitReaction->ForwardBendAnimClass;
 	StaggerCompression = Source.HitReaction->StaggerCompression;
 	bEnableHitFlash = Source.HitReaction->bEnableHitFlash;
 	HitFlashColor = Source.HitReaction->HitFlashColor;
@@ -663,7 +665,9 @@ void FNPCReplacementPresentation::Apply(AChasingNPC& Target) const
 	Target.DeathOpacityParameter = DeathOpacityParameter;
 	Target.HitReaction->StaggerDistance = StaggerDistance;
 	Target.HitReaction->StaggerDuration = StaggerDuration;
-	Target.HitReaction->StaggerLeanAngle = StaggerLeanAngle;
+	Target.HitReaction->ForwardBendAngle = ForwardBendAngle;
+	Target.HitReaction->ForwardBendAttackTime = ForwardBendAttackTime;
+	Target.HitReaction->ForwardBendAnimClass = ForwardBendAnimClass;
 	Target.HitReaction->StaggerCompression = StaggerCompression;
 	Target.HitReaction->bEnableHitFlash = bEnableHitFlash;
 	Target.HitReaction->HitFlashColor = HitFlashColor;

@@ -8,9 +8,10 @@ class ACharacter;
 class AController;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
+class UAnimInstance;
 struct FDamageEvent;
 
-/** Shared directional recoil and collision-aware death flight for all NPC skeletons. */
+/** Shared forward torso fold, directional recoil and collision-aware death flight. */
 UCLASS(ClassGroup = (NPC), meta = (BlueprintSpawnableComponent))
 class MYPROJECT6_API UNPCHitReactionComponent : public UActorComponent
 {
@@ -27,6 +28,10 @@ public:
 	bool StartDeathFlight(const FVector& Direction);
 	bool IsStaggering() const { return bStaggering; }
 	bool IsDeathInFlight() const { return bDeathInFlight; }
+	UFUNCTION(BlueprintPure, Category = "Hit Reaction")
+	float GetCurrentForwardBendAngle() const { return CurrentBendAngle; }
+	bool IsUsingForwardBend() const;
+	virtual void BeginPlay() override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* TickFunction) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -34,8 +39,14 @@ public:
 	float StaggerDistance = 28.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Reaction", meta = (ClampMin = "0.05", Units = "s"))
 	float StaggerDuration = 0.34f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Reaction", meta = (ClampMin = "0.0", ClampMax = "20.0", Units = "deg"))
-	float StaggerLeanAngle = 7.0f;
+	/** Total forward fold distributed over the waist and chest. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Reaction", meta = (ClampMin = "0.0", ClampMax = "70.0", Units = "deg"))
+	float ForwardBendAngle = 42.f;
+	/** Time to reach the folded pose; the rest of StaggerDuration is recovery. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Reaction", meta = (ClampMin = "0.01", ClampMax = "0.2", Units = "s"))
+	float ForwardBendAttackTime = .065f;
+	UPROPERTY(EditDefaultsOnly, Category = "Hit Reaction")
+	TSoftClassPtr<UAnimInstance> ForwardBendAnimClass;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Reaction", meta = (ClampMin = "0.0", ClampMax = "6.0", Units = "cm"))
 	float StaggerCompression = 2.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Reaction|Flash")
@@ -60,12 +71,9 @@ private:
 	void RefreshTickEnabled();
 	float StaggerElapsed = 0.0f;
 	FVector StaggerDirection = FVector::ZeroVector;
-	FQuat RestMeshRotation = FQuat::Identity;
 	FVector RestMeshLocation = FVector::ZeroVector;
-	FVector Tilt = FVector::ZeroVector;
-	FVector TiltVelocity = FVector::ZeroVector;
-	float Compression = 0.0f;
-	float CompressionVelocity = 0.0f;
+	float CurrentBendAngle = 0.f;
+	float StartBendAngle = 0.f;
 	float FlashRemaining = 0.0f;
 	float ActiveFlashDuration = 0.12f;
 	UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> FlashInstance;

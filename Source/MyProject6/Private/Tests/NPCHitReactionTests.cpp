@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 
 #include "NPCHitReactionComponent.h"
+#include "NPCHitBendAnimInstance.h"
 #include "ChasingNPC.h"
 #include "WhisperFollower.h"
 #include "MyProject6Character.h"
@@ -20,6 +21,10 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/CommandLine.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "HAL/FileManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/UnrealType.h"
 
@@ -112,7 +117,9 @@ bool FNPCHitReactionTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("AI pauses during the stagger"), Cast<AChasingNPC>(NPC)
 				? CastChecked<AChasingNPC>(NPC)->ShouldPauseChase() : CastChecked<AWhisperFollower>(NPC)->ShouldPauseFollow());
 			Scene.Advance(0.12f, FPS);
-			TestTrue(TEXT("The body visibly leans on impact"), !RestRotation.Equals(NPC->GetMesh()->GetRelativeRotation().Quaternion(), 0.01f));
+			TestTrue(TEXT("The waist visibly folds on impact"), Reaction->GetCurrentForwardBendAngle() > 35.f);
+			TestTrue(TEXT("Forward bend post-process is installed"), Reaction->IsUsingForwardBend());
+			TestTrue(TEXT("Impact does not tip the whole character backwards"), RestRotation.Equals(NPC->GetMesh()->GetRelativeRotation().Quaternion(), .001f));
 			Scene.Advance(0.4f, FPS);
 			const FVector Recoil = NPC->GetActorLocation() - Start;
 			AddInfo(FString::Printf(TEXT("%s at %d FPS: recoil %.1f cm"), *Class->GetName(), FPS, Recoil.Size2D()));
@@ -285,7 +292,8 @@ bool FBlackMonsterProjectileReactionTest::RunTest(const FString& Parameters)
 			Scene.Advance(.16f, FPS);
 			TestTrue(TEXT("Every projectile starts a new stagger"), Reaction->IsStaggering());
 			TestEqual(TEXT("Each yellow projectile damages the monster"), NPC->GetCurrentHealth(), Health-25.0f);
-			TestEqual(TEXT("Each projectile plays the recoil animation"), Mesh->GetSingleNodeInstance()->GetCurrentAsset()->GetFName(), FName(TEXT("Anim_BlackMonster_Hit")));
+			TestTrue(TEXT("Each projectile folds the torso over locomotion"), Reaction->IsUsingForwardBend()
+				&& Reaction->GetCurrentForwardBendAngle() > 0.f && Mesh->GetSingleNodeInstance()->GetCurrentAsset()->IsA<UBlendSpace>());
 			Scene.Advance(.45f, FPS);
 			const double Step = NPC->GetActorLocation().X-Before.X;
 			TestTrue(TEXT("Each hit takes a short backward step"), Step > 26 && Step < 30);
@@ -293,12 +301,12 @@ bool FBlackMonsterProjectileReactionTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("Recovery restores locomotion"), Mesh->GetSingleNodeInstance()->GetCurrentAsset()->IsA<UBlendSpace>());
 			TestTrue(TEXT("Recovery restores mesh orientation"), RestRotation.Equals(Mesh->GetRelativeRotation().Quaternion(), .001));
 		}
-		// A hit while already recoiling restarts the animation instead of being ignored.
+		// A hit while already recoiling renews the bend without snapping upright.
 		Scene.Hit(NPC, 1, FVector(1,0,0));
 		Scene.Advance(.12f, FPS);
-		const float FirstPosition = Mesh->GetSingleNodeInstance()->GetCurrentTime();
+		const float FirstBend = Reaction->GetCurrentForwardBendAngle();
 		Scene.Hit(NPC, 1, FVector(1,0,0));
-		TestTrue(TEXT("Rapid repeated hits restart recoil"), Mesh->GetSingleNodeInstance()->GetCurrentTime() < FirstPosition);
+		TestEqual(TEXT("Rapid repeated hits preserve the current fold"), Reaction->GetCurrentForwardBendAngle(), FirstBend);
 		Scene.Advance(.45f, FPS);
 		// Finish with an actual red shot after reducing health to its lethal range.
 		Scene.Hit(NPC, NPC->GetCurrentHealth()-40, FVector(1,0,0));
@@ -319,6 +327,176 @@ bool FBlackMonsterProjectileReactionTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Dead body lies down rather than continuing to attack"), Mesh->GetSocketLocation(TEXT("Head")).Z < DeathStart.Z);
 		Scene.Advance(5, FPS);
 		TestTrue(TEXT("Dead body is eventually removed"), NPC->IsActorBeingDestroyed());
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNPCForwardBendTest, "MyProject6.NPC.ForwardBendAllSkeletons",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FNPCForwardBendTest::RunTest(const FString& Parameters)
+{
+	struct FCase { const TCHAR* Class; const TCHAR* Head; const TCHAR* Foot; const TCHAR* Idle; };
+	const FCase Cases[] = {
+		{TEXT("/Script/MyProject6.ChasingNPC"), TEXT("head"), TEXT("foot_l"), TEXT("/Game/Characters/Mannequins/Anims/Unarmed/MM_Idle")},
+		{TEXT("/Game/Characters/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C"), TEXT("head_01"), TEXT("foot_l"), TEXT("/Game/Characters/RadicalMike/Animations/Anim_ZMIKE_BusterIdle_R")},
+		{TEXT("/Game/Characters/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C"), TEXT("head"), TEXT("foot_l"), TEXT("/Game/Characters/Whisper/Animations/Anim_Whisper_Idle1")},
+		{TEXT("/Game/Characters/black-monster/BP_BlackMonster_Follower.BP_BlackMonster_Follower_C"), TEXT("Head"), TEXT("LeftFoot"), TEXT("/Game/Characters/black-monster/Animations/Anim_BlackMonster_Idle")},
+		{TEXT("/Game/Characters/DemonImp/BP_DemonImp_NPC.BP_DemonImp_NPC_C"), TEXT("Character1_Head_048"), TEXT("Character1_LeftFoot_04"), TEXT("/Game/Characters/DemonImp/Animations/A_DemonImp_Idle")},
+		{TEXT("/Game/Characters/DarkSorcerer/BP_DarkSorcerer_NPC.BP_DarkSorcerer_NPC_C"), TEXT("head"), TEXT("foot_l"), TEXT("/Game/Characters/DarkSorcerer/Animations/A_DS_MM_Idle")},
+		{TEXT("/Game/Characters/clown_monster/BP_ClownMonster_NPC.BP_ClownMonster_NPC_C"), TEXT("head"), TEXT("foot_l"), TEXT("/Game/Characters/clown_monster/demo/animation/anim_idle_1")}
+	};
+	for (const FCase& Case : Cases)
+	{
+		UClass* Class = LoadClass<ACharacter>(nullptr, Case.Class);
+		if (!TestNotNull(TEXT("NPC class loads"), Class)) return false;
+		for (int32 FPS : {30, 60, 120})
+		{
+			FHitReactionWorld Scene;
+			ACharacter* NPC = Scene.Spawn(Class);
+			NPC->SetActorRotation(FRotator(0.f, 73.f, 0.f));
+			USkeletalMeshComponent* Mesh = NPC->GetMesh();
+			Mesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+			Mesh->bEnableUpdateRateOptimizations = false;
+			// A paused real idle pose isolates bone deformation from locomotion time.
+			UAnimationAsset* Idle = LoadObject<UAnimationAsset>(nullptr, Case.Idle);
+			if (!TestNotNull(TEXT("NPC idle animation loads"), Idle)) return false;
+			Mesh->PlayAnimation(Idle, true);
+			Mesh->SetPosition(.3f, false);
+			Mesh->SetPlayRate(0.f);
+			Scene.Advance(.05f, FPS);
+			auto ExportPose = [&](const TCHAR* Stage)
+			{
+				if (FPS != 60 || !FParse::Param(FCommandLine::Get(), TEXT("NPCBendPoseExport"))) return;
+				const FString Directory = FPaths::ProjectSavedDir() / TEXT("NPCForwardBend/Poses");
+				IFileManager::Get().MakeDirectory(*Directory, true);
+				FString CSV = FString::Printf(TEXT("%s\n"), Case.Class);
+				for (int32 Bone = 0; Bone < Mesh->GetNumBones(); ++Bone)
+				{
+					const FName Name = Mesh->GetBoneName(Bone);
+					const FTransform Pose = Mesh->GetSocketTransform(Name, RTS_Component);
+					const FVector P = Pose.GetLocation(), S = Pose.GetScale3D();
+					const FRotator R = Pose.Rotator();
+					CSV += FString::Printf(TEXT("%s,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f\n"),
+						*Name.ToString(), P.X, P.Y, P.Z, R.Pitch, R.Yaw, R.Roll, S.X, S.Y, S.Z);
+				}
+				FFileHelper::SaveStringToFile(CSV, *(Directory / (Class->GetName() + TEXT("_") + Stage + TEXT(".csv"))));
+			};
+			ExportPose(TEXT("Before"));
+			auto* Reaction = NPC->FindComponentByClass<UNPCHitReactionComponent>();
+			TestTrue(TEXT("Every skeleton receives the shared post-process"), Reaction->IsUsingForwardBend());
+			const FTransform HeadBefore = Mesh->GetSocketTransform(Case.Head, RTS_Component);
+			const FTransform FootBefore = Mesh->GetSocketTransform(Case.Foot, RTS_Component);
+			const FQuat MeshBefore = Mesh->GetRelativeRotation().Quaternion();
+			const float Height = FMath::Abs(HeadBefore.GetLocation().Z - FootBefore.GetLocation().Z);
+			// A sideways projectile must still fold forwards, while pushing along the shot.
+			const FVector ShotDirection = NPC->GetActorRightVector();
+			const FVector Start = NPC->GetActorLocation();
+			Scene.Hit(NPC, 1.f, ShotDirection);
+			Scene.Advance(.09f, FPS);
+			ExportPose(TEXT("Impact"));
+			const FVector HeadShift = Mesh->GetComponentQuat().RotateVector(
+				Mesh->GetSocketTransform(Case.Head, RTS_Component).GetLocation() - HeadBefore.GetLocation());
+			const float Forward = FVector::DotProduct(HeadShift, NPC->GetActorForwardVector());
+			AddInfo(FString::Printf(TEXT("%s %d FPS: fold %.1f deg, head forward %.1f, down %.1f, height %.1f"),
+				*Class->GetName(), FPS, Reaction->GetCurrentForwardBendAngle(), Forward, -HeadShift.Z, Height));
+			TestTrue(TEXT("Head moves clearly forward relative to the waist"), Forward > Height * .13f);
+			TestTrue(TEXT("Head drops like a stomach punch"), HeadShift.Z < -Height * .03f);
+			TestTrue(TEXT("Leg pose is not tilted with the torso"), FootBefore.Equals(Mesh->GetSocketTransform(Case.Foot, RTS_Component), .001f));
+			TestTrue(TEXT("Mesh root is not rotated"), MeshBefore.Equals(Mesh->GetRelativeRotation().Quaternion(), .001f));
+			Scene.Advance(.4f, FPS);
+			ExportPose(TEXT("Recovered"));
+			TestTrue(TEXT("The full incoming pose returns exactly"), HeadBefore.Equals(Mesh->GetSocketTransform(Case.Head, RTS_Component), .001f));
+			TestTrue(TEXT("Every NPC retains 28 cm knockback"), FMath::IsNearlyEqual(
+				FVector::DotProduct(NPC->GetActorLocation() - Start, ShotDirection), 28., 1.));
+			Scene.Hit(NPC, 1.f, -NPC->GetActorForwardVector());
+			Scene.Advance(.08f, FPS);
+			const float PreviousBend = Reaction->GetCurrentForwardBendAngle();
+			Scene.Hit(NPC, 1.f, ShotDirection);
+			TestEqual(TEXT("Repeated impact keeps the current bend"), Reaction->GetCurrentForwardBendAngle(), PreviousBend);
+			Scene.Advance(.06f, FPS);
+			TestTrue(TEXT("Repeated impact stays within the configured angle"), Reaction->GetCurrentForwardBendAngle() <= Reaction->ForwardBendAngle + .001f);
+			Scene.Hit(NPC, 10000.f, ShotDirection);
+			TestEqual(TEXT("Death clears the bend before the death pose"), Reaction->GetCurrentForwardBendAngle(), 0.f);
+		}
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGhoulFullFallTest, "MyProject6.NPC.GhoulStrongerBendAndFullFall",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGhoulFullFallTest::RunTest(const FString& Parameters)
+{
+	UAnimationAsset* Death = LoadObject<UAnimationAsset>(nullptr,
+		TEXT("/Game/Characters/Ghoul/Animations/A_Ghoul_Death_FullFall"));
+	if (!TestNotNull(TEXT("Complete Ghoul fall loads"), Death)) return false;
+	for (int32 FPS : {30, 60, 120})
+	{
+		FHitReactionWorld Scene;
+		ACharacter* NPC = Scene.Spawn(AChasingNPC::StaticClass());
+		FindFProperty<FObjectPropertyBase>(NPC->GetClass(), TEXT("DeathAnimation"))->SetObjectPropertyValue_InContainer(NPC, Death);
+		auto* Reaction = NPC->FindComponentByClass<UNPCHitReactionComponent>();
+		Reaction->ForwardBendAngle = 65.f;
+		Reaction->StaggerDuration = .4f;
+		USkeletalMeshComponent* Mesh = NPC->GetMesh();
+		Mesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+		Mesh->bEnableUpdateRateOptimizations = false;
+		Mesh->PlayAnimation(LoadObject<UAnimationAsset>(nullptr, TEXT("/Game/Characters/Mannequins/Anims/Unarmed/MM_Idle")), true);
+		Mesh->SetPosition(.3f, false);
+		Mesh->SetPlayRate(0.f);
+		Scene.Advance(.05f, FPS);
+		auto Export = [&](const TCHAR* Stage)
+		{
+			if (FPS != 60 || !FParse::Param(FCommandLine::Get(), TEXT("NPCBendPoseExport"))) return;
+			const FString Directory = FPaths::ProjectSavedDir() / TEXT("ClownGhoul/Poses");
+			IFileManager::Get().MakeDirectory(*Directory, true);
+			FString CSV = TEXT("/Script/MyProject6.ChasingNPC\n");
+			for (int32 Bone = 0; Bone < Mesh->GetNumBones(); ++Bone)
+			{
+				const FName Name = Mesh->GetBoneName(Bone);
+				const FTransform Pose = Mesh->GetSocketTransform(Name, RTS_Component);
+				const FVector P = Pose.GetLocation(), S = Pose.GetScale3D();
+				const FRotator R = Pose.Rotator();
+				CSV += FString::Printf(TEXT("%s,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f\n"),
+					*Name.ToString(), P.X, P.Y, P.Z, R.Pitch, R.Yaw, R.Roll, S.X, S.Y, S.Z);
+			}
+			FFileHelper::SaveStringToFile(CSV, *(Directory / (FString(TEXT("Ghoul_")) + Stage + TEXT(".csv"))));
+		};
+		Export(TEXT("Before"));
+		const FVector HeadBefore = Mesh->GetSocketTransform(TEXT("head"), RTS_Component).GetLocation();
+		const FVector Start = NPC->GetActorLocation();
+		Scene.Hit(NPC, 1.f, FVector::ForwardVector);
+		Scene.Advance(.09f, FPS);
+		Export(TEXT("Impact"));
+		const FVector Shift = Mesh->GetComponentQuat().RotateVector(
+			Mesh->GetSocketTransform(TEXT("head"), RTS_Component).GetLocation() - HeadBefore);
+		AddInfo(FString::Printf(TEXT("Ghoul at %d FPS: bend %.1f, head forward %.1f, down %.1f"),
+			FPS, Reaction->GetCurrentForwardBendAngle(), Shift.X, -Shift.Z));
+		TestTrue(TEXT("Impact reaches the stronger 65 degree fold"), Reaction->GetCurrentForwardBendAngle() > 64.f);
+		TestTrue(TEXT("Stronger fold lowers the head substantially"), Shift.Z < -30.f);
+		TestTrue(TEXT("Stronger fold moves the head forward"), Shift.X > 40.f);
+		Scene.Advance(.4f, FPS);
+		TestTrue(TEXT("Stronger fold retains the short recoil"), FMath::IsNearlyEqual(NPC->GetActorLocation().X - Start.X, 28., 1.));
+		Scene.Hit(NPC, 1.f, FVector::ForwardVector);
+		Scene.Advance(.08f, FPS);
+		Scene.Hit(NPC, 10000.f, FVector::ForwardVector);
+		TestEqual(TEXT("Lethal hit clears a fold already in progress"), Reaction->GetCurrentForwardBendAngle(), 0.f);
+		TestEqual(TEXT("Death switches to complete fall"), Mesh->GetSingleNodeInstance()->GetCurrentAsset(), Death);
+		Scene.Advance(1.0f, FPS);
+		Export(TEXT("Falling"));
+		Scene.Advance(1.4f, FPS);
+		Export(TEXT("Dead"));
+		const FVector Head = Mesh->GetSocketLocation(TEXT("head"));
+		const FVector Hips = Mesh->GetSocketLocation(TEXT("pelvis"));
+		TestFalse(TEXT("Corpse has finished its backwards flight"), Reaction->IsDeathInFlight());
+		TestTrue(TEXT("Head lies near the floor"), Head.Z > -5 && Head.Z < 40);
+		TestTrue(TEXT("Pelvis lies near the floor"), Hips.Z > -5 && Hips.Z < 30);
+		TestTrue(TEXT("Torso ends horizontally instead of crouching"), FMath::Abs(Head.Z-Hips.Z) < 15 && (Head-Hips).Size2D() > 50);
+		Scene.Advance(3.1f, FPS);
+		TestTrue(TEXT("Fade preserves the lying pose"), Mesh->GetSocketLocation(TEXT("head")).Equals(Head, 1.));
+		Scene.Advance(3.f, FPS);
+		TestTrue(TEXT("Ghoul corpse is cleaned up"), NPC->IsActorBeingDestroyed());
 	}
 	return true;
 }
