@@ -40,6 +40,7 @@ public class MyProject6 : ModuleRules
 		{
 			PrivateDependencyModuleNames.Add("PropertyEditor");
 			PrivateDependencyModuleNames.Add("RenderCore");
+			PrivateDependencyModuleNames.AddRange(new string[] { "AnimGraph", "BlueprintGraph", "UnrealEd" });
 		}
 
 		PublicIncludePaths.AddRange(new string[] {

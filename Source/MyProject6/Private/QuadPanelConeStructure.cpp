@@ -214,6 +214,7 @@ AQuadPanelConeStructure::AQuadPanelConeStructure()
 
 void AQuadPanelConeStructure::OnConstruction(const FTransform &Transform)
 {
+	OnFloorRegenerated.AddUniqueDynamic(this, &AQuadPanelConeStructure::RefreshSpiralPlatformGlowAfterGeneration);
 	bSpiralCollisionReadyForAsyncUpdates = false;
 	Super::OnConstruction(Transform);
 	RebuildApexDecoration();
@@ -224,6 +225,7 @@ void AQuadPanelConeStructure::OnConstruction(const FTransform &Transform)
 
 void AQuadPanelConeStructure::BeginPlay()
 {
+	OnFloorRegenerated.AddUniqueDynamic(this, &AQuadPanelConeStructure::RefreshSpiralPlatformGlowAfterGeneration);
 	bSpiralCollisionReadyForAsyncUpdates = false;
 	Super::BeginPlay();
 	RebuildApexDecoration();
@@ -231,10 +233,13 @@ void AQuadPanelConeStructure::BeginPlay()
 	OnCellDestroyed.RemoveDynamic(this, &AQuadPanelConeStructure::HandleConeCellDestroyed);
 	OnCellDestroyed.AddDynamic(this, &AQuadPanelConeStructure::HandleConeCellDestroyed);
 	StartCharacterSpeedBoostMonitoring();
+	PlaySpiralPlatformGlow();
 }
 
 void AQuadPanelConeStructure::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	OnFloorRegenerated.RemoveDynamic(this, &AQuadPanelConeStructure::RefreshSpiralPlatformGlowAfterGeneration);
+	StopSpiralPlatformGlow();
 	StopCharacterSpeedBoostMonitoring();
 	ClearDebris();
 	Super::EndPlay(EndPlayReason);
@@ -242,6 +247,7 @@ void AQuadPanelConeStructure::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void AQuadPanelConeStructure::ClearAdditionalRuntimeEffects()
 {
+	StopSpiralPlatformGlow();
 	for (const TWeakObjectPtr<UDynamicMeshComponent> &WeakFlash : ActiveSurfaceFlashComponents)
 	{
 		if (UDynamicMeshComponent *SurfaceFlash = WeakFlash.Get())
@@ -1994,6 +2000,7 @@ void AQuadPanelConeStructure::RebuildSpiralSegmentChunks(int32 SegmentIndex)
 void AQuadPanelConeStructure::RebuildSpiralSegmentChunks(
 	const TSet<int32> &SegmentIndices)
 {
+	if (SpiralPlatformGlowRuntime) { SpiralPlatformGlowRuntime->RefreshCurrentSlice(); }
 	if (SegmentIndices.IsEmpty())
 	{
 		return;
@@ -2735,7 +2742,7 @@ void AQuadPanelConeStructure::AppendPlatformSurfaces(
 
 void AQuadPanelConeStructure::AppendSpiralSurfaces(
 	FDynamicMesh3 &Mesh,
-	int32 ChunkIndex) const
+	int32 ChunkIndex, int32 OnlySlice) const
 {
 	if (!bGeneratePlatforms || PlatformStyle != EConeStructurePlatformStyle::RisingSpiral ||
 		ChunkCount.X <= 0 ||
@@ -2752,6 +2759,7 @@ void AQuadPanelConeStructure::AppendSpiralSurfaces(
 	const float StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
 	const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
 	const int32 SegmentCount = GetSpiralSegmentCount();
+	if (OnlySlice < INDEX_NONE || OnlySlice >= SegmentCount * 2) { return; }
 	auto MakeSection = [&](int32 SectionIndex,
 						   FVector3d &OutInnerBottom,
 						   FVector3d &OutOuterBottom,
@@ -2803,7 +2811,9 @@ void AQuadPanelConeStructure::AppendSpiralSurfaces(
 			   !IsSpiralTriangleSliceDestroyed(SegmentIndex, TriangleSliceIndex);
 	};
 
-	for (int32 SegmentIndex = 0; SegmentIndex < SegmentCount; ++SegmentIndex)
+	const int32 FirstSegment = OnlySlice == INDEX_NONE ? 0 : OnlySlice / 2;
+	const int32 EndSegment = OnlySlice == INDEX_NONE ? SegmentCount : FirstSegment + 1;
+	for (int32 SegmentIndex = FirstSegment; SegmentIndex < EndSegment; ++SegmentIndex)
 	{
 		const bool bOuterTrianglePresent = IsTriangleSlicePresent(SegmentIndex, 0);
 		const bool bInnerTrianglePresent = IsTriangleSlicePresent(SegmentIndex, 1);
@@ -2839,7 +2849,7 @@ void AQuadPanelConeStructure::AppendSpiralSurfaces(
 		const FVector3d DiagonalNormal =
 			(InnerTriangleCenter - OuterTriangleCenter).GetSafeNormal();
 
-		if (bOuterTrianglePresent)
+		if (bOuterTrianglePresent && (OnlySlice == INDEX_NONE || OnlySlice % 2 == 0))
 		{
 			AppendOrientedTriangle(
 				InnerTopA, OuterTopA, OuterTopB, FVector3d::UnitZ());
@@ -2867,7 +2877,7 @@ void AQuadPanelConeStructure::AppendSpiralSurfaces(
 			}
 		}
 
-		if (bInnerTrianglePresent)
+		if (bInnerTrianglePresent && (OnlySlice == INDEX_NONE || OnlySlice % 2 == 1))
 		{
 			AppendOrientedTriangle(
 				InnerTopA, OuterTopB, InnerTopB, FVector3d::UnitZ());
@@ -4176,6 +4186,7 @@ void AQuadPanelConeStructure::SpawnCellFlash(FIntPoint Cell, double CurrentTime)
 
 void AQuadPanelConeStructure::FinalizeDestructionBatch(double CurrentTime)
 {
+	if (SpiralPlatformGlowRuntime) { SpiralPlatformGlowRuntime->RefreshCurrentSlice(); }
 	// The music surface is independent of the panel mesh and must disappear in
 	// this destruction batch, without waiting for a beat or the throttled music tick.
 	RemoveDestroyedMusicSurfaceTriangles();

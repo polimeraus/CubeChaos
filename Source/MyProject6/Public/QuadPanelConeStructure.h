@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "ChunkedDestructibleConeStructure.h"
+#include "SpiralPlatformGlow.h"
 #include "QuadPanelConeStructure.generated.h"
 
 /**
@@ -19,10 +20,25 @@ class MYPROJECT6_API AQuadPanelConeStructure : public AChunkedDestructibleFloor
 	friend class FDestructibleMusicAnimationTest;
 	friend class FDestructibleConeMusicGroupsTest;
 	friend class FDestructibleConeSpiralCutFacesTest;
+	friend class FSpiralPlatformGlowTest;
 	friend class FDestructibleConeSurfaceTest;
 	friend class FDestructibleConeSurfaceCoverageTest;
 
 public:
+	/** Sequential triangle highlights on the spiral, independent of wall animations. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Spiral Platform Glow", meta = (ShowOnlyInnerProperties))
+	FSpiralPlatformGlowSettings SpiralPlatformGlow;
+
+	UFUNCTION(BlueprintCallable, Category = "Animation|Spiral Platform Glow")
+	void PlaySpiralPlatformGlow();
+
+	UFUNCTION(BlueprintCallable, Category = "Animation|Spiral Platform Glow")
+	void StopSpiralPlatformGlow();
+
+	/** Applies settings at runtime and restarts the sequence. */
+	UFUNCTION(BlueprintCallable, Category = "Animation|Spiral Platform Glow")
+	void SetSpiralPlatformGlowSettings(FSpiralPlatformGlowSettings NewSettings);
+
 	/** Copy editable settings without touching the source actor or its components. */
 	UFUNCTION(BlueprintCallable, Category = "Quad Cone")
 	void CopySettingsFromCone(AChunkedDestructibleConeStructure* Source);
@@ -525,6 +541,8 @@ private:
 	TSet<int32> DestroyedSpiralSegmentIndices;
 	TSet<int32> DestroyedSpiralTriangleSliceIndices;
 	bool bSpiralCollisionReadyForAsyncUpdates = false;
+	UPROPERTY(Transient) TObjectPtr<USpiralPlatformGlow> SpiralPlatformGlowRuntime;
+	UFUNCTION() void RefreshSpiralPlatformGlowAfterGeneration();
 	bool bConeAnimationGeometryDirty = false;
 	TArray<int32> ConeAnimationRowAssignments;
 
@@ -603,7 +621,7 @@ private:
 		UE::Geometry::FDynamicMesh3& Mesh,
 		float PhaseOffsetRadians) const;
 	void AppendPlatformSurfaces(UE::Geometry::FDynamicMesh3& Mesh, int32 ChunkIndex) const;
-	void AppendSpiralSurfaces(UE::Geometry::FDynamicMesh3& Mesh, int32 ChunkIndex) const;
+	void AppendSpiralSurfaces(UE::Geometry::FDynamicMesh3& Mesh, int32 ChunkIndex, int32 OnlySlice = INDEX_NONE) const;
 	bool IsPointInsideRenderedStructure(const FVector3d& LocalPoint) const;
 	void AppendClippedDestructionCutFace(
 		UE::Geometry::FDynamicMesh3& Mesh,

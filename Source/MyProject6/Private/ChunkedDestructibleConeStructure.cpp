@@ -211,6 +211,7 @@ AChunkedDestructibleConeStructure::AChunkedDestructibleConeStructure()
 
 void AChunkedDestructibleConeStructure::OnConstruction(const FTransform &Transform)
 {
+	OnFloorRegenerated.AddUniqueDynamic(this, &AChunkedDestructibleConeStructure::RefreshSpiralPlatformGlowAfterGeneration);
 	bSpiralCollisionReadyForAsyncUpdates = false;
 	Super::OnConstruction(Transform);
 	RebuildApexDecoration();
@@ -221,6 +222,7 @@ void AChunkedDestructibleConeStructure::OnConstruction(const FTransform &Transfo
 
 void AChunkedDestructibleConeStructure::BeginPlay()
 {
+	OnFloorRegenerated.AddUniqueDynamic(this, &AChunkedDestructibleConeStructure::RefreshSpiralPlatformGlowAfterGeneration);
 	bSpiralCollisionReadyForAsyncUpdates = false;
 	Super::BeginPlay();
 	RebuildApexDecoration();
@@ -228,10 +230,13 @@ void AChunkedDestructibleConeStructure::BeginPlay()
 	OnCellDestroyed.RemoveDynamic(this, &AChunkedDestructibleConeStructure::HandleConeCellDestroyed);
 	OnCellDestroyed.AddDynamic(this, &AChunkedDestructibleConeStructure::HandleConeCellDestroyed);
 	StartCharacterSpeedBoostMonitoring();
+	PlaySpiralPlatformGlow();
 }
 
 void AChunkedDestructibleConeStructure::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	OnFloorRegenerated.RemoveDynamic(this, &AChunkedDestructibleConeStructure::RefreshSpiralPlatformGlowAfterGeneration);
+	StopSpiralPlatformGlow();
 	StopCharacterSpeedBoostMonitoring();
 	ClearDebris();
 	Super::EndPlay(EndPlayReason);
@@ -239,6 +244,7 @@ void AChunkedDestructibleConeStructure::EndPlay(const EEndPlayReason::Type EndPl
 
 void AChunkedDestructibleConeStructure::ClearAdditionalRuntimeEffects()
 {
+	StopSpiralPlatformGlow();
 	for (const TWeakObjectPtr<UDynamicMeshComponent> &WeakFlash : ActiveSurfaceFlashComponents)
 	{
 		if (UDynamicMeshComponent *SurfaceFlash = WeakFlash.Get())
@@ -1970,6 +1976,7 @@ void AChunkedDestructibleConeStructure::RebuildSpiralSegmentChunks(int32 Segment
 void AChunkedDestructibleConeStructure::RebuildSpiralSegmentChunks(
 	const TSet<int32> &SegmentIndices)
 {
+	if (SpiralPlatformGlowRuntime) { SpiralPlatformGlowRuntime->RefreshCurrentSlice(); }
 	if (SegmentIndices.IsEmpty())
 	{
 		return;
@@ -2965,7 +2972,7 @@ void AChunkedDestructibleConeStructure::AppendPlatformSurfaces(
 
 void AChunkedDestructibleConeStructure::AppendSpiralSurfaces(
 	FDynamicMesh3 &Mesh,
-	int32 ChunkIndex) const
+	int32 ChunkIndex, int32 OnlySlice) const
 {
 	if (!bGeneratePlatforms || PlatformStyle != EConeStructurePlatformStyle::RisingSpiral ||
 		ChunkCount.X <= 0 ||
@@ -2982,6 +2989,7 @@ void AChunkedDestructibleConeStructure::AppendSpiralSurfaces(
 	const float StartAngle = FMath::DegreesToRadians(SpiralStartAngleDegrees);
 	const float Direction = bPlatformSpiralClockwise ? -1.0f : 1.0f;
 	const int32 SegmentCount = GetSpiralSegmentCount();
+	if (OnlySlice < INDEX_NONE || OnlySlice >= SegmentCount * 2) { return; }
 	auto MakeSection = [&](int32 SectionIndex,
 						   FVector3d &OutInnerBottom,
 						   FVector3d &OutOuterBottom,
@@ -3033,7 +3041,9 @@ void AChunkedDestructibleConeStructure::AppendSpiralSurfaces(
 			   !IsSpiralTriangleSliceDestroyed(SegmentIndex, TriangleSliceIndex);
 	};
 
-	for (int32 SegmentIndex = 0; SegmentIndex < SegmentCount; ++SegmentIndex)
+	const int32 FirstSegment = OnlySlice == INDEX_NONE ? 0 : OnlySlice / 2;
+	const int32 EndSegment = OnlySlice == INDEX_NONE ? SegmentCount : FirstSegment + 1;
+	for (int32 SegmentIndex = FirstSegment; SegmentIndex < EndSegment; ++SegmentIndex)
 	{
 		const bool bOuterTrianglePresent = IsTriangleSlicePresent(SegmentIndex, 0);
 		const bool bInnerTrianglePresent = IsTriangleSlicePresent(SegmentIndex, 1);
@@ -3069,7 +3079,7 @@ void AChunkedDestructibleConeStructure::AppendSpiralSurfaces(
 		const FVector3d DiagonalNormal =
 			(InnerTriangleCenter - OuterTriangleCenter).GetSafeNormal();
 
-		if (bOuterTrianglePresent)
+		if (bOuterTrianglePresent && (OnlySlice == INDEX_NONE || OnlySlice % 2 == 0))
 		{
 			AppendOrientedTriangle(
 				InnerTopA, OuterTopA, OuterTopB, FVector3d::UnitZ());
@@ -3097,7 +3107,7 @@ void AChunkedDestructibleConeStructure::AppendSpiralSurfaces(
 			}
 		}
 
-		if (bInnerTrianglePresent)
+		if (bInnerTrianglePresent && (OnlySlice == INDEX_NONE || OnlySlice % 2 == 1))
 		{
 			AppendOrientedTriangle(
 				InnerTopA, OuterTopB, InnerTopB, FVector3d::UnitZ());
@@ -4391,6 +4401,7 @@ void AChunkedDestructibleConeStructure::SpawnCellFlash(FIntPoint Cell, double Cu
 
 void AChunkedDestructibleConeStructure::FinalizeDestructionBatch(double CurrentTime)
 {
+	if (SpiralPlatformGlowRuntime) { SpiralPlatformGlowRuntime->RefreshCurrentSlice(); }
 	if (DestructionFlashStyle != EConeStructureDestructionFlashStyle::DetailedSurface ||
 		!CurrentSurfaceFlashComponent.IsValid() || CurrentSurfaceFlashCells.IsEmpty() ||
 		!FMath::IsNearlyEqual(CurrentSurfaceFlashTime, CurrentTime, UE_DOUBLE_SMALL_NUMBER))
