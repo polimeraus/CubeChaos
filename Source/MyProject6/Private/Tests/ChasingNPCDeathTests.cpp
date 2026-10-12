@@ -3,6 +3,7 @@
 #include "ChasingNPC.h"
 #include "NPCSpawnPoint.h"
 #include "Animation/AnimSingleNodeInstance.h"
+#include "Animation/AnimSequence.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
@@ -62,9 +63,10 @@ bool FChasingNPCDeathTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Repeated hits cannot damage the corpse"), UGameplayStatics::ApplyDamage(NPC, 100, nullptr, nullptr, nullptr), 0.0f);
 	UAnimSingleNodeInstance* Animation = NPC->GetMesh()->GetSingleNodeInstance();
 	if (!TestNotNull(TEXT("Death switches from locomotion to a sequence"), Animation)) { return false; }
-	TestEqual(TEXT("Configured death animation is playing"), Animation->GetCurrentAsset()->GetFName(), FName(TEXT("MM_Death_Front_01")));
-	Advance(1.2f);
-	TestEqual(TEXT("Sequence reaches its end even off-screen"), Animation->GetCurrentTime(), 1.1f, 0.03f);
+	TestEqual(TEXT("Configured death animation is playing"), Animation->GetCurrentAsset()->GetFName(), FName(TEXT("A_Ghoul_Death_FullFall")));
+	const float DeathLength = CastChecked<UAnimSequence>(Animation->GetCurrentAsset())->GetPlayLength();
+	Advance(DeathLength + .1f);
+	TestEqual(TEXT("Sequence reaches its end even off-screen"), Animation->GetCurrentTime(), DeathLength, 0.03f);
 	Advance(2.7f);
 	TestFalse(TEXT("Corpse waits after the animation before fading"), NPC->IsActorTickEnabled());
 	TestFalse(TEXT("Corpse remains for the hold duration"), NPC->IsActorBeingDestroyed());

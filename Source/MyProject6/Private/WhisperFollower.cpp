@@ -163,8 +163,11 @@ void AWhisperFollower::Tick(float DeltaSeconds)
 		}
 	}
 	AMyProject6Character* Player = Cast<AMyProject6Character>(UGameplayStatics::GetPlayerCharacter(this, 0));
-	const bool bTouchingPlayer = Player && Player->IsPlayerControlled() && !Player->IsEnergyDepleted()
-		&& ContactSensor->IsOverlappingActor(Player);
+	const bool bValidTarget = Player && Player->IsPlayerControlled() && !Player->IsEnergyDepleted();
+	// Only the player's body can enter weapon range. Meshes/attached components
+	// and an advance wind-up must never trigger an attack from farther away.
+	const bool bTouchingPlayer = bValidTarget
+		&& ContactSensor->IsOverlappingComponent(Player->GetCapsuleComponent());
 	if (bTouchingPlayer)
 	{
 		Player->DrainEnergy(FMath::Max(0.0f, ContactEnergyDrainPerSecond) * FMath::Max(0.0f, DeltaSeconds));

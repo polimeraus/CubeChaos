@@ -30,6 +30,9 @@ AChasingNPC::AChasingNPC()
 	PrimaryActorTick.bStartWithTickEnabled = false;
 	SetCanBeDamaged(true);
 	HitReaction = CreateDefaultSubobject<UNPCHitReactionComponent>(TEXT("HitReaction"));
+	// Ghoul's placed actor and future spawns share the same authored hit response.
+	HitReaction->ForwardBendAngle = 65.f;
+	HitReaction->StaggerDuration = .40f;
 
 	AIControllerClass = AChasingAIController::StaticClass();
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
@@ -95,7 +98,7 @@ AChasingNPC::AChasingNPC()
 	}
 
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> DefaultDeathAnimation(
-		TEXT("/Game/Characters/Mannequins/Anims/Death/MM_Death_Front_01.MM_Death_Front_01"));
+		TEXT("/Game/Characters/Ghoul/Animations/A_Ghoul_Death_FullFall.A_Ghoul_Death_FullFall"));
 	if (DefaultDeathAnimation.Succeeded())
 	{
 		DeathAnimation = DefaultDeathAnimation.Object;

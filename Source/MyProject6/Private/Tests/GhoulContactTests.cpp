@@ -109,7 +109,7 @@ bool FGhoulContactTest::RunTest(const FString& Parameters)
 	const float EnergyAfterDeath = Player->GetCurrentEnergy();
 	Advance(0.2f);
 	TestTrue(TEXT("Ghoul can die during a swipe"), NPC->IsDead());
-	TestEqual(TEXT("Ghoul death replaces its swipe"), Mesh->GetSingleNodeInstance()->GetCurrentAsset()->GetFName(), FName(TEXT("MM_Death_Front_01")));
+	TestEqual(TEXT("Ghoul death replaces its swipe"), Mesh->GetSingleNodeInstance()->GetCurrentAsset()->GetFName(), FName(TEXT("A_Ghoul_Death_FullFall")));
 	TestEqual(TEXT("Dead Ghoul stops draining energy"), Player->GetCurrentEnergy(), EnergyAfterDeath);
 	return true;
 }

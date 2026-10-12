@@ -2,6 +2,7 @@
 
 #include "RadicalBusterProjectile.h"
 #include "NPCHealthBarComponent.h"
+#include "NPCHitReactionComponent.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -17,6 +18,9 @@
 
 ARadicalMikeNPC::ARadicalMikeNPC()
 {
+	// Keep Mike's own response when the Ghoul base defaults are tuned.
+	HitReaction->ForwardBendAngle = 42.f;
+	HitReaction->StaggerDuration = .34f;
 	MaxHealth = 200.0f;
 	CurrentHealth = MaxHealth;
 	// Mike uses his own armed animation system instead of Ghoul's contact swipe.

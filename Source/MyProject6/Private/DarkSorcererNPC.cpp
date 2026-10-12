@@ -8,6 +8,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "NPCHealthBarComponent.h"
+#include "NPCHitReactionComponent.h"
 #include "UObject/ConstructorHelpers.h"
 
 #if WITH_EDITOR
@@ -18,6 +19,9 @@
 
 ADarkSorcererNPC::ADarkSorcererNPC()
 {
+	// Preserve this character's response independently of the Ghoul base defaults.
+	HitReaction->ForwardBendAngle = 42.f;
+	HitReaction->StaggerDuration = .34f;
 	MaxHealth = 150.f;
 	CurrentHealth = MaxHealth;
 	PlayerSpeedFraction = .25f;
@@ -41,10 +45,13 @@ ADarkSorcererNPC::ADarkSorcererNPC()
 		TEXT("/Game/Characters/DarkSorcerer/Animations/A_DS_Cast.A_DS_Cast"));
 	static ConstructorHelpers::FClassFinder<UAnimInstance> Locomotion(
 		TEXT("/Game/Characters/DarkSorcerer/Animations/ABP_DarkSorcerer"));
+	static ConstructorHelpers::FObjectFinder<UAnimSequence> Death(
+		TEXT("/Game/Characters/Mannequins/Anims/Death/MM_Death_Front_01.MM_Death_Front_01"));
 	if (Body.Succeeded()) { GetMesh()->SetSkeletalMeshAsset(Body.Object); }
 	if (Weapon.Succeeded()) { Staff->SetStaticMesh(Weapon.Object); }
 	if (Attack.Succeeded()) { ContactAttackAnimation = Attack.Object; }
 	if (Locomotion.Succeeded()) { GetMesh()->SetAnimInstanceClass(Locomotion.Class); }
+	if (Death.Succeeded()) { DeathAnimation = Death.Object; }
 }
 
 int32 ADarkSorcererNPC::ConfigureLocomotion(UObject* AnimationBlueprint, UBlendSpace* Locomotion)

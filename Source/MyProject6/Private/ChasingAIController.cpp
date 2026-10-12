@@ -4,8 +4,10 @@
 
 #include "ChasingNPC.h"
 #include "WhisperFollower.h"
+#include "AI/NavigationSystemBase.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "Kismet/GameplayStatics.h"
 #include "Navigation/PathFollowingComponent.h"
@@ -29,7 +31,9 @@ void AChasingAIController::OnPossess(APawn* InPawn)
 	RefreshChasePath();
 
 	const AChasingNPC* NPC = Cast<AChasingNPC>(InPawn);
-	const float RefreshInterval = NPC ? FMath::Max(0.05f, NPC->GetRepathInterval()) : 0.25f;
+	const AWhisperFollower* Follower = Cast<AWhisperFollower>(InPawn);
+	const float RefreshInterval = FMath::Max(0.05f, NPC ? NPC->GetRepathInterval()
+		: (Follower ? Follower->GetFollowRepathInterval() : 0.25f));
 	GetWorldTimerManager().SetTimer(
 		RepathTimerHandle,
 		this,
@@ -88,7 +92,20 @@ void AChasingAIController::RefreshChasePath()
 	{
 		NPC->UpdateChaseSpeedFromPlayer(Cast<ACharacter>(PlayerPawn));
 	}
+	// MoveToActor aborts/zeros movement on a failed path request. Without navigation
+	// data, repeated requests prevented fast-repath followers from accelerating.
+	// Keep direct input running and retry navigation as soon as data becomes available.
+	const UNavigationSystemBase* Navigation = GetWorld()->GetNavigationSystem();
+	if (!Navigation || !Navigation->GetMainNavData())
+	{
+		bUseDirectMovementFallback = true;
+		SetActorTickEnabled(true);
+		return;
+	}
 	const float AcceptanceRadius = NPC ? NPC->GetChaseAcceptanceRadius() : 90.0f;
+	ACharacter* ControlledCharacter = Cast<ACharacter>(ControlledPawn);
+	UCharacterMovementComponent* Movement = ControlledCharacter ? ControlledCharacter->GetCharacterMovement() : nullptr;
+	const FVector PreviousVelocity = Movement ? Movement->Velocity : FVector::ZeroVector;
 	const EPathFollowingRequestResult::Type RequestResult = MoveToActor(
 		PlayerPawn,
 		AcceptanceRadius,
@@ -99,6 +116,14 @@ void AChasingAIController::RefreshChasePath()
 		true);
 
 	bUseDirectMovementFallback = RequestResult == EPathFollowingRequestResult::Failed;
+	if (bUseDirectMovementFallback && Movement)
+	{
+		// A NavMesh can exist without a usable path at this position. The failed
+		// request stops movement internally; preserve pursuit momentum when handing
+		// back to direct input so every repath does not restart idle/walk blending.
+		Movement->Velocity = PreviousVelocity;
+		Movement->UpdateComponentVelocity();
+	}
 	SetActorTickEnabled(bUseDirectMovementFallback);
 }
 

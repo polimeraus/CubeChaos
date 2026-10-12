@@ -33,6 +33,7 @@ public:
 	bool IsDead() const { return bIsDead; }
 
 	bool ShouldPauseFollow() const;
+	float GetFollowRepathInterval() const { return FollowRepathInterval; }
 
 #if WITH_EDITOR
 	/** Rebuild the interpolation data after creating or editing samples from Python. */
@@ -64,6 +65,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper|Contact", meta = (ClampMin = "0.1", ClampMax = "4.0"))
 	float ContactAttackPlayRate = 1.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Whisper|Movement", meta = (ClampMin = "0.05", Units = "s"))
+	float FollowRepathInterval = 0.25f;
 
 	/** Idle/walk/run blend space, driven by actual horizontal velocity in cm/s. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Whisper|Animation")

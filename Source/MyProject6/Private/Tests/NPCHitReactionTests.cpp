@@ -283,6 +283,8 @@ bool FBlackMonsterProjectileReactionTest::RunTest(const FString& Parameters)
 		Mesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 		UNPCHitReactionComponent* Reaction = NPC->FindComponentByClass<UNPCHitReactionComponent>();
 		const FQuat RestRotation = Mesh->GetRelativeRotation().Quaternion();
+		TestEqual(TEXT("New Black Monster instances inherit Whisper's strong fold"), Reaction->ForwardBendAngle, 70.f);
+		TestEqual(TEXT("New Black Monster instances inherit the longer recovery"), Reaction->StaggerDuration, .42f);
 		// Real shots exercise the collision -> damage -> animation/knockback route.
 		for (int32 Shot = 0; Shot < 3; ++Shot)
 		{
@@ -327,6 +329,96 @@ bool FBlackMonsterProjectileReactionTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Dead body lies down rather than continuing to attack"), Mesh->GetSocketLocation(TEXT("Head")).Z < DeathStart.Z);
 		Scene.Advance(5, FPS);
 		TestTrue(TEXT("Dead body is eventually removed"), NPC->IsActorBeingDestroyed());
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FClownAggressiveApproachTest, "MyProject6.NPC.ClownAggressiveApproach",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FClownAggressiveApproachTest::RunTest(const FString& Parameters)
+{
+	UClass* Class = LoadClass<AWhisperFollower>(nullptr,
+		TEXT("/Game/Characters/clown_monster/BP_ClownMonster_NPC.BP_ClownMonster_NPC_C"));
+	if (!TestNotNull(TEXT("Clown class loads"), Class)) return false;
+	UClass* PlayerClass = LoadClass<AMyProject6Character>(nullptr,
+		TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+	if (!TestNotNull(TEXT("Playable character class loads"), PlayerClass)) return false;
+	for (int32 FPS : {30, 60, 120})
+	{
+		FHitReactionWorld Scene;
+		auto* Player = CastChecked<AMyProject6Character>(Scene.Spawn(PlayerClass, FVector(3500, 0, 102)));
+		auto* Controller = Scene.World->SpawnActor<APlayerController>();
+		Controller->SetAsLocalPlayerController();
+		Controller->Possess(Player);
+		Player->GetCharacterMovement()->DisableMovement();
+		auto* NPC = CastChecked<AWhisperFollower>(Scene.Spawn(Class));
+		auto* Mesh = NPC->GetMesh();
+		Mesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+		Mesh->bEnableUpdateRateOptimizations = false;
+		TestEqual(TEXT("Spawned Clown inherits faster pursuit"), NPC->GetCharacterMovement()->MaxWalkSpeed, 540.f);
+		TestEqual(TEXT("Spawned Clown tracks the player every tenth of a second"), NPC->GetFollowRepathInterval(), .1f);
+		bool bOnlyLocomotion = true;
+		bool bKeepsFullSpeed = true;
+		for (int32 Frame = 0; Frame < FPS * 2; ++Frame)
+		{
+			Scene.Advance(1.f / FPS, FPS);
+			bOnlyLocomotion &= Mesh->GetSingleNodeInstance()->GetCurrentAsset()->IsA<UBlendSpace>();
+			if (Frame > FPS / 2) bKeepsFullSpeed &= NPC->GetVelocity().Size2D() > 500.f;
+		}
+		TestTrue(TEXT("Distant pursuit never switches to an attack on any frame"), bOnlyLocomotion);
+		TestTrue(TEXT("Distant pursuit does not repeatedly brake and accelerate"), bKeepsFullSpeed);
+		TestEqual(TEXT("Distant pursuit does not damage the player"), Player->GetCurrentEnergy(), Player->GetMaxEnergy());
+		NPC->GetCharacterMovement()->DisableMovement();
+		const float ContactEdge = 140.f + Player->GetCapsuleComponent()->GetScaledCapsuleRadius();
+		Player->SetActorLocation(NPC->GetActorLocation() + FVector(ContactEdge + 30.f, 0, 0));
+		const float Energy = Player->GetCurrentEnergy();
+		Scene.Advance(1.f / FPS, FPS);
+		auto* Animation = Mesh->GetSingleNodeInstance();
+		TestTrue(TEXT("The former anticipation zone now plays only locomotion"), Animation->GetCurrentAsset()->IsA<UBlendSpace>());
+		TestFalse(TEXT("Outside weapon range Clown remains free to follow"), NPC->ShouldPauseFollow());
+		TestEqual(TEXT("No damage outside weapon range"), Player->GetCurrentEnergy(), Energy);
+		Player->SetActorLocation(NPC->GetActorLocation() + FVector(ContactEdge - 10.f, 0, 0));
+		Scene.Advance(1.f / FPS, FPS);
+		TestEqual(TEXT("Swing starts on the first frame inside weapon range"), Animation->GetCurrentAsset()->GetFName(), FName(TEXT("anim_attack_1")));
+		TestEqual(TEXT("The faster swing is active"), Mesh->GetPlayRate(), 1.8f);
+		TestTrue(TEXT("Clown stops moving while attacking in range"), NPC->ShouldPauseFollow());
+		const FVector Hand = Mesh->GetSocketLocation(TEXT("hand_r"));
+		Scene.Advance(.2f, FPS);
+		TestTrue(TEXT("Weapon hand visibly moves immediately after entering range"), FVector::Dist(Hand, Mesh->GetSocketLocation(TEXT("hand_r"))) > 10.f);
+		TestTrue(TEXT("Weapon contact damages the player"), Player->GetCurrentEnergy() < Energy);
+		for (int32 Repeat = 0; Repeat < 3; ++Repeat)
+		{
+			Player->SetActorLocation(NPC->GetActorLocation() + FVector(ContactEdge + 1.f, 0, 0));
+			Scene.Advance(1.f / FPS, FPS);
+			TestTrue(TEXT("Leaving by even one centimetre cancels the swing on the next frame"), Animation->GetCurrentAsset()->IsA<UBlendSpace>());
+			TestEqual(TEXT("Walking restores normal animation rate"), Mesh->GetPlayRate(), 1.f);
+			TestFalse(TEXT("Exiting range releases pursuit"), NPC->ShouldPauseFollow());
+			Player->SetActorLocation(NPC->GetActorLocation() + FVector(ContactEdge - 10.f, 0, 0));
+			Scene.Advance(1.f / FPS, FPS);
+			TestEqual(TEXT("Re-entering range immediately restarts the weapon attack"), Animation->GetCurrentAsset()->GetFName(), FName(TEXT("anim_attack_1")));
+		}
+		Scene.Hit(NPC, 1.f, FVector::ForwardVector);
+		TestTrue(TEXT("A projectile still interrupts the aggressive attack"), NPC->FindComponentByClass<UNPCHitReactionComponent>()->IsStaggering());
+		Scene.Advance(.45f, FPS);
+		TestEqual(TEXT("Clown promptly resumes swinging after recovery"), Mesh->GetSingleNodeInstance()->GetCurrentAsset()->GetFName(), FName(TEXT("anim_attack_1")));
+		Player->SetActorLocation(NPC->GetActorLocation() + FVector(0, 0, 500));
+		Scene.Advance(1.f / FPS, FPS);
+		TestTrue(TEXT("A target on another floor is outside weapon range"), Animation->GetCurrentAsset()->IsA<UBlendSpace>());
+		Player->SetActorLocation(NPC->GetActorLocation() + FVector(1000, 0, 0));
+		Scene.Advance(.05f, FPS);
+		TestFalse(TEXT("Player escape releases the movement pause"), NPC->ShouldPauseFollow());
+		TestTrue(TEXT("Escape restores locomotion"), Mesh->GetSingleNodeInstance()->GetCurrentAsset()->IsA<UBlendSpace>());
+		const FVector BeforeChase = NPC->GetActorLocation();
+		NPC->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+		Scene.Advance(.3f, FPS);
+		AddInfo(FString::Printf(TEXT("Clown %d FPS: resumed %.1f cm, speed %.1f, movement mode %d"),
+			FPS, NPC->GetActorLocation().X - BeforeChase.X, NPC->GetVelocity().Size2D(), int32(NPC->GetCharacterMovement()->MovementMode)));
+		TestTrue(TEXT("Clown quickly resumes pursuit after escape"), NPC->GetActorLocation().X > BeforeChase.X + 60.f);
+		Player->SetActorLocation(NPC->GetActorLocation() + FVector(ContactEdge - 10.f, 0, 0));
+		Scene.Advance(1.f / FPS, FPS);
+		Scene.Hit(NPC, 1000.f, FVector::ForwardVector);
+		TestEqual(TEXT("Death replaces the weapon swing"), Mesh->GetSingleNodeInstance()->GetCurrentAsset()->GetFName(), FName(TEXT("anim_death")));
 	}
 	return true;
 }
@@ -435,10 +527,11 @@ bool FGhoulFullFallTest::RunTest(const FString& Parameters)
 	{
 		FHitReactionWorld Scene;
 		ACharacter* NPC = Scene.Spawn(AChasingNPC::StaticClass());
-		FindFProperty<FObjectPropertyBase>(NPC->GetClass(), TEXT("DeathAnimation"))->SetObjectPropertyValue_InContainer(NPC, Death);
+		TestEqual(TEXT("New Ghoul instances inherit the complete fall"),
+			FindFProperty<FObjectPropertyBase>(NPC->GetClass(), TEXT("DeathAnimation"))->GetObjectPropertyValue_InContainer(NPC), static_cast<UObject*>(Death));
 		auto* Reaction = NPC->FindComponentByClass<UNPCHitReactionComponent>();
-		Reaction->ForwardBendAngle = 65.f;
-		Reaction->StaggerDuration = .4f;
+		TestEqual(TEXT("New Ghoul instances inherit the strong fold"), Reaction->ForwardBendAngle, 65.f);
+		TestEqual(TEXT("New Ghoul instances inherit the authored recovery"), Reaction->StaggerDuration, .4f);
 		USkeletalMeshComponent* Mesh = NPC->GetMesh();
 		Mesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 		Mesh->bEnableUpdateRateOptimizations = false;
