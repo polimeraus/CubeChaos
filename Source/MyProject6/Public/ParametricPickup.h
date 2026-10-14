@@ -14,6 +14,13 @@ class USoundBase;
 class USoundAttenuation;
 
 UENUM(BlueprintType)
+enum class EPickupWeapon : uint8
+{
+    Railgun,
+    BFG UMETA(DisplayName="BFG 10K")
+};
+
+UENUM(BlueprintType)
 enum class EPickupMotion : uint8
 {
     Stationary,
@@ -62,6 +69,10 @@ class MYPROJECT6_API AParametricPickup : public AActor
 
 public:
     AParametricPickup();
+
+    /** Weapon granted on collection. Existing pickups retain their railgun reward. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Collection")
+    EPickupWeapon WeaponReward = EPickupWeapon::Railgun;
     virtual void OnConstruction(const FTransform& Transform) override;
     virtual void Tick(float DeltaSeconds) override;
     virtual bool ShouldTickIfViewportsOnly() const override;

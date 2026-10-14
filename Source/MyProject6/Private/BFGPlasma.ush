@@ -1,0 +1,24 @@
+float2 p=UV*2.0-1.0;
+float r=length(p);
+float alpha=VertexAlpha;
+float3 green=float3(.045,1.0,.11);
+float3 energy;
+if (VertexMode>.75)
+{
+    float ring=exp(-pow((r-.78)*25.0,2.0));
+    energy=green*ring*1.8;
+}
+else if (VertexMode>.25)
+{
+    float streak=exp(-p.y*p.y*14.0)*(1.0-smoothstep(.7,1.0,abs(p.y)));
+    float taper=smoothstep(0.0,1.0,UV.x)*smoothstep(1.0,.7,UV.x);
+    energy=green*streak*taper;
+}
+else
+{
+    float core=exp(-r*r*35.0);
+    float halo=exp(-r*r*4.5)*(1.0-smoothstep(.75,1.0,r));
+    float swirl=.86+.14*sin(atan2(p.y,p.x)*6.0+r*26.0-Age*25.0);
+    energy=float3(.7,1.0,.65)*core*2.0+green*halo*swirl;
+}
+return energy*6.0*saturate(alpha);

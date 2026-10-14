@@ -28,6 +28,11 @@ public:
     UFUNCTION(BlueprintCallable, Category="Railgun")
     void ActivateRailgun();
 
+    UFUNCTION(BlueprintCallable, Category="BFG")
+    void ActivateBFG();
+    UFUNCTION(BlueprintCallable, Category="BFG")
+    bool FireBFG();
+
     /** Each press requests one instantaneous shot; both keys share the same cooldown. */
     UFUNCTION(BlueprintCallable, Category="Railgun")
     bool Fire();
@@ -46,13 +51,24 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Railgun")
     TObjectPtr<USceneComponent> Muzzle;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0"))
-    float Damage = 100.f;
+    float Damage = 200.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0.1", Units="s"))
     float FireInterval = 1.5f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="100", Units="cm"))
     float Range = 20480.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0.05", ClampMax="2", Units="s"))
     float TrailDuration = .4f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG", meta=(ClampMin="0.05", Units="s"))
+    float BFGFireInterval = .2f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG", meta=(ClampMin="0"))
+    float BFGDamage = 100.f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG", meta=(ClampMin="0"))
+    float BFGSplashDamage = 100.f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG", meta=(ClampMin="1", Units="cm"))
+    float BFGSplashRadius = 300.f;
+    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="BFG")
+    int32 BFGShotsFired = 0;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun|Visuals")
     FRailgunVisualSettings Visuals;
@@ -71,8 +87,11 @@ private:
     UPROPERTY() TObjectPtr<USoundBase> FireSound;
     UPROPERTY() TObjectPtr<UMaterialInterface> ArmsMaterial;
     UPROPERTY() TObjectPtr<UStaticMesh> RailgunModel;
+    UPROPERTY() TObjectPtr<UStaticMesh> BFGModel;
+    UPROPERTY() TObjectPtr<USoundBase> BFGFireSound;
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> ChargeMaterial;
     double NextFireTime = 0;
+    double NextBFGFireTime = 0;
     FVector RestLocation = FVector::ZeroVector;
     FVector PreviousVelocity = FVector::ZeroVector;
     FRotator PreviousAim = FRotator::ZeroRotator;

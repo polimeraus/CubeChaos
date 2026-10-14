@@ -1,10 +1,14 @@
-// Narrow straight rail core; the shot is frozen in world space.
+// Three optical layers keep the white-hot filament separate from the saturated corona.
 float across = abs(UV.y * 2.0 - 1.0);
-float core = exp(-across * across * 110.0);
-float halo = exp(-across * across * 9.0) * 0.32;
+float core = exp(-across * across * 260.0);
+float sheath = exp(-across * across * 34.0);
+float halo = exp(-across * across * 5.5);
 float edge = 1.0 - smoothstep(0.75, 1.0, across);
-float ends = smoothstep(0.0, 1.0, UV.x * BeamLength)
-    * smoothstep(0.0, 1.0, (1.0 - UV.x) * BeamLength);
-float profile = (core + halo) * edge * ends * saturate(Fade);
-float3 color = lerp(Tint, float3(0.7, 0.9, 1.0), core * 0.32);
-return float4(color * Brightness * profile * Density, 1.0);
+float ends = smoothstep(0.0, 2.0, UV.x * BeamLength)
+    * smoothstep(0.0, 3.0, (1.0 - UV.x) * BeamLength);
+float along = UV.x * BeamLength;
+float grain = 0.92 + 0.08 * sin(along * 0.22) * sin(along * 0.071 + 1.4);
+float flash = 1.0 + 0.5 * exp(-Age * 42.0);
+float3 energy = float3(.75,.9,1.0) * core * 1.3
+    + Tint * (sheath * 1.2 + halo * .22) * grain;
+return float4(energy * Brightness * Density * edge * ends * pow(saturate(Fade),.75) * flash, 1.0);

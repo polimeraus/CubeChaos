@@ -29,6 +29,7 @@ def make_material(name, code, inputs, additive=False):
         p=unreal.CustomInput();p.set_editor_property('input_name',name);pins.append(p)
         if name == 'UV': sources[name]=(node(unreal.MaterialExpressionTextureCoordinate),'')
         elif name == 'VertexAlpha': sources[name]=(node(unreal.MaterialExpressionVertexColor),'A')
+        elif name == 'VertexMode': sources[name]=(node(unreal.MaterialExpressionVertexColor),'R')
         elif isinstance(value, tuple):
             n=node(unreal.MaterialExpressionVectorParameter,name)
             n.set_editor_property('parameter_name',name);n.set_editor_property('default_value',unreal.LinearColor(*value,1));sources[name]=(n,'RGB')
@@ -54,11 +55,8 @@ def make_material(name, code, inputs, additive=False):
     assert unreal.EditorAssetLibrary.save_loaded_asset(m,False)
     return m
 
-make_material('M_RailSpiral', '''
-float r=length(UV*2.0-1.0);
-float spot=exp(-r*r*4.5)*(1.0-smoothstep(.72,1.0,r));
-return Tint*Brightness*Density*spot*saturate(VertexAlpha);
-''', {'UV':0,'VertexAlpha':0,'Tint':(.02,.3,1),'Brightness':4,'Density':1},True)
+make_material('M_RailSpiral', Path(__file__).with_name('RailgunSpiral.ush').read_text(),
+              {'UV':0,'VertexAlpha':0,'VertexMode':0,'Tint':(.008,.5,1),'Brightness':7,'Density':1},True)
 
 surface=make_material('M_RailMetal','''
 float grain=frac(sin(dot(floor(UV*170.0),float2(12.9898,78.233)))*43758.5453);

@@ -30,9 +30,9 @@ material.set_editor_property('two_sided', True)
 uv = node_for(unreal.MaterialExpressionTextureCoordinate)
 tint = node_for(unreal.MaterialExpressionVectorParameter, 'Tint')
 tint.set_editor_property('parameter_name', 'Tint')
-tint.set_editor_property('default_value', unreal.LinearColor(.02, .55, 1, 1))
+tint.set_editor_property('default_value', unreal.LinearColor(.008, .22, 1, 1))
 nodes = {'UV':(uv, ''), 'Tint':(tint, 'RGB')}
-for name, value in {'Brightness':5.0, 'Density':1.2, 'BeamLength':1000.0, 'Age':0.0, 'Fade':1.0}.items():
+for name, value in {'Brightness':7.0, 'Density':1.0, 'BeamLength':1000.0, 'Age':0.0, 'Fade':1.0}.items():
     node = node_for(unreal.MaterialExpressionScalarParameter, name)
     node.set_editor_property('parameter_name', name)
     node.set_editor_property('default_value', value)

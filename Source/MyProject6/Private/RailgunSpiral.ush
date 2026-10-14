@@ -1,0 +1,20 @@
+// UVs run along a camera-facing 3D helix. Vertex alpha carries the local fade.
+// Mode 0 = round particle, .5 = short impact flare, 1 = continuous filament.
+float2 p = UV * 2.0 - 1.0;
+float r = length(p);
+float spot = exp(-r*r*5.5) * (1.0-smoothstep(.7,1.0,r));
+float across = abs(p.y);
+float filament = exp(-across*across*38.0);
+float fringe = exp(-across*across*5.0) * .28;
+float ribbon = (filament+fringe) * (1.0-smoothstep(.72,1.0,across));
+float thread = .94+.06*sin(UV.x*11.0)*sin(UV.x*3.7);
+float3 energy;
+if (VertexMode > .75)
+    energy = (Tint*ribbon + float3(.3,.7,1)*filament*.2)*thread;
+else if (VertexMode > .25)
+{
+    float rays = (exp(-abs(p.x)*50.0)+exp(-abs(p.y)*50.0))*exp(-r*4.0);
+    energy = Tint*(spot*.8+rays) + float3(.7,.9,1)*spot;
+}
+else energy = Tint*spot;
+return energy*Brightness*Density*saturate(VertexAlpha);

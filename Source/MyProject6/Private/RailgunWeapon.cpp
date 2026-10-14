@@ -1,5 +1,6 @@
 #include "RailgunWeapon.h"
 #include "RailgunBeam.h"
+#include "BFGProjectile.h"
 #include "MyProject6Character.h"
 #include "ChunkedDestructibleConeStructure.h"
 #include "QuadPanelConeStructure.h"
@@ -44,6 +45,10 @@ ARailgunWeapon::ARailgunWeapon()
     WeaponMesh->SetStaticMesh(Rifle.Object);
     static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> RailModel(TEXT("/Game/Weapons/Railgun/SM_QuakeRailgun.SM_QuakeRailgun"));
     RailgunModel = RailModel.Get();
+    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> BFGMesh(TEXT("/Game/Weapons/Railgun/SM_BFG10K.SM_BFG10K"));
+    BFGModel = BFGMesh.Get();
+    static ConstructorHelpers::FObjectFinderOptional<USoundBase> BFGSound(TEXT("/Game/Weapons/Railgun/S_BFGFire.S_BFGFire"));
+    BFGFireSound = BFGSound.Get();
     static ConstructorHelpers::FObjectFinder<UAnimSequence> Hold(TEXT("/Game/Weapons/Railgun/A_RailgunHold.A_RailgunHold"));
     HoldAnimation = Hold.Object;
     static ConstructorHelpers::FObjectFinder<USoundBase> Sound(TEXT("/Game/Weapons/Railgun/S_RailFire.S_RailFire"));
@@ -88,6 +93,8 @@ void ARailgunWeapon::Equip(AMyProject6Character* Character)
 
 void ARailgunWeapon::ActivateRailgun()
 {
+    WeaponMesh->EmptyOverrideMaterials();
+    ChargeMaterial = nullptr;
     if (RailgunModel) WeaponMesh->SetStaticMesh(RailgunModel);
     Muzzle->SetRelativeLocation(FVector(0, 68, 10));
     // The rail's broad receiver needs more clearance below the crosshair than the rifle.
@@ -99,6 +106,53 @@ void ARailgunWeapon::ActivateRailgun()
         const int32 Slot = WeaponMesh->GetMaterialIndex(TEXT("RailEnergy"));
         if (Slot != INDEX_NONE) ChargeMaterial = WeaponMesh->CreateDynamicMaterialInstance(Slot);
     }
+}
+
+void ARailgunWeapon::ActivateBFG()
+{
+    WeaponMesh->EmptyOverrideMaterials();
+    ChargeMaterial = nullptr;
+    if (BFGModel) WeaponMesh->SetStaticMesh(BFGModel);
+    Muzzle->SetRelativeLocation(FVector(0, 64, 12));
+    RestLocation = FVector(26, 6, -15);
+    GetRootComponent()->SetRelativeLocation(RestLocation);
+    const int32 Slot = WeaponMesh->GetMaterialIndex(TEXT("BFGEnergy"));
+    if (Slot != INDEX_NONE) ChargeMaterial = WeaponMesh->CreateDynamicMaterialInstance(Slot);
+}
+
+bool ARailgunWeapon::FireBFG()
+{
+    UWorld* World = GetWorld();
+    if (!World || !Wielder || !Wielder->bBFGEquipped || !HasAuthority() || Wielder->IsEnergyDepleted()
+        || UGameplayStatics::IsGamePaused(this) || World->GetTimeSeconds() + .0001 < NextBFGFireTime) return false;
+    UCameraComponent* Camera = Wielder->GetFirstPersonCameraComponent();
+    const FVector Eye = Camera->GetComponentLocation();
+    FVector Start = GetVisualMuzzleLocation();
+    FVector End = Eye + Camera->GetForwardVector() * 50000.f;
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(BFGAim), false, Wielder);
+    Query.AddIgnoredActor(this);
+    FHitResult AimHit, CoverHit;
+    if (World->LineTraceSingleByChannel(AimHit, Eye, End, ECC_GameTraceChannel1, Query)) End = AimHit.ImpactPoint;
+    const bool bMuzzleBlocked = World->SweepSingleByChannel(CoverHit, Eye, Start, FQuat::Identity,
+        ECC_GameTraceChannel1, FCollisionShape::MakeSphere(3.f), Query);
+    if (bMuzzleBlocked) Start = Eye;
+    const FVector Direction = (End - Start).GetSafeNormal(UE_SMALL_NUMBER, Camera->GetForwardVector());
+    const FTransform Transform(Direction.Rotation(), Start);
+    auto* Projectile = World->SpawnActorDeferred<ABFGProjectile>(ABFGProjectile::StaticClass(), Transform,
+        Wielder, Wielder, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+    if (!Projectile) return false;
+    Projectile->DirectDamage = FMath::Max(0.f, BFGDamage);
+    Projectile->SplashDamage = FMath::Max(0.f, BFGSplashDamage);
+    Projectile->SplashRadius = FMath::Max(1.f, BFGSplashRadius);
+    Projectile->FinishSpawning(Transform);
+    // A protruding first-person barrel must not spawn a projectile beyond cover.
+    if (bMuzzleBlocked) Projectile->Explode(CoverHit);
+    NextBFGFireTime = World->GetTimeSeconds() + FMath::Max(.05f, BFGFireInterval);
+    ++BFGShotsFired;
+    if (BFGFireSound) UGameplayStatics::PlaySound2D(this, BFGFireSound, .65f);
+    if (ChargeMaterial) ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), .25f);
+    AddFireMotion(.65f);
+    return true;
 }
 
 bool ARailgunWeapon::Fire()
@@ -204,7 +258,9 @@ void ARailgunWeapon::Tick(float DeltaSeconds)
         || UGameplayStatics::IsGamePaused(this)) return;
     if (ChargeMaterial)
     {
-        const float Charge = 1.f - FMath::Clamp(float(NextFireTime - GetWorld()->GetTimeSeconds()) / FMath::Max(.1f, FireInterval), 0.f, 1.f);
+        const double NextShot = Wielder->bBFGEquipped ? NextBFGFireTime : NextFireTime;
+        const float Interval = Wielder->bBFGEquipped ? BFGFireInterval : FireInterval;
+        const float Charge = 1.f - FMath::Clamp(float(NextShot - GetWorld()->GetTimeSeconds()) / FMath::Max(.05f, Interval), 0.f, 1.f);
         ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), .15f + 2.25f * Charge);
     }
     const FVector Velocity = Wielder->GetVelocity();
