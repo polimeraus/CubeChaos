@@ -59,6 +59,11 @@ void ALaunchPad::RefreshPad()
     UMaterialInterface* SelectedMaterial = Pattern == ELaunchPadPattern::ConvergingRings ? RingsMaterial.Get() : PadMaterial.Get();
     if (SelectedMaterial && (!MaterialInstance || MaterialInstance->Parent != SelectedMaterial))
         MaterialInstance = UMaterialInstanceDynamic::Create(SelectedMaterial, this);
+    if (!SelectedMaterial)
+    {
+        MaterialInstance=nullptr;
+        Symbol->SetMaterial(0,nullptr);
+    }
     if (MaterialInstance)
     {
         Symbol->SetMaterial(0, MaterialInstance);
@@ -128,6 +133,19 @@ void ALaunchPad::CheckCharacters()
             const float Speed = FMath::Clamp(LaunchSpeed, 0.f, 10000.f);
             Up = Speed * FMath::Sin(FMath::DegreesToRadians(Angle));
             Forward = Angle >= 90 ? 0 : Speed * FMath::Cos(FMath::DegreesToRadians(Angle));
+        }
+        if (bUseTargetHeight)
+        {
+            const float Gravity=FMath::Abs(Movement->GetGravityZ());
+            if (Gravity<1 || !FMath::IsFinite(TargetRiseHeight)) continue;
+            Up=FMath::Sqrt(2.f*Gravity*FMath::Clamp(TargetRiseHeight,50.f,50000.f));
+        }
+        if (bCenterBeforeLaunch)
+        {
+            FVector Center=GetActorLocation(); Center.Z=Character->GetActorLocation().Z;
+            FHitResult CenterHit;
+            Character->SetActorLocation(Center,true,&CenterHit);
+            if (FVector::DistSquaredXY(Character->GetActorLocation(),Center)>1) continue;
         }
         const FVector Horizontal = FRotator(0, GetActorRotation().Yaw, 0).Vector() * Forward;
         LastLaunch.Add(Character, Now);

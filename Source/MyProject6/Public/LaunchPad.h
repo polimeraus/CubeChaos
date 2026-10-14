@@ -35,6 +35,11 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad") bool bEnabled = true;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad", meta=(ClampMin="50", ClampMax="1000", Units="cm")) float Size = 160;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad", meta=(ClampMin="0", ClampMax="10000", Units="cm/s")) float LaunchUpSpeed = 1200;
+    /** Optional ballistic height mode, used by the Ziggurat's aligned shaft. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad") bool bUseTargetHeight = false;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad", meta=(ClampMin="50", ClampMax="50000", Units="cm", EditCondition="bUseTargetHeight")) float TargetRiseHeight = 1200;
+    /** Center safely on the pad before launching vertically through a narrow shaft. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad") bool bCenterBeforeLaunch = false;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad", meta=(ClampMin="0", ClampMax="10000", Units="cm/s")) float ForwardSpeed = 0;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad") bool bPreserveHorizontalVelocity = false;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Launch Pad") bool bAffectPlayers = true;
