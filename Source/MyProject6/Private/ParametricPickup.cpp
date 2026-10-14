@@ -1,4 +1,5 @@
 #include "ParametricPickup.h"
+#include "MyProject6Character.h"
 
 #include "Components/BoxComponent.h"
 #include "Components/DynamicMeshComponent.h"
@@ -305,6 +306,8 @@ bool AParametricPickup::TryCollect(APawn* Collector)
     bCollected = true; // Set before callbacks to prevent reentrant/double rewards.
     OnRep_Collected();
     ForceNetUpdate();
+    // Native collection path covers every placed instance and future spawn, regardless of motif.
+    if (AMyProject6Character* Player = Cast<AMyProject6Character>(Collector)) Player->EquipRailgun();
     if (CollectionSound && SoundVolume > 0)
         MulticastCollectionSound(CollectionSound, MotionPivot->GetComponentLocation(),
             SafeValue(SoundVolume, 0, 4, .65f), SafeValue(SoundPitch, .25f, 4, 1), SoundAttenuation);

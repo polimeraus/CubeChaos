@@ -9,46 +9,68 @@
 
 using namespace UE::Geometry;
 
+namespace RailTrailMesh
+{
+    void Quad(FDynamicMesh3& Mesh, FVector Centre, FVector Right, FVector Up, float Alpha = 1.f)
+    {
+        const FVector Points[] = {Centre - Right - Up, Centre + Right - Up, Centre - Right + Up, Centre + Right + Up};
+        const FVector2f UVs[] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
+        const FVector3f Normal(FVector::CrossProduct(Right, Up).GetSafeNormal());
+        const int32 Base = Mesh.VertexCount();
+        for (int32 V = 0; V < 4; ++V)
+        {
+            Mesh.AppendVertex(FVector3d(Points[V]));
+            Mesh.Attributes()->PrimaryNormals()->AppendElement(Normal);
+            Mesh.Attributes()->PrimaryUV()->AppendElement(UVs[V]);
+            if (Mesh.Attributes()->HasPrimaryColors())
+                Mesh.Attributes()->PrimaryColors()->AppendElement(FVector4f(1, 1, 1, Alpha));
+        }
+        for (FIndex3i Triangle : {FIndex3i(Base, Base + 1, Base + 2), FIndex3i(Base + 1, Base + 3, Base + 2)})
+        {
+            const int32 ID = Mesh.AppendTriangle(Triangle);
+            Mesh.Attributes()->PrimaryNormals()->SetTriangle(ID, Triangle);
+            Mesh.Attributes()->PrimaryUV()->SetTriangle(ID, Triangle);
+            if (Mesh.Attributes()->HasPrimaryColors()) Mesh.Attributes()->PrimaryColors()->SetTriangle(ID, Triangle);
+        }
+    }
+}
+
 ARailgunBeam::ARailgunBeam()
 {
     PrimaryActorTick.bCanEverTick = true;
-    InitialLifeSpan = .55f;
+    RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("BeamRoot"));
     Trail = CreateDefaultSubobject<UDynamicMeshComponent>(TEXT("EnergyTrail"));
-    SetRootComponent(Trail);
-    Trail->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    Trail->SetGenerateOverlapEvents(false);
-    Trail->SetCanEverAffectNavigation(false);
-    Trail->SetCastShadow(false);
+    Spiral = CreateDefaultSubobject<UDynamicMeshComponent>(TEXT("SpiralParticles"));
+    for (UDynamicMeshComponent* Mesh : {Trail.Get(), Spiral.Get()})
+    {
+        Mesh->SetupAttachment(RootComponent);
+        Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        Mesh->SetGenerateOverlapEvents(false);
+        Mesh->SetCanEverAffectNavigation(false);
+        Mesh->SetCastShadow(false);
+        Mesh->bReceivesDecals = false;
+        Mesh->SetTranslucentSortPriority(2);
+    }
     static ConstructorHelpers::FObjectFinder<UMaterialInterface> Material(TEXT("/Game/Weapons/Railgun/M_RailTrail.M_RailTrail"));
     EnergyMaterial = Material.Object;
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Particles(TEXT("/Game/Weapons/Railgun/M_RailSpiral.M_RailSpiral"));
+    ParticleMaterial = Particles.Get();
 }
 
 void ARailgunBeam::InitializeBeam(FVector Start, FVector End, float Duration)
 {
     Age = 0;
+    bHasImpact = false;
     Lifetime = FMath::Clamp(Duration, .05f, 2.f);
-    SetLifeSpan(Lifetime);
-    ShotDirection = (End - Start).GetSafeNormal();
-    if (ShotDirection.IsNearlyZero()) ShotDirection = FVector::ForwardVector;
-    const float Length = FMath::Max(1.f, float(FVector::Distance(Start, End)));
-    const float HalfWidth = FMath::Clamp(Visuals.Width, .5f, 50.f) * .5f;
+    BeamLength = FMath::Clamp(float(FVector::Distance(Start, End)), 1.f, 100000.f);
+    SetLifeSpan(Visuals.bSpiral ? FMath::Max(Lifetime, FMath::Min(5.f, .6f + BeamLength * .0002f)) : Lifetime);
+    ShotDirection = (End - Start).GetSafeNormal(UE_SMALL_NUMBER, FVector::ForwardVector);
     SetActorLocationAndRotation(Start, ShotDirection.Rotation());
+    Trail->SetRelativeRotation(FRotator::ZeroRotator);
     FDynamicMesh3 Mesh;
     Mesh.EnableAttributes();
-    const FVector3d Points[] = {{0, -HalfWidth, 0}, {0, HalfWidth, 0}, {Length, -HalfWidth, 0}, {Length, HalfWidth, 0}};
-    const FVector2f UVs[] = {{0, 0}, {0, 1}, {1, 0}, {1, 1}};
-    for (int32 V = 0; V < 4; ++V)
-    {
-        Mesh.AppendVertex(Points[V]);
-        Mesh.Attributes()->PrimaryNormals()->AppendElement(FVector3f(0, 0, 1));
-        Mesh.Attributes()->PrimaryUV()->AppendElement(UVs[V]);
-    }
-    for (const FIndex3i Indices : {FIndex3i(0, 2, 1), FIndex3i(1, 2, 3)})
-    {
-        const int32 ID = Mesh.AppendTriangle(Indices);
-        Mesh.Attributes()->PrimaryNormals()->SetTriangle(ID, Indices);
-        Mesh.Attributes()->PrimaryUV()->SetTriangle(ID, Indices);
-    }
+    RailTrailMesh::Quad(Mesh, FVector(BeamLength * .5f, 0, 0), FVector(BeamLength * .5f, 0, 0),
+        FVector(0, FMath::Clamp(Visuals.Width, .5f, 50.f) * .5f, 0));
     Trail->SetMesh(MoveTemp(Mesh));
     if (EnergyMaterial)
     {
@@ -56,28 +78,89 @@ void ARailgunBeam::InitializeBeam(FVector Start, FVector End, float Duration)
         TrailMaterial->SetVectorParameterValue(TEXT("Tint"), Visuals.Color);
         TrailMaterial->SetScalarParameterValue(TEXT("Brightness"), FMath::Clamp(Visuals.Intensity, 0.f, 30.f));
         TrailMaterial->SetScalarParameterValue(TEXT("Density"), FMath::Clamp(Visuals.Density, 0.f, 5.f));
-        TrailMaterial->SetScalarParameterValue(TEXT("BeamLength"), Length);
+        TrailMaterial->SetScalarParameterValue(TEXT("BeamLength"), BeamLength);
         TrailMaterial->SetScalarParameterValue(TEXT("Fade"), 1.f);
+        TrailMaterial->SetScalarParameterValue(TEXT("Age"), 0.f);
         Trail->SetMaterial(0, TrailMaterial);
     }
+    if (ParticleMaterial)
+    {
+        SpiralMaterial = UMaterialInstanceDynamic::Create(ParticleMaterial, this);
+        SpiralMaterial->SetVectorParameterValue(TEXT("Tint"), Visuals.SpiralColor);
+        SpiralMaterial->SetScalarParameterValue(TEXT("Brightness"), FMath::Clamp(Visuals.Intensity, 0.f, 30.f));
+        SpiralMaterial->SetScalarParameterValue(TEXT("Density"), FMath::Clamp(Visuals.Density, 0.f, 5.f));
+        Spiral->SetMaterial(0, SpiralMaterial);
+    }
+    FaceCamera(Start - ShotDirection * 100.f + FVector(0, 0, 20));
+}
+
+void ARailgunBeam::SetImpact(FVector Location)
+{
+    bHasImpact = true;
+    ImpactLocation = GetActorTransform().InverseTransformPosition(Location);
+    UpdateParticles(LastViewLocation);
 }
 
 void ARailgunBeam::FaceCamera(FVector ViewLocation)
 {
-    const FVector Side = FVector::CrossProduct(ShotDirection, ViewLocation - GetActorLocation()).GetSafeNormal();
-    if (!Side.IsNearlyZero()) SetActorRotation(FRotationMatrix::MakeFromXY(ShotDirection, Side).Rotator());
+    LastViewLocation = ViewLocation;
+    FVector Side = FVector::CrossProduct(ShotDirection, ViewLocation - GetActorLocation()).GetSafeNormal();
+    if (Side.IsNearlyZero()) Side = GetActorRightVector();
+    // Rotate only the flat core; the spiral's phase stays fixed in world space.
+    Trail->SetWorldRotation(FRotationMatrix::MakeFromXY(ShotDirection, Side).Rotator());
+    UpdateParticles(ViewLocation);
+}
+
+void ARailgunBeam::UpdateParticles(FVector ViewLocation)
+{
+    FDynamicMesh3 Mesh;
+    Mesh.EnableAttributes();
+    Mesh.Attributes()->EnablePrimaryColors();
+    const FVector View = GetActorTransform().InverseTransformPosition(ViewLocation);
+    auto Sprite = [&](FVector Centre, float Radius, float Alpha)
+    {
+        const FVector Normal = (View - Centre).GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+        FVector Right, Up;
+        Normal.FindBestAxisVectors(Right, Up);
+        RailTrailMesh::Quad(Mesh, Centre, Right * Radius, Up * Radius, Alpha);
+    };
+    if (Visuals.bSpiral)
+    {
+        // Q3 proportions: 4u radius, 180u pitch, one 1.1u sprite per 10u, 6u/s drift.
+        // All particles exist on the same frame as the hitscan.
+        const float Step = FMath::Max(25.f, BeamLength / 4096.f);
+        for (float Distance = FMath::Min(50.f, BeamLength * .5f); Distance < BeamLength; Distance += Step)
+        {
+            const float ParticleLife = FMath::Min(5.f, .6f + Distance * .0002f);
+            const float Alpha = FMath::Clamp(1.f - Age / ParticleLife, 0.f, 1.f);
+            if (Alpha <= 0) continue;
+            const float Angle = PI + Distance * UE_TWO_PI / FMath::Clamp(Visuals.SpiralPitch, 50.f, 1000.f);
+            const float Radius = FMath::Clamp(Visuals.SpiralRadius, 0.f, 50.f) + Age * 15.f;
+            Sprite(FVector(Distance, FMath::Cos(Angle) * Radius, FMath::Sin(Angle) * Radius), 2.75f, Alpha);
+        }
+    }
+    if (bHasImpact && Age < .25f)
+        Sprite(ImpactLocation - FVector(.6f, 0, 0), 6.f + Age * 35.f, FMath::Square(1.f - Age / .25f));
+    Spiral->SetMesh(MoveTemp(Mesh));
+}
+
+void ARailgunBeam::SetPreviewAge(float Seconds)
+{
+    Age = FMath::Max(0.f, Seconds);
+    if (TrailMaterial)
+    {
+        TrailMaterial->SetScalarParameterValue(TEXT("Fade"), FMath::Clamp(1.f - Age / Lifetime, 0.f, 1.f));
+        TrailMaterial->SetScalarParameterValue(TEXT("Age"), Age);
+    }
+    UpdateParticles(LastViewLocation);
 }
 
 void ARailgunBeam::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
-    Age += DeltaSeconds;
-    if (TrailMaterial)
-    {
-        const float Fade = FMath::Clamp(1.f - Age / Lifetime, 0.f, 1.f);
-        TrailMaterial->SetScalarParameterValue(TEXT("Fade"), Fade * Fade);
-        TrailMaterial->SetScalarParameterValue(TEXT("Age"), Age);
-    }
     if (APlayerCameraManager* Camera = UGameplayStatics::GetPlayerCameraManager(this, 0))
-        FaceCamera(Camera->GetCameraLocation());
+        LastViewLocation = Camera->GetCameraLocation();
+    SetPreviewAge(Age + DeltaSeconds);
+    FVector Side = FVector::CrossProduct(ShotDirection, LastViewLocation - GetActorLocation()).GetSafeNormal();
+    if (!Side.IsNearlyZero()) Trail->SetWorldRotation(FRotationMatrix::MakeFromXY(ShotDirection, Side).Rotator());
 }

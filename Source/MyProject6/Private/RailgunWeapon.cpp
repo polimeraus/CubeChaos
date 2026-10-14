@@ -15,6 +15,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Sound/SoundBase.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -41,6 +42,8 @@ ARailgunWeapon::ARailgunWeapon()
     Arms->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Rifle(TEXT("/Game/Weapons/Rifle/Meshes/SM_Rifle.SM_Rifle"));
     WeaponMesh->SetStaticMesh(Rifle.Object);
+    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> RailModel(TEXT("/Game/Weapons/Railgun/SM_QuakeRailgun.SM_QuakeRailgun"));
+    RailgunModel = RailModel.Get();
     static ConstructorHelpers::FObjectFinder<UAnimSequence> Hold(TEXT("/Game/Weapons/Railgun/A_RailgunHold.A_RailgunHold"));
     HoldAnimation = Hold.Object;
     static ConstructorHelpers::FObjectFinder<USoundBase> Sound(TEXT("/Game/Weapons/Railgun/S_RailFire.S_RailFire"));
@@ -83,10 +86,25 @@ void ARailgunWeapon::Equip(AMyProject6Character* Character)
     AddTickPrerequisiteComponent(Character->GetCharacterMovement());
 }
 
+void ARailgunWeapon::ActivateRailgun()
+{
+    if (RailgunModel) WeaponMesh->SetStaticMesh(RailgunModel);
+    Muzzle->SetRelativeLocation(FVector(0, 68, 10));
+    // The rail's broad receiver needs more clearance below the crosshair than the rifle.
+    // Move both hands and weapon together, keeping the authored grip intact.
+    RestLocation = FVector(10, 3, -9);
+    GetRootComponent()->SetRelativeLocation(RestLocation);
+    if (!ChargeMaterial)
+    {
+        const int32 Slot = WeaponMesh->GetMaterialIndex(TEXT("RailEnergy"));
+        if (Slot != INDEX_NONE) ChargeMaterial = WeaponMesh->CreateDynamicMaterialInstance(Slot);
+    }
+}
+
 bool ARailgunWeapon::Fire()
 {
     UWorld* World = GetWorld();
-    if (!World || !Wielder || !HasAuthority() || Wielder->IsEnergyDepleted()
+    if (!World || !Wielder || !Wielder->bRailgunEquipped || !HasAuthority() || Wielder->IsEnergyDepleted()
         || UGameplayStatics::IsGamePaused(this) || World->GetTimeSeconds() < NextFireTime) return false;
     UCameraComponent* Camera = Wielder->GetFirstPersonCameraComponent();
     const FVector Start = Camera->GetComponentLocation();
@@ -96,29 +114,46 @@ bool ARailgunWeapon::Fire()
     Query.AddIgnoredActor(this);
     // Use the project's projectile channel: NPC capsules and destructible instance meshes block it,
     // while pickups, contact sensors and health widgets do not intercept the shot.
+    // Find the crosshair endpoint without letting a pawn stop the rail. Keep damage
+    // separate until the muzzle's cover check has accepted the shot.
+    FCollisionQueryParams AimQuery = Query;
     FHitResult Hit;
-    bool bHit = World->LineTraceSingleByChannel(Hit, Start, End, ECC_GameTraceChannel1, Query);
-    if (bHit) End = Hit.ImpactPoint;
+    for (int32 Index = 0; Index < 64; ++Index)
+    {
+        if (!World->LineTraceSingleByChannel(Hit, Start, End, ECC_GameTraceChannel1, AimQuery)) break;
+        if (APawn* Pawn = Cast<APawn>(Hit.GetActor())) AimQuery.AddIgnoredActor(Pawn);
+        else { End = Hit.ImpactPoint; break; }
+    }
     FVector BeamStart = GetVisualMuzzleLocation();
     // Check camera-to-muzzle too, so a barrel protruding into cover cannot shoot through it.
     FHitResult CoverHit;
+    bool bHit = false;
+    TArray<FHitResult> ShotHits;
     if (World->LineTraceSingleByChannel(CoverHit, Start, BeamStart, ECC_GameTraceChannel1, Query))
     {
         Hit = CoverHit;
         End = Hit.ImpactPoint;
         BeamStart = Start;
         bHit = true;
+        ShotHits.Add(Hit);
     }
-    else if (World->LineTraceSingleByChannel(CoverHit, BeamStart, End, ECC_GameTraceChannel1, Query))
+    else
     {
-        Hit = CoverHit;
-        End = Hit.ImpactPoint;
-        bHit = true;
+        // One hit per pawn; penetrate actors but stop at the first solid surface.
+        const FVector TraceEnd = End + (End - BeamStart).GetSafeNormal() * .1f;
+        for (int32 Index = 0; Index < 64; ++Index)
+        {
+            if (!World->LineTraceSingleByChannel(Hit, BeamStart, TraceEnd, ECC_GameTraceChannel1, Query)) break;
+            ShotHits.Add(Hit);
+            if (APawn* Pawn = Cast<APawn>(Hit.GetActor())) Query.AddIgnoredActor(Pawn);
+            else { End = Hit.ImpactPoint; bHit = true; break; }
+        }
     }
     NextFireTime = World->GetTimeSeconds() + FMath::Max(.1f, FireInterval);
+    if (ChargeMaterial) ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), .15f);
     ++ShotsFired;
     LastShotEnd = End;
-    if (bHit) ApplyHit(Hit, Direction);
+    for (const FHitResult& ShotHit : ShotHits) ApplyHit(ShotHit, Direction);
     FActorSpawnParameters Spawn;
     Spawn.Owner = Wielder;
     Spawn.Instigator = Wielder;
@@ -127,6 +162,7 @@ bool ARailgunWeapon::Fire()
     {
         Beam->Visuals = Visuals;
         Beam->InitializeBeam(BeamStart, End, TrailDuration);
+        if (bHit) Beam->SetImpact(End);
         Beam->FaceCamera(Start);
     }
     if (FireSound) UGameplayStatics::PlaySound2D(this, FireSound, .7f);
@@ -166,6 +202,11 @@ void ARailgunWeapon::Tick(float DeltaSeconds)
     Super::Tick(DeltaSeconds);
     if (!Wielder || DeltaSeconds <= 0.f || Wielder->IsEnergyDepleted()
         || UGameplayStatics::IsGamePaused(this)) return;
+    if (ChargeMaterial)
+    {
+        const float Charge = 1.f - FMath::Clamp(float(NextFireTime - GetWorld()->GetTimeSeconds()) / FMath::Max(.1f, FireInterval), 0.f, 1.f);
+        ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), .15f + 2.25f * Charge);
+    }
     const FVector Velocity = Wielder->GetVelocity();
     const FRotator Aim = Wielder->GetBaseAimRotation();
     const FRotator AimDelta = (Aim - PreviousAim).GetNormalized();

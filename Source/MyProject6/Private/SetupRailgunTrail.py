@@ -25,12 +25,12 @@ def node_for(cls, parameter=None, channels=None):
     return expression
 
 material.set_editor_property('shading_model', unreal.MaterialShadingModel.MSM_UNLIT)
-material.set_editor_property('blend_mode', unreal.BlendMode.BLEND_ALPHA_COMPOSITE)
+material.set_editor_property('blend_mode', unreal.BlendMode.BLEND_ADDITIVE)
 material.set_editor_property('two_sided', True)
 uv = node_for(unreal.MaterialExpressionTextureCoordinate)
 tint = node_for(unreal.MaterialExpressionVectorParameter, 'Tint')
 tint.set_editor_property('parameter_name', 'Tint')
-tint.set_editor_property('default_value', unreal.LinearColor(1, .008, .002, 1))
+tint.set_editor_property('default_value', unreal.LinearColor(.02, .55, 1, 1))
 nodes = {'UV':(uv, ''), 'Tint':(tint, 'RGB')}
 for name, value in {'Brightness':5.0, 'Density':1.2, 'BeamLength':1000.0, 'Age':0.0, 'Fade':1.0}.items():
     node = node_for(unreal.MaterialExpressionScalarParameter, name)

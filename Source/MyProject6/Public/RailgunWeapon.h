@@ -12,6 +12,8 @@ class UStaticMeshComponent;
 class UAnimSequence;
 class USoundBase;
 class UMaterialInterface;
+class UMaterialInstanceDynamic;
+class UStaticMesh;
 
 UCLASS()
 class MYPROJECT6_API ARailgunWeapon : public AActor
@@ -22,6 +24,9 @@ public:
     virtual void Tick(float DeltaSeconds) override;
     UFUNCTION(BlueprintCallable, Category="Railgun")
     void Equip(AMyProject6Character* Character);
+
+    UFUNCTION(BlueprintCallable, Category="Railgun")
+    void ActivateRailgun();
 
     /** Each press requests one instantaneous shot; both keys share the same cooldown. */
     UFUNCTION(BlueprintCallable, Category="Railgun")
@@ -43,11 +48,11 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0"))
     float Damage = 100.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0.1", Units="s"))
-    float FireInterval = .8f;
+    float FireInterval = 1.5f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="100", Units="cm"))
-    float Range = 20000.f;
+    float Range = 20480.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0.05", ClampMax="2", Units="s"))
-    float TrailDuration = .55f;
+    float TrailDuration = .4f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun|Visuals")
     FRailgunVisualSettings Visuals;
@@ -65,6 +70,8 @@ private:
     UPROPERTY() TObjectPtr<UAnimSequence> HoldAnimation;
     UPROPERTY() TObjectPtr<USoundBase> FireSound;
     UPROPERTY() TObjectPtr<UMaterialInterface> ArmsMaterial;
+    UPROPERTY() TObjectPtr<UStaticMesh> RailgunModel;
+    UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> ChargeMaterial;
     double NextFireTime = 0;
     FVector RestLocation = FVector::ZeroVector;
     FVector PreviousVelocity = FVector::ZeroVector;
