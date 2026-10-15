@@ -120,7 +120,7 @@ void AQuadPanelConeStructure::AppendPanel(FDynamicMesh3& Mesh, FIntPoint Cell, i
 	const double Smoothness = FMath::IsFinite(PanelShadingSmoothness) ? FMath::Clamp(PanelShadingSmoothness, 0.f, 1.f) : 1.0;
 	const double Height = FMath::Max(BlockDimensions.Z * GridHeightBlocks +
 		BlockSpacing.Z * FMath::Max(GridHeightBlocks - 1, 0), 1.0);
-	const double NormalZ = (BottomRadiusBlocks - TopRadiusBlocks) * CachedRadialBlockUnit / Height;
+	const double NormalZ = (BottomRadiusBlocks - EffectiveTopRadiusBlocks) * CachedRadialBlockUnit / Height;
 	// Each piece has six planar faces. A face consists of two render triangles,
 	// but ownership, collision and destruction always operate on the whole panel.
 	auto Face = [&](int32 IA, int32 IB, int32 IC, int32 ID, double ShellSide = 0.)

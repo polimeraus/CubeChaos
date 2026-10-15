@@ -1,5 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 #include "ChunkedDestructibleZiggurat.h"
+#include "ChunkedDestructibleBabylonTower.h"
+#include "ChunkedDestructiblePolygonTower.h"
 #include "ChunkedDestructibleZigguratPyramit.h"
 #include "Components/ChildActorComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -30,7 +32,8 @@ bool FZigguratTraversalTest::RunTest(const FString&)
         auto Rebuild=[&]()
         {
             if constexpr (std::is_same_v<T,AChunkedDestructibleZiggurat>) Temple->RebuildZiggurat();
-            else Temple->RebuildZigguratPyramit();
+            else if constexpr (std::is_same_v<T,AChunkedDestructibleZigguratPyramit>) Temple->RebuildZigguratPyramit();
+            else Temple->RebuildTower();
         };
         AddInfo(Temple->GetClass()->GetName());
         TestTrue(TEXT("Both traversal flags default on"),Temple->Traversal.bFloorOpenings && Temple->Traversal.bGroundLaunchPad);
@@ -108,6 +111,8 @@ bool FZigguratTraversalTest::RunTest(const FString&)
     };
     Check(World->SpawnActor<AChunkedDestructibleZiggurat>());
     Check(World->SpawnActor<AChunkedDestructibleZigguratPyramit>());
+    Check(World->SpawnActor<AChunkedDestructibleBabylonTower>());
+    Check(World->SpawnActor<AChunkedDestructiblePolygonTower>());
     return true;
 }
 #endif

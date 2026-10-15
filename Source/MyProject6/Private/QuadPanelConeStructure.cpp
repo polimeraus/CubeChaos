@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "QuadPanelConeStructure.h"
+#include "Components/ChildActorComponent.h"
 
 #include "Components/DynamicMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -177,6 +178,9 @@ namespace
 
 AQuadPanelConeStructure::AQuadPanelConeStructure()
 {
+    GroundLaunchPad=CreateDefaultSubobject<UChildActorComponent>(TEXT("GroundLaunchPad"));
+    GroundLaunchPad->SetupAttachment(GetRootComponent());
+    ZigguratTraversal::InitializeMaterials(Traversal);
 	bUseSmoothComplexCollision = true;
 	SpiralDestructionMode = EConeStructureSpiralDestructionMode::OneSegmentPerHit;
 
@@ -1060,6 +1064,14 @@ bool AQuadPanelConeStructure::CalculateLayout()
 	const float PitchY = BlockDimensions.Y + BlockSpacing.Y;
 	const float PitchZ = BlockDimensions.Z + BlockSpacing.Z;
 	const float NewRadialBlockUnit = FMath::Max(FMath::Min(PitchX, PitchY), QuadMinimumConeDimension);
+    SpiralRimHeight=FMath::IsFinite(SpiralRimHeight)?FMath::Clamp(SpiralRimHeight,0.f,200.f):30.f;
+    SpiralRimWidth=FMath::IsFinite(SpiralRimWidth)?FMath::Clamp(SpiralRimWidth,1.f,200.f):18.f;
+    const double FittedShaft=ZigguratTraversal::FitOpening(Traversal,2*(BottomRadiusBlocks-ShellThicknessBlocks)*NewRadialBlockUnit);
+    EffectiveOpeningWidth=Traversal.bFloorOpenings?FittedShaft:0;
+    // Account for the polygon chord, so the full requested capsule clearance survives faceting.
+    const double TipSegments=FMath::Min(GetEffectiveCircularSegments(), WallPanelSegments);
+    EffectiveTopRadiusBlocks=Traversal.bFloorOpenings?FMath::Min(double(BottomRadiusBlocks),
+        FMath::Max(double(TopRadiusBlocks),FittedShaft*.5/FMath::Cos(UE_PI/TipSegments)/NewRadialBlockUnit+ShellThicknessBlocks)):TopRadiusBlocks;
 	const bool bHasSecondaryStructure = bGeneratePlatforms &&
 										(PlatformStyle == EConeStructurePlatformStyle::RisingSpiral || PlatformCount > 0);
 	const float MaximumRadius = (BottomRadiusBlocks +
@@ -1089,7 +1101,7 @@ bool AQuadPanelConeStructure::CalculateLayout()
 	auto GetOuterRadius = [&](float LocalZ)
 	{
 		const float Alpha = FMath::Clamp(LocalZ / TotalConeHeight, 0.0f, 1.0f);
-		return FMath::Lerp(BottomRadiusBlocks, TopRadiusBlocks, Alpha) * NewRadialBlockUnit;
+		return FMath::Lerp(BottomRadiusBlocks, EffectiveTopRadiusBlocks, Alpha) * NewRadialBlockUnit;
 	};
 	auto GetInnerRadius = [&](float LocalZ)
 	{
@@ -1252,7 +1264,16 @@ bool AQuadPanelConeStructure::CalculateLayout()
 		{
 			return GetOuterRadius(Top) - SpiralWallOverlapBlocks * NewRadialBlockUnit * GetPlatformWidthScale(Top);
 		};
-		return QuadSpiralIntersectsCellBounds(Center, BlockDimensions, MinimumRadius, MaximumCellRadius,
+		if (bSpiralOuterRim && SpiralRimHeight>0 && SpiralRimWidth>0)
+        {
+            const float Outer0=GetPlatformOuterRadius(StartBottom+SpiralThickness),Outer1=GetPlatformOuterRadius(EndBottom+SpiralThickness);
+            const float Inner0=FMath::Max(Outer0-SpiralRimWidth,InnerAtTop(StartBottom+SpiralThickness));
+            const float Inner1=FMath::Max(Outer1-SpiralRimWidth,InnerAtTop(EndBottom+SpiralThickness));
+            if (QuadSpiralIntersectsCellBounds(Center,BlockDimensions,MinimumRadius,MaximumCellRadius,
+                StartBottom+SpiralThickness,EndBottom+SpiralThickness,SpiralRimHeight,
+                TotalSpiralAngle,StartAngle,Direction,GetSpiralSegmentCount(),Inner0,Inner1,Outer0,Outer1)) return true;
+        }
+        return QuadSpiralIntersectsCellBounds(Center, BlockDimensions, MinimumRadius, MaximumCellRadius,
 			StartBottom, EndBottom, SpiralThickness, TotalSpiralAngle, StartAngle, Direction,
 			GetSpiralSegmentCount(), InnerAtTop(StartBottom + SpiralThickness), InnerAtTop(EndBottom + SpiralThickness),
 			GetPlatformOuterRadius(StartBottom + SpiralThickness), GetPlatformOuterRadius(EndBottom + SpiralThickness));
@@ -1331,6 +1352,9 @@ bool AQuadPanelConeStructure::CalculateLayout()
 	EffectiveGridSize = FVector2D(FMath::Max(GridWidth, GridDepth), GridHeight);
 	AreaSize = EffectiveGridSize;
 	bConeAnimationGeometryDirty = true;
+    ZigguratTraversal::UpdatePad(GroundLaunchPad,Traversal,FittedShaft,
+        bGenerateConeBase?BlockDimensions.Z+BlockSpacing.Z*.5*SurfaceGapSealFraction:0,
+        BlockDimensions.Z*GridHeightBlocks+BlockSpacing.Z*FMath::Max(GridHeightBlocks-1,0));
 	return true;
 }
 
@@ -1511,7 +1535,7 @@ float AQuadPanelConeStructure::GetConeOuterRadiusAtHeight(float LocalZ) const
 	const float TotalHeight = BlockDimensions.Z * GridHeightBlocks +
 							  BlockSpacing.Z * FMath::Max(GridHeightBlocks - 1, 0);
 	const float Alpha = FMath::Clamp(LocalZ / FMath::Max(TotalHeight, QuadMinimumConeDimension), 0.0f, 1.0f);
-	return FMath::Lerp(BottomRadiusBlocks, TopRadiusBlocks, Alpha) * CachedRadialBlockUnit;
+	return FMath::Lerp(BottomRadiusBlocks, EffectiveTopRadiusBlocks, Alpha) * CachedRadialBlockUnit;
 }
 
 float AQuadPanelConeStructure::GetConeInnerRadiusAtHeight(float LocalZ) const
@@ -1783,9 +1807,10 @@ bool AQuadPanelConeStructure::ResolveSpiralSegmentFromHit(
 			const float RadialDistance = ImpactRadius < MinimumRadius
 											 ? MinimumRadius - ImpactRadius
 											 : (ImpactRadius > MaximumRadius ? ImpactRadius - MaximumRadius : 0.0f);
-			const float VerticalDistance = LocalImpact.Z < BottomZ
+			const float HitTop=TopZ+(bSpiralOuterRim && ImpactRadius>=MaximumRadius-SpiralRimWidth-1?GetSpiralRimHeight(TopZ):0);
+            const float VerticalDistance = LocalImpact.Z < BottomZ
 											   ? BottomZ - LocalImpact.Z
-											   : (LocalImpact.Z > TopZ ? LocalImpact.Z - TopZ : 0.0f);
+											   : (LocalImpact.Z > HitTop ? LocalImpact.Z - HitTop : 0.0f);
 			const float AngularProgressDistance = ProgressAngle < ProgressA
 													  ? ProgressA - ProgressAngle
 													  : (ProgressAngle > ProgressB ? ProgressAngle - ProgressB : 0.0f);
@@ -2054,6 +2079,7 @@ void AQuadPanelConeStructure::RebuildSpiralSegmentChunks(
 			SegmentVertices.Add(FVector3d(CosAngle * OuterRadius, SinAngle * OuterRadius, BottomZ));
 			SegmentVertices.Add(FVector3d(CosAngle * InnerRadius, SinAngle * InnerRadius, TopZ));
 			SegmentVertices.Add(FVector3d(CosAngle * OuterRadius, SinAngle * OuterRadius, TopZ));
+            SegmentVertices.Add(FVector3d(CosAngle*OuterRadius,SinAngle*OuterRadius,TopZ+GetSpiralRimHeight(TopZ)));
 		};
 		AddSectionVertices(SegmentIndex);
 		AddSectionVertices(SegmentIndex + 1);
@@ -2175,7 +2201,16 @@ bool AQuadPanelConeStructure::IsSpiralPlatformCell(int32 X, int32 Y, int32 Z) co
 	{
 		return GetConeOuterRadiusAtHeight(Top) - SpiralWallOverlapBlocks * CachedRadialBlockUnit * GetPlatformWidthScaleAtHeight(Top);
 	};
-	return QuadSpiralIntersectsCellBounds(Center, BlockDimensions, MinimumRadius, MaximumRadius,
+	if (bSpiralOuterRim && SpiralRimHeight>0 && SpiralRimWidth>0)
+        {
+            const float Outer0=GetPlatformOuterRadiusAtHeight(StartBottom+SpiralThickness),Outer1=GetPlatformOuterRadiusAtHeight(EndBottom+SpiralThickness);
+            const float Inner0=FMath::Max(Outer0-SpiralRimWidth,InnerAtTop(StartBottom+SpiralThickness));
+            const float Inner1=FMath::Max(Outer1-SpiralRimWidth,InnerAtTop(EndBottom+SpiralThickness));
+            if (QuadSpiralIntersectsCellBounds(Center,BlockDimensions,MinimumRadius,MaximumRadius,
+                StartBottom+SpiralThickness,EndBottom+SpiralThickness,SpiralRimHeight,
+                TotalSpiralAngle,StartAngle,Direction,GetSpiralSegmentCount(),Inner0,Inner1,Outer0,Outer1)) return true;
+        }
+        return QuadSpiralIntersectsCellBounds(Center, BlockDimensions, MinimumRadius, MaximumRadius,
 		StartBottom, EndBottom, SpiralThickness, TotalSpiralAngle, StartAngle, Direction,
 		GetSpiralSegmentCount(), InnerAtTop(StartBottom + SpiralThickness), InnerAtTop(EndBottom + SpiralThickness),
 		GetPlatformOuterRadiusAtHeight(StartBottom + SpiralThickness), GetPlatformOuterRadiusAtHeight(EndBottom + SpiralThickness));
@@ -2842,6 +2877,27 @@ void AQuadPanelConeStructure::AppendSpiralSurfaces(
 			Direction * -FMath::Sin(MidAngle),
 			Direction * FMath::Cos(MidAngle),
 			0.0);
+        // Rim is owned by the complete platform segment; removing either half removes its rim.
+        if (bSpiralOuterRim && bOuterTrianglePresent && bInnerTrianglePresent && OnlySlice==INDEX_NONE)
+        {
+            const double WidthA=FMath::Min(double(SpiralRimWidth),(OuterTopA-InnerTopA).Length()*.35);
+            const double WidthB=FMath::Min(double(SpiralRimWidth),(OuterTopB-InnerTopB).Length()*.35);
+            const FVector3d IA=OuterTopA+(InnerTopA-OuterTopA).GetSafeNormal()*WidthA;
+            const FVector3d IB=OuterTopB+(InnerTopB-OuterTopB).GetSafeNormal()*WidthB;
+            const FVector3d ZA(0,0,GetSpiralRimHeight(OuterTopA.Z)),ZB(0,0,GetSpiralRimHeight(OuterTopB.Z));
+            auto Quad=[&](FVector3d A,FVector3d B,FVector3d C,FVector3d D,FVector3d N)
+            { AppendOrientedTriangle(A,B,C,N);AppendOrientedTriangle(A,C,D,N); };
+            if (FMath::Min(WidthA,WidthB)>.001 && FMath::Max(ZA.Z,ZB.Z)>.001)
+            {
+                Quad(IA+ZA,OuterTopA+ZA,OuterTopB+ZB,IB+ZB,FVector3d::UnitZ());
+                Quad(OuterTopA,OuterTopA+ZA,OuterTopB+ZB,OuterTopB,OutwardNormal);
+                Quad(IA,IB,IB+ZB,IA+ZA,-OutwardNormal);
+                const bool Prev=IsTriangleSlicePresent(SegmentIndex-1,0)&&IsTriangleSlicePresent(SegmentIndex-1,1);
+                const bool Next=IsTriangleSlicePresent(SegmentIndex+1,0)&&IsTriangleSlicePresent(SegmentIndex+1,1);
+                if (!Prev) Quad(IA,IA+ZA,OuterTopA+ZA,OuterTopA,-TangentNormal);
+                if (!Next) Quad(IB,OuterTopB,OuterTopB+ZB,IB+ZB,TangentNormal);
+            }
+        }
 		const FVector3d OuterTriangleCenter =
 			(InnerTopA + OuterTopA + OuterTopB) / 3.0;
 		const FVector3d InnerTriangleCenter =
@@ -3095,7 +3151,7 @@ bool AQuadPanelConeStructure::IsPointInsideRenderedStructure(
 		const double BottomZ = FMath::Lerp(BottomA, BottomB, SegmentAlpha);
 		const double TopZ = BottomZ + Thickness;
 		if (LocalPoint.Z < BottomZ - BoundaryTolerance ||
-			LocalPoint.Z > TopZ + BoundaryTolerance)
+			LocalPoint.Z > TopZ + GetSpiralRimHeight(TopZ) + BoundaryTolerance)
 		{
 			continue;
 		}
@@ -3118,7 +3174,14 @@ bool AQuadPanelConeStructure::IsPointInsideRenderedStructure(
 			OuterRadiusA, AngleA, OuterRadiusB, AngleB, Angle);
 		const double InnerRadius = IntersectPolarEdgeRadius(
 			InnerRadiusA, AngleA, InnerRadiusB, AngleB, Angle);
-		const double MinimumRadius = FMath::Min(InnerRadius, OuterRadius);
+		if (LocalPoint.Z>TopZ+BoundaryTolerance)
+        {
+            if (bSpiralOuterRim && Radius<=OuterRadius+BoundaryTolerance &&
+                Radius>=OuterRadius-FMath::Min(double(SpiralRimWidth),(OuterRadius-InnerRadius)*.35)-BoundaryTolerance &&
+                !IsSpiralTriangleSliceDestroyed(SegmentIndex,0) && !IsSpiralTriangleSliceDestroyed(SegmentIndex,1)) return true;
+            continue;
+        }
+        const double MinimumRadius = FMath::Min(InnerRadius, OuterRadius);
 		const double MaximumRadius = FMath::Max(InnerRadius, OuterRadius);
 		if (Radius >= MinimumRadius - BoundaryTolerance &&
 			Radius <= MaximumRadius + BoundaryTolerance)
@@ -3511,6 +3574,20 @@ void AQuadPanelConeStructure::AppendClippedDestructionCutFace(
 		FVector3d OuterTopB;
 		MakeSection(SegmentIndex, InnerBottomA, OuterBottomA, InnerTopA, OuterTopA);
 		MakeSection(SegmentIndex + 1, InnerBottomB, OuterBottomB, InnerTopB, OuterTopB);
+        if (bSpiralOuterRim && !IsSpiralTriangleSliceDestroyed(SegmentIndex,0) && !IsSpiralTriangleSliceDestroyed(SegmentIndex,1))
+        {
+            const double WA=FMath::Min(double(SpiralRimWidth),(OuterTopA-InnerTopA).Length()*.35);
+            const double WB=FMath::Min(double(SpiralRimWidth),(OuterTopB-InnerTopB).Length()*.35);
+            const FVector3d IA=OuterTopA+(InnerTopA-OuterTopA).GetSafeNormal()*WA;
+            const FVector3d IB=OuterTopB+(InnerTopB-OuterTopB).GetSafeNormal()*WB;
+            const FVector3d ZA(0,0,GetSpiralRimHeight(OuterTopA.Z)),ZB(0,0,GetSpiralRimHeight(OuterTopB.Z));
+            if (FMath::Min(WA,WB)>.001 && FMath::Max(ZA.Z,ZB.Z)>.001)
+            {
+                // The cut routine uses section pairs (inner/outer, bottom/top).
+                TArray<FVector3d,TInlineAllocator<8>> Rim={IA,OuterTopA,IA+ZA,OuterTopA+ZA,IB,OuterTopB,IB+ZB,OuterTopB+ZB};
+                AppendElementIntersection(Rim,HexahedronEdges,1);
+            }
+        }
 		if (!IsSpiralTriangleSliceDestroyed(SegmentIndex, 0))
 		{
 			TArray<FVector3d, TInlineAllocator<8>> OuterTriangleVertices = {
@@ -5160,4 +5237,11 @@ void AQuadPanelConeStructure::ClearDebris()
 		}
 	}
 	ActiveDebrisComponents.Reset();
+}
+
+float AQuadPanelConeStructure::GetSpiralRimHeight(float TopZ) const
+{
+    if (!bSpiralOuterRim) return 0;
+    const float Height=BlockDimensions.Z*GridHeightBlocks+BlockSpacing.Z*FMath::Max(GridHeightBlocks-1,0);
+    return FMath::Min(SpiralRimHeight,FMath::Max(0.f,Height-TopZ));
 }

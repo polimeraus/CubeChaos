@@ -76,7 +76,11 @@ bool FSpiralPlatformGlowTest::RunTest(const FString& Parameters)
 		{
 			Cone->bPlatformSpiralClockwise = bClockwise;
 			Cone->RebuildConeStructure(false);
-			FDynamicMesh3 Whole = MakeMesh(); Cone->AppendSpiralSurfaces(Whole, INDEX_NONE);
+			FDynamicMesh3 Whole = MakeMesh();
+            // The raised rim has no triangle highlight; compare only the walkable platform.
+            { TGuardValue<bool> Rim(Cone->bSpiralOuterRim,false);Cone->AppendSpiralSurfaces(Whole, INDEX_NONE); }
+            FDynamicMesh3 WithRim=MakeMesh();Cone->AppendSpiralSurfaces(WithRim,INDEX_NONE);
+            TestTrue(TEXT("Rim is additional to the highlighted platform"),WithRim.TriangleCount()>Whole.TriangleCount());
 			int32 SliceTriangleTotal = 0;
 			for (int32 Slice = 0; Slice < Cone->GetSpiralSegmentCount() * 2; ++Slice)
 			{

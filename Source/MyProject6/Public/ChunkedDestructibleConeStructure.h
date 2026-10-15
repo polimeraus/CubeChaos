@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "ChunkedDestructibleFloor.h"
 #include "SpiralPlatformGlow.h"
+#include "ZigguratTraversal.h"
 #include "ChunkedDestructibleConeStructure.generated.h"
 
 class UMaterialInterface;
@@ -87,6 +88,20 @@ class MYPROJECT6_API AChunkedDestructibleConeStructure : public AChunkedDestruct
 	friend class FDestructibleConeSurfaceCoverageTest;
 
 public:
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Destructible Cone Structure|Traversal", meta=(ShowOnlyInnerProperties))
+    FZigguratTraversalSettings Traversal;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Destructible Cone Structure|Traversal")
+    TObjectPtr<UChildActorComponent> GroundLaunchPad;
+    /** Minimum clear diameter through the interior and tip. The base remains solid. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category="Destructible Cone Structure|Traversal", meta=(Units="cm"))
+    float EffectiveOpeningWidth=0;
+    /** Low raised curb along the outside of the rising spiral. Destructible with its platform. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Destructible Cone Structure|Platforms|Outer Rim")
+    bool bSpiralOuterRim=true;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Destructible Cone Structure|Platforms|Outer Rim", meta=(ClampMin="0",ClampMax="200",Units="cm",EditCondition="bSpiralOuterRim"))
+    float SpiralRimHeight=30;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Destructible Cone Structure|Platforms|Outer Rim", meta=(ClampMin="1",ClampMax="200",Units="cm",EditCondition="bSpiralOuterRim"))
+    float SpiralRimWidth=18;
 	/** Sequential triangle highlights on the spiral, independent of wall animations. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Spiral Platform Glow", meta = (ShowOnlyInnerProperties))
 	FSpiralPlatformGlowSettings SpiralPlatformGlow;
@@ -506,6 +521,9 @@ protected:
 	virtual void RenderFixedAnimation(TConstArrayView<float> AnimationAlphas) override;
 
 private:
+    friend class FStructureTraversalRimTest;
+    float EffectiveTopRadiusBlocks=0;
+    float GetSpiralRimHeight(float TopZ) const;
 	static constexpr int32 MusicMaterialSlot = 2;
 	TSet<int32> MusicHighlightedCells;
 	mutable TMap<int32, TArray<int32>> MusicChunkOriginalMaterials;

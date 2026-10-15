@@ -104,8 +104,9 @@ bool FDestructibleConeSurfaceTest::RunTest(const FString& Parameters)
 	// A cut near the tip can contain the entire annulus. Triangulation must preserve
 	// its hollow center instead of filling it with a disk or overlapping sector fans.
 	FDynamicMesh3 Annulus = MakeMesh();
-	Cone->AppendClippedDestructionCutFace(Annulus, FVector3d(-100,-100,450), FVector3d(100,-100,450),
-		FVector3d(100,100,450), FVector3d(-100,100,450), FVector3f::UnitZ(), 0);
+	const double Extent=Cone->GetConeOuterRadiusAtHeight(450)+10;
+	Cone->AppendClippedDestructionCutFace(Annulus, FVector3d(-Extent,-Extent,450), FVector3d(Extent,-Extent,450),
+		FVector3d(Extent,Extent,450), FVector3d(-Extent,Extent,450), FVector3f::UnitZ(), 0);
 	const int32 Segments = Cone->GetEffectiveCircularSegments();
 	const double ExpectedAnnulusArea = .5 * Segments * FMath::Sin(UE_TWO_PI / Segments) *
 		(FMath::Square(Cone->GetConeOuterRadiusAtHeight(450)) - FMath::Square(Cone->GetConeInnerRadiusAtHeight(450)));
