@@ -61,7 +61,7 @@ bool FRailgunTest::RunTest(const FString& Parameters)
     TestFalse(TEXT("Direct fire cannot bypass pickup"), Gun->Fire());
     TestEqual(TEXT("Quake reload interval"), Gun->FireInterval, 1.5f);
     TestEqual(TEXT("Railgun default damage is doubled"), Gun->Damage, 200.f);
-    TestEqual(TEXT("Quake core duration"), Gun->TrailDuration, .4f);
+    TestEqual(TEXT("Visible rail core duration"), Gun->TrailDuration, .65f);
     TestNotNull(TEXT("Visible rifle asset loads"), Gun->WeaponMesh->GetStaticMesh().Get());
     TestEqual(TEXT("Rifle attaches to the hand grip"), Gun->WeaponMesh->GetAttachSocketName(), FName(TEXT("HandGrip_R")));
     TestTrue(TEXT("Authored hand grip exists"), Gun->Arms->DoesSocketExist(TEXT("HandGrip_R")));

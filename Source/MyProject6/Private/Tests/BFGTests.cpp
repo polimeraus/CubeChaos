@@ -69,7 +69,7 @@ bool FBFGTest::RunTest(const FString&)
     TestTrue(TEXT("Saved BFG pickup equips BFG"),Player->bBFGEquipped);
     TestFalse(TEXT("BFG pickup unequips railgun"),Player->bRailgunEquipped);
     TestFalse(TEXT("Rail input cannot fire while BFG is equipped"),Gun->Fire());
-    TestEqual(TEXT("BFG mesh is actually displayed"),Gun->WeaponMesh->GetStaticMesh()->GetName(),FString(TEXT("SM_BFG10K")));
+    TestEqual(TEXT("BFG mesh is actually displayed"),Gun->WeaponMesh->GetStaticMesh()->GetName(),FString(TEXT("SM_Mini_Gun")));
     auto* Camera=Player->GetFirstPersonCameraComponent();
     Camera->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
     Camera->bUsePawnControlRotation=false;

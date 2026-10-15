@@ -57,7 +57,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="100", Units="cm"))
     float Range = 20480.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0.05", ClampMax="2", Units="s"))
-    float TrailDuration = .4f;
+    float TrailDuration = .65f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG", meta=(ClampMin="0.05", Units="s"))
     float BFGFireInterval = .2f;
@@ -84,6 +84,7 @@ public:
 private:
     UPROPERTY() TObjectPtr<AMyProject6Character> Wielder;
     UPROPERTY() TObjectPtr<UAnimSequence> HoldAnimation;
+    UPROPERTY() TObjectPtr<UAnimSequence> BFGHoldAnimation;
     UPROPERTY() TObjectPtr<USoundBase> FireSound;
     UPROPERTY() TObjectPtr<UMaterialInterface> ArmsMaterial;
     UPROPERTY() TObjectPtr<UStaticMesh> RailgunModel;

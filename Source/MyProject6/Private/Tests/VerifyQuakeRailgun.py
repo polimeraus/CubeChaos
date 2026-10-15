@@ -14,10 +14,12 @@ assert visuals.get_editor_property('spiral')
 assert abs(visuals.get_editor_property('color').b-1)<.001
 assert abs(visuals.get_editor_property('spiral_radius')-7.5)<.001
 assert visuals.get_editor_property('smooth_spiral')
+assert abs(visuals.intensity-14)<.001 and abs(visuals.density-1.5)<.001
+assert abs(visuals.width-28)<.001 and abs(visuals.spiral_width-5.5)<.001
 assert not cdo.get_editor_property('railgun_equipped')
 gun_cdo=unreal.get_default_object(unreal.RailgunWeapon)
 assert abs(gun_cdo.get_editor_property('fire_interval')-1.5)<.001
-assert abs(gun_cdo.get_editor_property('trail_duration')-.4)<.001
+assert abs(gun_cdo.get_editor_property('trail_duration')-.65)<.001
 
 level=unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
@@ -86,7 +88,7 @@ def tick(delta):
         if stage==1 and state.pop('warmup',False):
             capture.capture_scene();state['time']=time.monotonic();return
         if stage==0:
-            beam.initialize_beam(gun.get_visual_muzzle_location(),unreal.Vector(1680,0,170),.4)
+            beam.initialize_beam(gun.get_visual_muzzle_location(),unreal.Vector(1680,0,170),gun_cdo.trail_duration)
             beam.set_impact(unreal.Vector(1680,0,170))
             beam.face_camera(capture_actor.get_actor_location())
             beam.set_preview_age(.035)

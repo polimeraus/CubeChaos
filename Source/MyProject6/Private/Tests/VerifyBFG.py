@@ -3,8 +3,9 @@ from pathlib import Path
 import json,time,unreal
 out=Path(unreal.Paths.project_saved_dir())/'BFG';out.mkdir(parents=True,exist_ok=True)
 base='/Game/Weapons/BFG/'
-for name in ['SM_BFG10K','M_BFGPlasma','S_BFGFire','S_BFGImpact']:
+for name in ['A_BFGHold','M_BFGPlasma','S_BFGFire','S_BFGImpact']:
     assert unreal.load_asset(base+({'SM':'Meshes','M':'Materials','S':'Audio','A':'Animations'}[name.split('_',1)[0]])+'/'+name),name
+assert unreal.load_asset('/Game/Weapons/AssetPacks/B_W_Mini_Gun/Mesh/SM_Mini_Gun')
 gun_cdo=unreal.get_default_object(unreal.RailgunWeapon)
 assert gun_cdo.damage==200
 assert abs(gun_cdo.bfg_fire_interval-.2)<.001
@@ -37,7 +38,7 @@ camera.detach_from_component(unreal.DetachmentRule.KEEP_WORLD,unreal.DetachmentR
 camera.set_world_location_and_rotation(unreal.Vector(0,0,170),unreal.Rotator(),False,False)
 gun=actors.spawn_actor_from_class(unreal.RailgunWeapon,unreal.Vector())
 gun.equip(player);gun.activate_bfg()
-assert gun.weapon_mesh.get_editor_property('static_mesh').get_name()=='SM_BFG10K'
+assert gun.weapon_mesh.get_editor_property('static_mesh').get_name()=='SM_Mini_Gun'
 gun.arms.set_editor_property('only_owner_see',False)
 gun.weapon_mesh.set_editor_property('only_owner_see',False)
 gun.arms.set_update_animation_in_editor(True)

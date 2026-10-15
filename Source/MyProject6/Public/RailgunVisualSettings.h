@@ -9,14 +9,14 @@ struct FRailgunVisualSettings
     GENERATED_BODY()
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(HideAlphaChannel))
     FLinearColor Color = FLinearColor(.008f, .22f, 1.f);
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0", ClampMax="30", UIMax="12"))
-    float Intensity = 7.f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0", ClampMax="30", UIMax="20"))
+    float Intensity = 14.f;
     /** Optical density; zero makes the trail invisible. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0", ClampMax="5"))
-    float Density = 1.f;
+    float Density = 1.5f;
     /** Full width of the soft outer glow. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0.5", ClampMax="50", Units="cm"))
-    float Width = 18.f;
+    float Width = 28.f;
 
     /** Independent core/spiral colors, like Quake's color1/color2. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(HideAlphaChannel))
@@ -27,7 +27,7 @@ struct FRailgunVisualSettings
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun")
     bool bSmoothSpiral = true;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0.5", ClampMax="10", Units="cm"))
-    float SpiralWidth = 3.8f;
+    float SpiralWidth = 5.5f;
     /** Quake units are converted at 2.5 cm per unit. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0", ClampMax="50", Units="cm"))
     float SpiralRadius = 7.5f;

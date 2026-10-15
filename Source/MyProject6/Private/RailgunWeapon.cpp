@@ -45,12 +45,14 @@ ARailgunWeapon::ARailgunWeapon()
     WeaponMesh->SetStaticMesh(Rifle.Object);
     static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> RailModel(TEXT("/Game/Weapons/Railgun/Meshes/SM_QuakeRailgun.SM_QuakeRailgun"));
     RailgunModel = RailModel.Get();
-    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> BFGMesh(TEXT("/Game/Weapons/BFG/Meshes/SM_BFG10K.SM_BFG10K"));
+    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> BFGMesh(TEXT("/Game/Weapons/AssetPacks/B_W_Mini_Gun/Mesh/SM_Mini_Gun.SM_Mini_Gun"));
     BFGModel = BFGMesh.Get();
     static ConstructorHelpers::FObjectFinderOptional<USoundBase> BFGSound(TEXT("/Game/Weapons/BFG/Audio/S_BFGFire.S_BFGFire"));
     BFGFireSound = BFGSound.Get();
     static ConstructorHelpers::FObjectFinder<UAnimSequence> Hold(TEXT("/Game/Weapons/Railgun/Animations/A_RailgunHold.A_RailgunHold"));
     HoldAnimation = Hold.Object;
+    static ConstructorHelpers::FObjectFinder<UAnimSequence> BFGHold(TEXT("/Game/Weapons/BFG/Animations/A_BFGHold.A_BFGHold"));
+    BFGHoldAnimation = BFGHold.Object;
     static ConstructorHelpers::FObjectFinder<USoundBase> Sound(TEXT("/Game/Weapons/Railgun/Audio/S_RailFire.S_RailFire"));
     FireSound = Sound.Object;
     static ConstructorHelpers::FObjectFinder<UMaterialInterface> ArmSurface(TEXT("/Game/Weapons/Railgun/Materials/M_RailArms.M_RailArms"));
@@ -93,9 +95,13 @@ void ARailgunWeapon::Equip(AMyProject6Character* Character)
 
 void ARailgunWeapon::ActivateRailgun()
 {
+    Arms->OverrideAnimationData(HoldAnimation, true, true, 0.f, 1.f);
+    Arms->TickAnimation(0.f, false);
+    Arms->RefreshBoneTransforms();
     WeaponMesh->EmptyOverrideMaterials();
     ChargeMaterial = nullptr;
     if (RailgunModel) WeaponMesh->SetStaticMesh(RailgunModel);
+    WeaponMesh->SetRelativeTransform(FTransform::Identity);
     Muzzle->SetRelativeLocation(FVector(0, 68, 10));
     // The rail's broad receiver needs more clearance below the crosshair than the rifle.
     // Move both hands and weapon together, keeping the authored grip intact.
@@ -110,14 +116,17 @@ void ARailgunWeapon::ActivateRailgun()
 
 void ARailgunWeapon::ActivateBFG()
 {
+    Arms->OverrideAnimationData(BFGHoldAnimation, true, true, 0.f, 1.f);
+    Arms->TickAnimation(0.f, false);
+    Arms->RefreshBoneTransforms();
     WeaponMesh->EmptyOverrideMaterials();
     ChargeMaterial = nullptr;
     if (BFGModel) WeaponMesh->SetStaticMesh(BFGModel);
-    Muzzle->SetRelativeLocation(FVector(0, 64, 12));
-    RestLocation = FVector(26, 6, -15);
+    // Mini Gun is authored along +X; align its rear grip and barrel to HandGrip_R's +Y.
+    WeaponMesh->SetRelativeTransform(FTransform(FRotator(0, 90, 0), FVector(0, 13, 0)));
+    Muzzle->SetRelativeLocation(FVector(66, 0, .9f));
+    RestLocation = FVector(10, 3, -9);
     GetRootComponent()->SetRelativeLocation(RestLocation);
-    const int32 Slot = WeaponMesh->GetMaterialIndex(TEXT("BFGEnergy"));
-    if (Slot != INDEX_NONE) ChargeMaterial = WeaponMesh->CreateDynamicMaterialInstance(Slot);
 }
 
 bool ARailgunWeapon::FireBFG()
