@@ -182,7 +182,7 @@ try:
         check(defaults.get_editor_property('auto_possess_player') == unreal.AutoReceiveInput.DISABLED, bp.get_name() + ': player possession disabled')
         mesh = defaults.mesh.get_skeletal_mesh_asset()
         check(all(slot.material_interface for slot in mesh.materials), bp.get_name() + ': all materials resolve')
-        old_path = entry['mesh'].replace('/Game/Characters/', '/Game/', 1)
+        old_path = entry['mesh'].replace('/Game/NPC/', '/Game/', 1)
         check(unreal.load_object(None, old_path) == mesh, bp.get_name() + ': old references resolve to moved mesh')
         for key, prop in [('attack','contact_attack_animation'), ('death','death_animation')]:
             anim = defaults.get_editor_property(prop)
@@ -197,7 +197,7 @@ try:
     floor.static_mesh_component.set_static_mesh(unreal.load_asset('/Engine/BasicShapes/Cube'))
     floor.set_actor_scale3d(unreal.Vector(80,80,.2))
     ACTORS.spawn_actor_from_class(unreal.PlayerStart, unreal.Vector(1000,0,100), unreal.Rotator(pitch=0,yaw=180,roll=0))
-    point = ACTORS.spawn_actor_from_class(unreal.load_asset('/Game/NPC/Spawning/BP_NPCSpawnPoint').generated_class(), unreal.Vector(0,0,0))
+    point = ACTORS.spawn_actor_from_class(unreal.load_asset('/Game/GameplayActors/NPCSpawner/BP_NPCSpawnPoint').generated_class(), unreal.Vector(0,0,0))
     point.set_editor_property('spawn_on_begin_play', False)
     point.set_actor_hidden_in_game(True)
     point.set_is_temporarily_hidden_in_editor(True)

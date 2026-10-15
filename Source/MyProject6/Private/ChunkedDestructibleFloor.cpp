@@ -274,7 +274,7 @@ AChunkedDestructibleFloor::AChunkedDestructibleFloor()
 	}
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> FlashMaterialFinder(
-		TEXT("/Game/LevelPrototyping/Interactable/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+		TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
 	if (FlashMaterialFinder.Succeeded())
 	{
 		FlashMaterial = FlashMaterialFinder.Object;
@@ -2653,7 +2653,7 @@ void AChunkedDestructibleFloor::RefreshMusicReactionMaterial()
 		// The flat structure material has no emissive Color input. Complete pieces need
 		// an opaque glow material that responds to the music renderer's color parameter.
 		ParentMaterial = LoadObject<UMaterialInterface>(nullptr,
-			TEXT("/Game/Destructible/Materials/M_MusicPieceGlow.M_MusicPieceGlow"));
+			TEXT("/Game/Materials/Structures/M_MusicPieceGlow.M_MusicPieceGlow"));
 		if (!ParentMaterial) { ParentMaterial = CrispSpiralMaterial.Get(); }
 	}
 	if (!UsesMusicPieceMaterials() &&
@@ -2661,7 +2661,7 @@ void AChunkedDestructibleFloor::RefreshMusicReactionMaterial()
 	{
 		ParentMaterial = LoadObject<UMaterialInterface>(
 			nullptr,
-			TEXT("/Game/LevelPrototyping/Interactable/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+			TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
 	}
 	if (!ParentMaterial)
 	{
@@ -2873,7 +2873,7 @@ void AChunkedDestructibleFloor::RefreshFlashMaterial()
 		{
 			CompatibleFlashMaterial = LoadObject<UMaterialInterface>(
 				nullptr,
-				TEXT("/Game/LevelPrototyping/Interactable/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+				TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
 		}
 		if (CompatibleFlashMaterial.IsValid() &&
 			CompatibleFlashMaterial->GetUsageByFlag(MATUSAGE_InstancedStaticMeshes))

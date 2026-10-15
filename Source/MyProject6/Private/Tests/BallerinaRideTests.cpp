@@ -33,7 +33,7 @@ bool FBallerinaRideTest::RunTest(const FString&)
         for (int32 I=0;I<Asset->GetStaticMaterials().Num();++I)
         {
             auto* Material=Asset->GetMaterial(I);
-            TestTrue(TEXT("Imported mesh slots retain the authored material after reload"),Material && Material->GetPathName().StartsWith(TEXT("/Game/Fairground/BallerinaRide/Materials/")));
+            TestTrue(TEXT("Imported mesh slots retain the authored material after reload"),Material && Material->GetPathName().StartsWith(TEXT("/Game/GameplayActors/BallerinaRide/Materials/")));
         }
     };
     if (TestNotNull(TEXT("Default figure actor"),Figure))

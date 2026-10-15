@@ -16,7 +16,7 @@ npcs = json.loads((out / 'NPCs.json').read_text())['npcs']
 def moved(path):
     for pack in packs:
         if path.startswith('/Game/' + pack + '/'):
-            return path.replace('/Game/', '/Game/Characters/', 1)
+            return path.replace('/Game/', '/Game/NPC/', 1)
     return path
 
 
@@ -29,7 +29,7 @@ for pack in packs:
     assert not (content / pack).exists()
     old_assets = registry.get_assets_by_path('/Game/' + pack, recursive=True)
     assert not old_assets, 'Asset registry still exposes original root: ' + pack
-    report['package_counts'][pack] = len(registry.get_assets_by_path('/Game/Characters/' + pack, recursive=True))
+    report['package_counts'][pack] = len(registry.get_assets_by_path('/Game/NPC/' + pack, recursive=True))
 for package, dependencies in original['dependencies'].items():
     assert exists(moved(package)), package
     missing = [d for d in dependencies if d.startswith('/Game/') and not exists(moved(d)) and d not in baseline.get(package, [])]
@@ -44,7 +44,7 @@ for entry in npcs:
     assert abs(rotation.pitch) < .01 and abs(rotation.roll) < .01, str(rotation)
     mesh = defaults.mesh.get_skeletal_mesh_asset()
     assert mesh.get_path_name() == entry['mesh']
-    old = entry['mesh'].replace('/Game/Characters/', '/Game/', 1)
+    old = entry['mesh'].replace('/Game/NPC/', '/Game/', 1)
     assert unreal.load_object(None, old) == mesh, old
     report['old_path_loads'].append(old)
     if entry['base']:

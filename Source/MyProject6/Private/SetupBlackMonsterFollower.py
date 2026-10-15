@@ -12,7 +12,7 @@ import math
 import shutil
 import unreal
 
-ROOT = '/Game/Characters/black-monster'
+ROOT = '/Game/NPC/BlackMonster'
 OUTPUT = Path(unreal.Paths.project_saved_dir()) / 'BlackMonster'
 SOURCE = OUTPUT / 'Source/Extracted'
 TOOLS = unreal.AssetToolsHelpers.get_asset_tools()
@@ -21,7 +21,7 @@ LOCAL = unreal.AnimPoseSpaces.LOCAL
 WORLD = unreal.AnimPoseSpaces.WORLD
 backup = OUTPUT / 'Backup' / datetime.now().strftime('%Y%m%d_%H%M%S')
 content = Path(unreal.Paths.project_content_dir())
-for existing in (content / 'Characters/black-monster').rglob('*.uasset'):
+for existing in (content / 'NPC/BlackMonster').rglob('*.uasset'):
     if 'textures' not in existing.parts:
         destination = backup / existing.relative_to(content)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -229,7 +229,7 @@ def blend_pose(a, b, alpha):
     return a
 
 
-whisper_attack = require('/Game/Characters/Whisper/Animations/Anim_Whisper_Attack2')
+whisper_attack = require('/Game/NPC/Whisper/Animations/Anim_Whisper_Attack2')
 whisper_start = sample(whisper_attack, 0)
 
 

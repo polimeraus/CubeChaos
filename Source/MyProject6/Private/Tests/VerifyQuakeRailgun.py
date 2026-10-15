@@ -6,7 +6,7 @@ out=Path(unreal.Paths.project_saved_dir())/'Railgun/Quake'
 out.mkdir(parents=True,exist_ok=True)
 base='/Game/Weapons/Railgun/'
 for name in ['SM_QuakeRailgun','M_RailTrail','M_RailSpiral','S_RailFire','A_RailgunHold']:
-    assert unreal.load_asset(base+name), name
+    assert unreal.load_asset(base+({'SM':'Meshes','M':'Materials','S':'Audio','A':'Animations'}[name.split('_',1)[0]])+'/'+name), name
 cls=unreal.load_class(None,'/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
 cdo=unreal.get_default_object(cls)
 visuals=cdo.get_editor_property('railgun_visuals')

@@ -7,8 +7,8 @@ namespace ZigguratTraversal
 {
 void InitializeMaterials(FZigguratTraversalSettings& S)
 {
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Arrows(TEXT("/Game/Gameplay/LaunchPad/M_LaunchPad"));
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Rings(TEXT("/Game/Gameplay/LaunchPad/M_LaunchPad_Rings"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Arrows(TEXT("/Game/GameplayActors/LaunchPad/Materials/M_LaunchPad"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Rings(TEXT("/Game/GameplayActors/LaunchPad/Materials/M_LaunchPad_Rings"));
     S.ArrowsMaterial=Arrows.Get(); S.RingsMaterial=Rings.Get();
 }
 double FitOpening(const FZigguratTraversalSettings& S,double RoomWidth)

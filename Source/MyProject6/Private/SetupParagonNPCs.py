@@ -48,7 +48,7 @@ def presentation(defaults, mesh, spec):
 audit = json.loads((OUT / 'Audit.json').read_text())
 report = {'npcs': [], 'level_modified': False, 'placed_source_instances': [], 'skeletal_poses': {}}
 for spec in SPECS:
-    root = '/Game/Characters/' + spec['pack']
+    root = '/Game/NPC/' + spec['pack']
     source = root + '/Characters/Heroes/' + spec['hero']
     mesh = require(source + '/Meshes/' + spec['mesh'])
     skeleton = mesh.skeleton
@@ -109,14 +109,14 @@ for spec in SPECS:
     report['npcs'].append(entry)
     # Preserve the original scale and geometry of every supplied skin, while
     # inheriting behavior from the hero's NPC Blueprint.
-    variants = [a['package'].replace('/Game/', '/Game/Characters/', 1) for a in audit['assets']
+    variants = [a['package'].replace('/Game/', '/Game/NPC/', 1) for a in audit['assets']
                 if a['class'] == 'SkeletalMesh' and a['package'].startswith('/Game/' + spec['pack'] + '/') and '/Skins/' in a['package']]
     for path in variants:
         variant_mesh = require(path)
         assert variant_mesh.skeleton == skeleton
         factory = unreal.BlueprintFactory()
         factory.set_editor_property('parent_class', bp.generated_class())
-        variant = create('BP_' + variant_mesh.get_name() + '_NPC', root + '/NPC/Variants', unreal.Blueprint, factory)
+        variant = create('BP_' + variant_mesh.get_name() + '_NPC', root + '/Variants', unreal.Blueprint, factory)
         child = unreal.get_default_object(variant.generated_class())
         presentation(child, variant_mesh, spec)
         unreal.BlueprintEditorLibrary.compile_blueprint(variant)

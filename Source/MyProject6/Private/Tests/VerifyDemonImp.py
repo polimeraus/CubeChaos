@@ -10,7 +10,7 @@ from pathlib import Path
 import unreal
 
 OUT = (Path(unreal.Paths.project_saved_dir()) / 'DemonImp').resolve()
-ROOT = '/Game/Characters/DemonImp'
+ROOT = '/Game/NPC/DemonImp'
 state = {'stage': 'preview', 'since': time.monotonic(), 'started': time.monotonic(), 'captures': [], 'checks': []}
 unreal.EditorPythonScripting.set_keep_python_script_alive(True)
 world = unreal.EditorLoadingAndSavingUtils.new_blank_map(False)

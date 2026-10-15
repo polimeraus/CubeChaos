@@ -6,7 +6,7 @@ from pathlib import Path
 import unreal
 
 OUT = (Path(unreal.Paths.project_saved_dir()) / 'ClownGhoul').resolve()
-ROOT = '/Game/Characters/clown_monster'
+ROOT = '/Game/NPC/ClownMonster'
 state = {'stage': 'begin', 'since': time.monotonic(), 'started': time.monotonic(), 'checks': []}
 
 
@@ -16,7 +16,7 @@ def check(condition, message):
 
 
 cls = unreal.load_class(None, ROOT + '/BP_ClownMonster_NPC.BP_ClownMonster_NPC_C')
-spawn_cls = unreal.load_class(None, '/Game/NPC/Spawning/BP_NPCSpawnPoint.BP_NPCSpawnPoint_C')
+spawn_cls = unreal.load_class(None, '/Game/GameplayActors/NPCSpawner/BP_NPCSpawnPoint.BP_NPCSpawnPoint_C')
 check(cls is not None, 'Clown NPC Blueprint loads')
 check(unreal.get_default_object(spawn_cls).get_editor_property('npc_types').get('ClownMonster') == cls,
       'Reusable spawn point contains ClownMonster alias')

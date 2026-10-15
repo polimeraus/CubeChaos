@@ -1,9 +1,9 @@
 """Create the parametric destructible Babylon Tower, sandstone palette and isolated preview level."""
-import json
+import json, runpy
 from pathlib import Path
 import unreal
 
-folder='/Game/Structures/BabylonTower'
+folder='/Game/Structures/Destructible/BabylonTower'
 assets=unreal.AssetToolsHelpers.get_asset_tools()
 edit=unreal.MaterialEditingLibrary
 out=Path(unreal.Paths.project_saved_dir())/'BabylonTower'
@@ -11,55 +11,16 @@ out.mkdir(parents=True,exist_ok=True)
 def load(path):
     return unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None
 
-master=load(folder+'/M_BabylonSandstone')
 refresh='-RefreshBabylonPresentation' in unreal.SystemLibrary.get_command_line()
-if not master:
-    master=assets.create_asset('M_BabylonSandstone',folder,unreal.Material,unreal.MaterialFactoryNew())
-    tint=edit.create_material_expression(master,unreal.MaterialExpressionVectorParameter,-650,0)
-    tint.set_editor_property('parameter_name','SandstoneColor')
-    tint.set_editor_property('default_value',unreal.LinearColor(.64,.4,.2,1))
-    rough=edit.create_material_expression(master,unreal.MaterialExpressionScalarParameter,-200,350)
-    rough.set_editor_property('parameter_name','Roughness')
-    rough.set_editor_property('default_value',.92)
-    position=edit.create_material_expression(master,unreal.MaterialExpressionWorldPosition,-850,150)
-    normal=edit.create_material_expression(master,unreal.MaterialExpressionVertexNormalWS,-850,300)
-    shader=edit.create_material_expression(master,unreal.MaterialExpressionCustom,-200,0)
-    pins=[]
-    for name in ('Position','Normal','Tint'):
-        pin=unreal.CustomInput();pin.set_editor_property('input_name',name);pins.append(pin)
-    shader.set_editor_property('inputs',pins)
-    shader.set_editor_property('output_type',unreal.CustomMaterialOutputType.CMOT_FLOAT3)
-    shader.set_editor_property('code',r"""
-float3 p=Position;
-float3 n=abs(Normal);
-float2 uv=n.z>.65?p.xy:float2(n.y>n.x?p.x:p.y,p.z);
-float row=floor(uv.y/23.0);
-float2 grid=float2(uv.x/48.0+frac(row*.5)*.9,uv.y/23.0);
-float2 cell=floor(grid), f=frac(grid);
-float hash=frac(sin(dot(cell,float2(127.1,311.7)))*43758.5453);
-float chips=sin(uv.x*.29+sin(uv.y*.18))*sin(uv.y*.39)*.012;
-float joint=min(min(f.x,1-f.x),min(f.y,1-f.y));
-float mortar=smoothstep(.012,.032+chips,joint);
-float grain=sin(p.x*1.3+p.z*.91)*sin(p.y*.83-p.z*1.7)*.025;
-float mottling=sin(p.x*.021+p.z*.035)*sin(p.y*.038-p.z*.028)*.055;
-return Tint*(.84+hash*.2+grain+mottling)*lerp(.73,1.0,mortar);
-""")
-    edit.connect_material_expressions(position,'',shader,'Position')
-    edit.connect_material_expressions(normal,'',shader,'Normal')
-    edit.connect_material_expressions(tint,'RGB',shader,'Tint')
-    edit.connect_material_property(shader,'',unreal.MaterialProperty.MP_BASE_COLOR)
-    edit.connect_material_property(rough,'',unreal.MaterialProperty.MP_ROUGHNESS)
-    edit.layout_material_expressions(master)
-    assert not edit.recompile_material(master)
-    assert unreal.EditorAssetLibrary.save_loaded_asset(master,False)
+master=runpy.run_path(str(Path(__file__).with_name('BabylonTowerMaterials.py')))['create_limestone_material'](folder)
 
 palette={}
-for name,color in {'Stone':(.64,.40,.20),'Cornice':(.66,.42,.21),'Terrace':(.70,.47,.25),
-                   'Portal':(.62,.38,.19),'Foundation':(.60,.37,.18),'Recess':(.49,.29,.13),
+for name,color in {'Stone':(.73,.70,.63),'Cornice':(.76,.73,.66),'Terrace':(.78,.75,.68),
+                   'Portal':(.73,.70,.63),'Foundation':(.71,.68,.61),'Recess':(.60,.57,.51),
                    'Stage':(.29,.24,.17)}.items():
-    material=load(folder+'/MI_Babylon'+name)
+    material=load(folder+'/Materials/MI_Babylon'+name)
     if not material:
-        material=assets.create_asset('MI_Babylon'+name,folder,unreal.MaterialInstanceConstant,unreal.MaterialInstanceConstantFactoryNew())
+        material=assets.create_asset('MI_Babylon'+name,folder+'/Materials',unreal.MaterialInstanceConstant,unreal.MaterialInstanceConstantFactoryNew())
         edit.set_material_instance_parent(material,master)
         edit.set_material_instance_vector_parameter_value(material,'SandstoneColor',unreal.LinearColor(*color,1))
         assert unreal.EditorAssetLibrary.save_loaded_asset(material,False)
@@ -75,7 +36,7 @@ if not bp:
     unreal.BlueprintEditorLibrary.compile_blueprint(bp)
     assert unreal.EditorAssetLibrary.save_loaded_asset(bp,False)
 
-path=folder+'/Lvl_BabylonTowerPreview'
+path=folder+'/Maps/Lvl_BabylonTowerPreview'
 if not unreal.EditorAssetLibrary.does_asset_exist(path):
     world=unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
     actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
@@ -106,7 +67,7 @@ if not unreal.EditorAssetLibrary.does_asset_exist(path):
     ground.set_actor_label('Preview_Ground')
     ground.set_folder_path('Preview')
     ground.static_mesh_component.set_static_mesh(unreal.load_asset('/Engine/BasicShapes/Cube'))
-    ground.static_mesh_component.set_material(0,load(folder+'/MI_BabylonStage'))
+    ground.static_mesh_component.set_material(0,load(folder+'/Materials/MI_BabylonStage'))
     ground.set_actor_scale3d(unreal.Vector(1000,1000,.5))
     start=actors.spawn_actor_from_class(unreal.PlayerStart,unreal.Vector(0,-2600,125),unreal.Rotator(pitch=0,yaw=90,roll=0))
     start.set_folder_path('Preview')
@@ -166,9 +127,9 @@ if changed:
 
 # Quiet sand stage and a self-contained sky keep the asset readable even when
 # the project's atmospheric rendering is disabled. These belong to the preview only.
-stage=load(folder+'/M_BabylonPreviewSand')
+stage=load(folder+'/Materials/M_BabylonPreviewSand')
 if not stage:
-    stage=assets.create_asset('M_BabylonPreviewSand',folder,unreal.Material,unreal.MaterialFactoryNew())
+    stage=assets.create_asset('M_BabylonPreviewSand',folder+'/Materials',unreal.Material,unreal.MaterialFactoryNew())
     color=edit.create_material_expression(stage,unreal.MaterialExpressionConstant3Vector)
     color.set_editor_property('constant',unreal.LinearColor(.30,.25,.18,1))
     rough=edit.create_material_expression(stage,unreal.MaterialExpressionConstant)
@@ -177,9 +138,9 @@ if not stage:
     edit.connect_material_property(rough,'',unreal.MaterialProperty.MP_ROUGHNESS)
     edit.recompile_material(stage)
     assert unreal.EditorAssetLibrary.save_loaded_asset(stage,False)
-sky_material=load(folder+'/M_BabylonPreviewSky')
+sky_material=load(folder+'/Materials/M_BabylonPreviewSky')
 if not sky_material:
-    sky_material=assets.create_asset('M_BabylonPreviewSky',folder,unreal.Material,unreal.MaterialFactoryNew())
+    sky_material=assets.create_asset('M_BabylonPreviewSky',folder+'/Materials',unreal.Material,unreal.MaterialFactoryNew())
     sky_material.set_editor_property('shading_model',unreal.MaterialShadingModel.MSM_UNLIT)
     sky_material.set_editor_property('two_sided',True)
     sky_material.set_editor_property('is_sky',True)

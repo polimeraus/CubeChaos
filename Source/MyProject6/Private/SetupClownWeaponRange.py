@@ -8,11 +8,11 @@ import json
 import shutil
 import unreal
 
-root = '/Game/Characters/clown_monster'
+root = '/Game/NPC/ClownMonster'
 content = Path(unreal.Paths.project_content_dir())
 output = Path(unreal.Paths.project_saved_dir()) / 'ClownRangeFix'
 backup = output / 'Backup' / datetime.now().strftime('%Y%m%d_%H%M%S')
-files = [content / 'Characters/clown_monster/BP_ClownMonster_NPC.uasset',
+files = [content / 'NPC/ClownMonster/BP_ClownMonster_NPC.uasset',
          content / 'FirstPerson/Lvl_FirstPerson.umap']
 files += list((content / '__ExternalActors__/FirstPerson/Lvl_FirstPerson').rglob('*.uasset'))
 for source in files:

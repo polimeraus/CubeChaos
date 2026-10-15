@@ -6,15 +6,15 @@ import unreal
 
 name = globals().get('MATERIAL_NAME', 'M_LaunchPad')
 source_name = globals().get('SHADER_SOURCE', 'LaunchPadMaterial.ush')
-path = '/Game/Gameplay/LaunchPad/' + name
+path = '/Game/GameplayActors/LaunchPad/Materials/' + name
 material = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None
 if material:
-    asset_file = Path(unreal.Paths.project_content_dir()) / ('Gameplay/LaunchPad/' + name + '.uasset')
+    asset_file = Path(unreal.Paths.project_content_dir()) / ('GameplayActors/LaunchPad/Materials/' + name + '.uasset')
     backup = Path(unreal.Paths.project_saved_dir()) / 'LaunchPad/MaterialBackups' / datetime.now().strftime('%Y%m%d_%H%M%S')
     backup.mkdir(parents=True, exist_ok=True)
     shutil.copy2(asset_file, backup / asset_file.name)
 else:
-    material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, '/Game/Gameplay/LaunchPad', unreal.Material, unreal.MaterialFactoryNew())
+    material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, '/Game/GameplayActors/LaunchPad/Materials', unreal.Material, unreal.MaterialFactoryNew())
 if not material:
     raise RuntimeError('Could not create launch-pad material')
 edit = unreal.MaterialEditingLibrary

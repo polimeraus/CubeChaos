@@ -1,7 +1,7 @@
 """Create the opaque, unlit material used to light complete destructible pieces."""
 import unreal
 
-folder = "/Game/Destructible/Materials"
+folder = "/Game/Materials/Structures"
 name = "M_MusicPieceGlow"
 path = f"{folder}/{name}"
 material = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None

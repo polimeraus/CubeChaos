@@ -35,8 +35,8 @@ contact_camera = actors.spawn_actor_from_class(unreal.CameraActor, contact_camer
     unreal.MathLibrary.find_look_at_rotation(contact_camera_position, unreal.Vector(0, 0, 100)))
 contact_camera.set_editor_property('tags', ['WhisperContactCamera'])
 classes = [unreal.ChasingNPC,
-           unreal.load_class(None, '/Game/Characters/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C'),
-           unreal.load_class(None, '/Game/Characters/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C')]
+           unreal.load_class(None, '/Game/NPC/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C'),
+           unreal.load_class(None, '/Game/NPC/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C')]
 for cls, y in zip(classes, [-190, 0, 190]):
     npc = actors.spawn_actor_from_class(cls, unreal.Vector(0, y, 100), unreal.Rotator(pitch=0, yaw=180, roll=0))
     if isinstance(npc, unreal.ChasingNPC):

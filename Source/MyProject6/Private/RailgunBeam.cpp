@@ -51,9 +51,9 @@ ARailgunBeam::ARailgunBeam()
         Mesh->bReceivesDecals = false;
         Mesh->SetTranslucentSortPriority(2);
     }
-    static ConstructorHelpers::FObjectFinder<UMaterialInterface> Material(TEXT("/Game/Weapons/Railgun/M_RailTrail.M_RailTrail"));
+    static ConstructorHelpers::FObjectFinder<UMaterialInterface> Material(TEXT("/Game/Weapons/Railgun/Materials/M_RailTrail.M_RailTrail"));
     EnergyMaterial = Material.Object;
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Particles(TEXT("/Game/Weapons/Railgun/M_RailSpiral.M_RailSpiral"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Particles(TEXT("/Game/Weapons/Railgun/Materials/M_RailSpiral.M_RailSpiral"));
     ParticleMaterial = Particles.Get();
 }
 

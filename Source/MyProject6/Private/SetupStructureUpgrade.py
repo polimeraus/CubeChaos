@@ -10,7 +10,7 @@ backup=out/'Backups'/datetime.now().strftime('%Y%m%d_%H%M%S')
 backup.mkdir(parents=True,exist_ok=True)
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 tools=unreal.AssetToolsHelpers.get_asset_tools()
-folder='/Game/Structures/PolygonTower'
+folder='/Game/Structures/Destructible/PolygonTower'
 classes=(unreal.ChunkedDestructibleBabylonTower,unreal.ChunkedDestructiblePolygonTower,
          unreal.ChunkedDestructibleZiggurat,unreal.ChunkedDestructibleZigguratPyramit,
          unreal.ChunkedDestructibleConeStructure,unreal.QuadPanelConeStructure)
@@ -36,11 +36,11 @@ def rebuild(a):
 
 palette={}
 for name,color in {'Stone':(.55,.52,.46),'Cornice':(.68,.65,.58),'Floor':(.70,.67,.60)}.items():
-    path=folder+'/MI_Polygon'+name
+    path=folder+'/Materials/MI_Polygon'+name
     m=load(path)
     if not m:
-        m=tools.create_asset('MI_Polygon'+name,folder,unreal.MaterialInstanceConstant,unreal.MaterialInstanceConstantFactoryNew())
-        unreal.MaterialEditingLibrary.set_material_instance_parent(m,load('/Game/Structures/BabylonTower/M_BabylonSandstone'))
+        m=tools.create_asset('MI_Polygon'+name,folder+'/Materials',unreal.MaterialInstanceConstant,unreal.MaterialInstanceConstantFactoryNew())
+        unreal.MaterialEditingLibrary.set_material_instance_parent(m,load('/Game/Structures/Destructible/BabylonTower/Materials/M_BabylonSandstone'))
         unreal.MaterialEditingLibrary.set_material_instance_vector_parameter_value(m,'SandstoneColor',unreal.LinearColor(*color,1))
         assert unreal.EditorAssetLibrary.save_loaded_asset(m,False)
     palette[name.lower()+'_material']=m
@@ -68,9 +68,9 @@ for candidate in bps:
     unreal.BlueprintEditorLibrary.compile_blueprint(candidate)
     assert unreal.EditorAssetLibrary.save_loaded_asset(candidate,False)
 
-preview=folder+'/Lvl_PolygonTowerPreview'
+preview=folder+'/Maps/Lvl_PolygonTowerPreview'
 if not unreal.EditorAssetLibrary.does_asset_exist(preview):
-    world=unreal.EditorLoadingAndSavingUtils.load_map('/Game/Structures/BabylonTower/Lvl_BabylonTowerPreview')
+    world=unreal.EditorLoadingAndSavingUtils.load_map('/Game/Structures/Destructible/BabylonTower/Maps/Lvl_BabylonTowerPreview')
     for a in actors.get_all_level_actors():
         if isinstance(a,unreal.ChunkedDestructibleBabylonTower):actors.destroy_actor(a)
     tower=actors.spawn_actor_from_class(bp.generated_class(),unreal.Vector())

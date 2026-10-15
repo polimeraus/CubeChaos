@@ -1,15 +1,14 @@
-"""Create BP_DemonImp_NPC from the Fab model, using existing NPC gameplay.
+"""Create BP_DemonImp_NPC from its organized source assets, using existing NPC gameplay.
 
 Run with UnrealEditor-Cmd -run=pythonscript -script=<this file>
 -EnablePlugins=PythonScriptPlugin,EditorScriptingUtilities -unattended -nullrhi.
-No gameplay map or original Fab package is modified.
+No gameplay map or imported mesh, skeleton, or source animation is modified.
 """
 import json
 from pathlib import Path
 import unreal
 
-ROOT = '/Game/Characters/DemonImp'
-FAB = '/Game/Fab/Demon_Imp_-_Hand_Painted_Series/demon_imp/SkeletalMeshes'
+ROOT = '/Game/NPC/DemonImp'
 LIB = unreal.EditorAssetLibrary
 TOOLS = unreal.AssetToolsHelpers.get_asset_tools()
 OUT = Path(unreal.Paths.project_saved_dir()) / 'DemonImp'
@@ -32,9 +31,9 @@ def create(name, folder, cls, factory):
     return require(path) if LIB.does_asset_exist(path) else TOOLS.create_asset(name, package, cls, factory)
 
 
-mesh = require(FAB + '/demon_imp')
+mesh = require(ROOT + '/Meshes/demon_imp')
 skeleton = mesh.skeleton
-source = require(FAB + '/demon_imp_Anim')
+source = require(ROOT + '/Animations/Source/demon_imp_Anim')
 assert source.get_editor_property('skeleton') == skeleton
 assert len(mesh.materials) == 2, 'Body and pupils must be combined into the same skinned mesh'
 

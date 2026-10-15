@@ -6,10 +6,10 @@ import unreal
 
 output = Path(unreal.Paths.project_saved_dir()) / 'FantasyHouse/Preview'
 output.mkdir(parents=True, exist_ok=True)
-world = unreal.EditorLoadingAndSavingUtils.load_map('/Game/Structures/FantasyHouse/Lvl_FantasyHousePreview')
+world = unreal.EditorLoadingAndSavingUtils.load_map('/Game/Structures/DynamicMesh/FantasyHouse/Maps/Lvl_FantasyHousePreview')
 assert world
 actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-bp = unreal.load_asset('/Game/Structures/FantasyHouse/BP_ParametricFantasyHouse')
+bp = unreal.load_asset('/Game/Structures/DynamicMesh/FantasyHouse/BP_ParametricFantasyHouse')
 houses = [a for a in actors.get_all_level_actors() if isinstance(a,unreal.ParametricFantasyHouse)]
 assert len(houses)==1
 house = houses[0]

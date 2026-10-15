@@ -92,8 +92,8 @@ bool FNPCHitReactionTest::RunTest(const FString& Parameters)
 {
 	const TArray<UClass*> Classes = {
 		AChasingNPC::StaticClass(),
-		LoadClass<AChasingNPC>(nullptr, TEXT("/Game/Characters/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C")),
-		LoadClass<AWhisperFollower>(nullptr, TEXT("/Game/Characters/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C"))
+		LoadClass<AChasingNPC>(nullptr, TEXT("/Game/NPC/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C")),
+		LoadClass<AWhisperFollower>(nullptr, TEXT("/Game/NPC/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C"))
 	};
 	for (UClass* Class : Classes)
 	{
@@ -206,7 +206,7 @@ bool FNPCDamageFlashTest::RunTest(const FString& Parameters)
 	UNPCHitReactionComponent* Reaction = NPC->FindComponentByClass<UNPCHitReactionComponent>();
 	USkeletalMeshComponent* Mesh = NPC->GetMesh();
 	UMaterialInterface* Skin = Mesh->GetMaterial(0);
-	UMaterialInterface* ExistingOverlay = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/NPC/Materials/M_NPCContactGlow.M_NPCContactGlow"));
+	UMaterialInterface* ExistingOverlay = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/NPC/M_NPCContactGlow.M_NPCContactGlow"));
 	Mesh->SetOverlayMaterial(ExistingOverlay);
 	Reaction->HitFlashColor = FLinearColor(.1f, .3f, 1.f);
 	Reaction->HitFlashIntensity = 1.5f;
@@ -273,7 +273,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBlackMonsterProjectileReactionTest, "MyProject
 bool FBlackMonsterProjectileReactionTest::RunTest(const FString& Parameters)
 {
 	UClass* Class = LoadClass<AWhisperFollower>(nullptr,
-		TEXT("/Game/Characters/black-monster/BP_BlackMonster_Follower.BP_BlackMonster_Follower_C"));
+		TEXT("/Game/NPC/BlackMonster/BP_BlackMonster_Follower.BP_BlackMonster_Follower_C"));
 	if (!TestNotNull(TEXT("Black Monster Blueprint loads"), Class)) { return false; }
 	for (int32 FPS : {30, 120})
 	{
@@ -339,7 +339,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FClownAggressiveApproachTest, "MyProject6.NPC.C
 bool FClownAggressiveApproachTest::RunTest(const FString& Parameters)
 {
 	UClass* Class = LoadClass<AWhisperFollower>(nullptr,
-		TEXT("/Game/Characters/clown_monster/BP_ClownMonster_NPC.BP_ClownMonster_NPC_C"));
+		TEXT("/Game/NPC/ClownMonster/BP_ClownMonster_NPC.BP_ClownMonster_NPC_C"));
 	if (!TestNotNull(TEXT("Clown class loads"), Class)) return false;
 	UClass* PlayerClass = LoadClass<AMyProject6Character>(nullptr,
 		TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
@@ -431,12 +431,12 @@ bool FNPCForwardBendTest::RunTest(const FString& Parameters)
 	struct FCase { const TCHAR* Class; const TCHAR* Head; const TCHAR* Foot; const TCHAR* Idle; };
 	const FCase Cases[] = {
 		{TEXT("/Script/MyProject6.ChasingNPC"), TEXT("head"), TEXT("foot_l"), TEXT("/Game/Characters/Mannequins/Anims/Unarmed/MM_Idle")},
-		{TEXT("/Game/Characters/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C"), TEXT("head_01"), TEXT("foot_l"), TEXT("/Game/Characters/RadicalMike/Animations/Anim_ZMIKE_BusterIdle_R")},
-		{TEXT("/Game/Characters/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C"), TEXT("head"), TEXT("foot_l"), TEXT("/Game/Characters/Whisper/Animations/Anim_Whisper_Idle1")},
-		{TEXT("/Game/Characters/black-monster/BP_BlackMonster_Follower.BP_BlackMonster_Follower_C"), TEXT("Head"), TEXT("LeftFoot"), TEXT("/Game/Characters/black-monster/Animations/Anim_BlackMonster_Idle")},
-		{TEXT("/Game/Characters/DemonImp/BP_DemonImp_NPC.BP_DemonImp_NPC_C"), TEXT("Character1_Head_048"), TEXT("Character1_LeftFoot_04"), TEXT("/Game/Characters/DemonImp/Animations/A_DemonImp_Idle")},
-		{TEXT("/Game/Characters/DarkSorcerer/BP_DarkSorcerer_NPC.BP_DarkSorcerer_NPC_C"), TEXT("head"), TEXT("foot_l"), TEXT("/Game/Characters/DarkSorcerer/Animations/A_DS_MM_Idle")},
-		{TEXT("/Game/Characters/clown_monster/BP_ClownMonster_NPC.BP_ClownMonster_NPC_C"), TEXT("head"), TEXT("foot_l"), TEXT("/Game/Characters/clown_monster/demo/animation/anim_idle_1")}
+		{TEXT("/Game/NPC/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C"), TEXT("head_01"), TEXT("foot_l"), TEXT("/Game/NPC/RadicalMike/Animations/Anim_ZMIKE_BusterIdle_R")},
+		{TEXT("/Game/NPC/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C"), TEXT("head"), TEXT("foot_l"), TEXT("/Game/NPC/Whisper/Animations/Anim_Whisper_Idle1")},
+		{TEXT("/Game/NPC/BlackMonster/BP_BlackMonster_Follower.BP_BlackMonster_Follower_C"), TEXT("Head"), TEXT("LeftFoot"), TEXT("/Game/NPC/BlackMonster/Animations/Anim_BlackMonster_Idle")},
+		{TEXT("/Game/NPC/DemonImp/BP_DemonImp_NPC.BP_DemonImp_NPC_C"), TEXT("Character1_Head_048"), TEXT("Character1_LeftFoot_04"), TEXT("/Game/NPC/DemonImp/Animations/A_DemonImp_Idle")},
+		{TEXT("/Game/NPC/DarkSorcerer/BP_DarkSorcerer_NPC.BP_DarkSorcerer_NPC_C"), TEXT("head"), TEXT("foot_l"), TEXT("/Game/NPC/DarkSorcerer/Animations/A_DS_MM_Idle")},
+		{TEXT("/Game/NPC/ClownMonster/BP_ClownMonster_NPC.BP_ClownMonster_NPC_C"), TEXT("head"), TEXT("foot_l"), TEXT("/Game/NPC/ClownMonster/demo/animation/anim_idle_1")}
 	};
 	for (const FCase& Case : Cases)
 	{
@@ -521,7 +521,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGhoulFullFallTest, "MyProject6.NPC.GhoulStrong
 bool FGhoulFullFallTest::RunTest(const FString& Parameters)
 {
 	UAnimationAsset* Death = LoadObject<UAnimationAsset>(nullptr,
-		TEXT("/Game/Characters/Ghoul/Animations/A_Ghoul_Death_FullFall"));
+		TEXT("/Game/NPC/Ghoul/Animations/A_Ghoul_Death_FullFall"));
 	if (!TestNotNull(TEXT("Complete Ghoul fall loads"), Death)) return false;
 	for (int32 FPS : {30, 60, 120})
 	{

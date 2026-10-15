@@ -1,12 +1,15 @@
 """Fresh saved/native/BP defaults, visual reference check, damaged holes, runtime spawn. No asset writes."""
-import json,time
+import json,time,runpy
 from pathlib import Path
 import unreal
 
-folder='/Game/Structures/BabylonTower'
+if '-BabylonPreviewOnly' not in unreal.SystemLibrary.get_command_line() and (Path(unreal.Paths.project_saved_dir())/'BabylonTower/PolygonUpgrade/SavedInstances.json').exists():
+    runpy.run_path(str(Path(__file__).with_name('VerifyBabylonTowerDefaults.py')))
+
+folder='/Game/Structures/Destructible/BabylonTower'
 out=Path(unreal.Paths.project_saved_dir())/'BabylonTower/Preview'
 out.mkdir(parents=True,exist_ok=True)
-world=unreal.EditorLoadingAndSavingUtils.load_map(folder+'/Lvl_BabylonTowerPreview')
+world=unreal.EditorLoadingAndSavingUtils.load_map(folder+'/Maps/Lvl_BabylonTowerPreview')
 assert world
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 bp=unreal.load_asset(folder+'/BP_ChunkedDestructibleBabylonTower')
@@ -18,11 +21,11 @@ def triangles(actor):
     return sum(c.get_dynamic_mesh().get_triangle_count() for c in actor.get_components_by_class(unreal.DynamicMeshComponent))
 fresh=actors.spawn_actor_from_class(bp.generated_class(),unreal.Vector(8000,0,0))
 native=actors.spawn_actor_from_class(unreal.ChunkedDestructibleBabylonTower,unreal.Vector(-8000,0,0))
-assert triangles(fresh)==triangles(temple)==triangles(native)==temple.generated_piece_count*12
-keys=('base_width','base_depth','tier_count','tier_height','summit_height','top_scale','wall_batter',
-      'wall_thickness','piece_size','piece_gap','front_recess_count','side_recess_count','recess_width',
-      'recess_depth','recess_height_ratio','upper_windows','window_width','window_height','cornice_overhang',
-      'cornice_height','floor_thickness','summit_corbels','entrance','entrance_width','entrance_height',
+assert triangles(fresh)==triangles(temple)==triangles(native)
+keys=('side_count','base_width','base_depth','tier_count','tier_height','summit_height','top_scale','wall_batter',
+      'wall_thickness','piece_size','piece_gap','windows_per_side','tier_window_counts','tier_window_widths',
+      'upper_windows','window_width','window_height','window_sill_height','cornices','cornice_overhang',
+      'cornice_height','floor_thickness','summit_corbels','entrance','entrance_count','entrance_width','entrance_height',
       'entrance_frame','entrance_stairs','stair_count','stair_tread_depth','stair_width','foundation_height',
       'foundation_overhang','stone_material','cornice_material','terrace_material','portal_material',
       'foundation_material','recess_material','open_facade_recesses')
@@ -96,23 +99,23 @@ def tick(dt):
                     (out/'RenderMetrics.json').write_text(json.dumps(results,indent=2))
                     unreal.log('BABYLON_TOWER_RENDER_OK')
                     stop();return
-                unreal.EditorLoadingAndSavingUtils.load_map(folder+'/Lvl_BabylonTowerPreview')
+                unreal.EditorLoadingAndSavingUtils.load_map(folder+'/Maps/Lvl_BabylonTowerPreview')
                 state.update(runtime=True,next=time.monotonic()+5,deadline=time.monotonic()+60)
                 unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).editor_play_simulate()
                 return
         name=views[state['index']]
-        location,look=unreal.Vector(4200,-9300,2800),unreal.Vector(0,0,1850)
+        location,look=unreal.Vector(4200,-9300,3200),unreal.Vector(0,0,1950)
         if name=='Front':location=unreal.Vector(0,-10500,2600)
         if name=='Damage':
             temple.set_editor_property('flash_duration',0.)
             temple.set_editor_property('play_destroy_tick_sound',False)
             temple.set_editor_property('use_destruction_ripple',False)
-            removed=temple.destroy_cells_in_radius(unreal.Vector(870,-1475,440),370,unreal.ChunkedFloorBlastShape.CIRCLE)
-            assert removed>5 and triangles(temple)==results['triangles']-12*removed
+            removed=temple.destroy_cells_in_radius(unreal.Vector(400,-1750,400),370,unreal.ChunkedFloorBlastShape.CIRCLE)
+            assert removed>5 and triangles(temple)<results['triangles']
             results['explosion_removed_pieces']=removed
         if name=='Variant':
             for k,v in {'tier_count':4,'base_width':3100.,'base_depth':2400.,'summit_height':650.,'tier_height':500.,
-                        'front_recess_count':11,'window_width':140.,'piece_size':150.,'top_scale':.4}.items():
+                        'side_count':7,'windows_per_side':2,'window_width':140.,'piece_size':150.,'top_scale':.4}.items():
                 temple.set_editor_property(k,v)
             temple.rebuild_tower()
             assert not temple.generation_warning

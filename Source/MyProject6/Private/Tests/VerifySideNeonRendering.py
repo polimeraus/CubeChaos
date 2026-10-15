@@ -17,7 +17,7 @@ floor.configure_chunked_floor(shape.GRID, unreal.Vector2D(800, 800),
 floor.set_editor_property("flash_duration", 0.0)
 floor.set_editor_property("play_destroy_tick_sound", False)
 body = unreal.MaterialLibrary.create_dynamic_material_instance(
-    world, unreal.load_asset("/Game/Destructible/Materials/M_MusicPieceGlow"))
+    world, unreal.load_asset("/Game/Materials/Structures/M_MusicPieceGlow"))
 body.set_vector_parameter_value("Color", unreal.LinearColor(.045, .045, .045, 1))
 floor.set_material_palette([body])
 position = unreal.Vector(1100, -1500, 1000)

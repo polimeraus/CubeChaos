@@ -5,7 +5,7 @@ left intact so running this recipe again preserves material customizations.
 """
 import unreal
 
-folder = '/Game/Destructible/Materials'
+folder = '/Game/Materials/Structures'
 edit = unreal.MaterialEditingLibrary
 assets = unreal.AssetToolsHelpers.get_asset_tools()
 path = folder + '/M_SpiralPlatformGlow'

@@ -45,7 +45,7 @@ bool FWhisperContactTest::RunTest(const FString& Parameters)
 	UClass* PlayerClass = LoadClass<AMyProject6Character>(nullptr,
 		TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
 	UClass* WhisperClass = LoadClass<AWhisperFollower>(nullptr,
-		TEXT("/Game/Characters/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C"));
+		TEXT("/Game/NPC/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C"));
 	FActorSpawnParameters Spawn;
 	Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	AMyProject6Character* Player = World->SpawnActor<AMyProject6Character>(PlayerClass, FVector(600, 0, 100), FRotator::ZeroRotator, Spawn);
@@ -59,7 +59,7 @@ bool FWhisperContactTest::RunTest(const FString& Parameters)
 	USkeletalMeshComponent* Mesh = NPC->GetMesh();
 	Mesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 	TArray<UMaterialInterface*> Original = Mesh->GetMaterials();
-	UMaterialInterface* Glow = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/NPC/Materials/M_NPCContactGlow.M_NPCContactGlow"));
+	UMaterialInterface* Glow = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/NPC/M_NPCContactGlow.M_NPCContactGlow"));
 	Advance(0.1f);
 	TestFalse(TEXT("No claw attack before contact"), NPC->ShouldPauseFollow());
 	TestEqual(TEXT("Whisper does not drain energy at a distance"), Player->GetCurrentEnergy(), Player->GetMaxEnergy());

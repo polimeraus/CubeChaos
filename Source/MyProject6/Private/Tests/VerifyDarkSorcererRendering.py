@@ -7,7 +7,7 @@ try:
     world=unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
     world.get_world_settings().set_editor_property('default_game_mode',unreal.GameModeBase)
     actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-    npc=actors.spawn_actor_from_class(unreal.load_class(None,'/Game/Characters/DarkSorcerer/BP_DarkSorcerer_NPC.BP_DarkSorcerer_NPC_C'),unreal.Vector(0,0,96),unreal.Rotator())
+    npc=actors.spawn_actor_from_class(unreal.load_class(None,'/Game/NPC/DarkSorcerer/BP_DarkSorcerer_NPC.BP_DarkSorcerer_NPC_C'),unreal.Vector(0,0,96),unreal.Rotator())
     npc.set_actor_label('DarkSorcerer_Preview')
     npc.set_editor_property('spawn_replacements_on_death',False)
     comp=npc.mesh
@@ -30,7 +30,7 @@ try:
     floor.set_actor_scale3d(unreal.Vector(20,20,.5))
     for cmd in ['r.DefaultFeature.AutoExposure 0','r.EyeAdaptationQuality 0','r.TonemapperGamma 2.2','t.MaxFPS 60']:
         unreal.SystemLibrary.execute_console_command(world,cmd)
-    poses=[('Idle','/Game/Characters/DarkSorcerer/Animations/A_DS_MM_Idle',1),('Walk','/Game/Characters/DarkSorcerer/Animations/A_DS_MF_Unarmed_Walk_Fwd',1),('Attack','/Game/Characters/DarkSorcerer/Animations/A_DS_Cast',.8)]
+    poses=[('Idle','/Game/NPC/DarkSorcerer/Animations/A_DS_MM_Idle',1),('Walk','/Game/NPC/DarkSorcerer/Animations/A_DS_MF_Unarmed_Walk_Fwd',1),('Attack','/Game/NPC/DarkSorcerer/Animations/A_DS_Cast',.8)]
     poses.append(('Death',None,1))
     def stop():
         (out/'Preview.json').write_text(json.dumps(state,default=str,indent=2))

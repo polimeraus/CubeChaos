@@ -205,7 +205,7 @@ try:
     floor.static_mesh_component.set_static_mesh(unreal.load_asset('/Engine/BasicShapes/Cube'))
     floor.set_actor_scale3d(unreal.Vector(80,80,.2))
     ACTORS.spawn_actor_from_class(unreal.PlayerStart, unreal.Vector(1000,0,100), unreal.Rotator(pitch=0,yaw=180,roll=0))
-    point = ACTORS.spawn_actor_from_class(unreal.load_asset('/Game/NPC/Spawning/BP_NPCSpawnPoint').generated_class(), unreal.Vector(0,0,0))
+    point = ACTORS.spawn_actor_from_class(unreal.load_asset('/Game/GameplayActors/NPCSpawner/BP_NPCSpawnPoint').generated_class(), unreal.Vector(0,0,0))
     point.set_editor_property('spawn_on_begin_play', False)
     point.set_actor_hidden_in_game(True)
     point.set_is_temporarily_hidden_in_editor(True)

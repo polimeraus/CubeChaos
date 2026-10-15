@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import unreal
 
-folder='/Game/Structures/ZigguratPyramit'
+folder='/Game/Structures/Destructible/ZigguratPyramit'
 assets=unreal.AssetToolsHelpers.get_asset_tools()
 edit=unreal.MaterialEditingLibrary
 out=Path(unreal.Paths.project_saved_dir())/'ZigguratPyramit'
@@ -11,10 +11,10 @@ out.mkdir(parents=True,exist_ok=True)
 def load(path):
     return unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None
 
-master=load(folder+'/M_PyramitSandstone')
+master=load(folder+'/Materials/M_PyramitSandstone')
 refresh='-RefreshPyramitPresentation' in unreal.SystemLibrary.get_command_line()
 if not master:
-    master=assets.create_asset('M_PyramitSandstone',folder,unreal.Material,unreal.MaterialFactoryNew())
+    master=assets.create_asset('M_PyramitSandstone',folder+'/Materials',unreal.Material,unreal.MaterialFactoryNew())
     tint=edit.create_material_expression(master,unreal.MaterialExpressionVectorParameter,-650,0)
     tint.set_editor_property('parameter_name','SandstoneColor')
     tint.set_editor_property('default_value',unreal.LinearColor(.64,.4,.2,1))
@@ -45,9 +45,9 @@ palette={}
 for name,color in {'Stone':(.64,.40,.20),'Cornice':(.66,.42,.21),'Terrace':(.70,.47,.25),
                    'Lintel':(.62,.38,.19),'Foundation':(.60,.37,.18),'Crown':(.67,.42,.22),
                    'Stage':(.12,.115,.10)}.items():
-    material=load(folder+'/MI_Pyramit'+name)
+    material=load(folder+'/Materials/MI_Pyramit'+name)
     if not material:
-        material=assets.create_asset('MI_Pyramit'+name,folder,unreal.MaterialInstanceConstant,unreal.MaterialInstanceConstantFactoryNew())
+        material=assets.create_asset('MI_Pyramit'+name,folder+'/Materials',unreal.MaterialInstanceConstant,unreal.MaterialInstanceConstantFactoryNew())
         edit.set_material_instance_parent(material,master)
         edit.set_material_instance_vector_parameter_value(material,'SandstoneColor',unreal.LinearColor(*color,1))
         assert unreal.EditorAssetLibrary.save_loaded_asset(material,False)
@@ -63,7 +63,7 @@ if not bp:
     unreal.BlueprintEditorLibrary.compile_blueprint(bp)
     assert unreal.EditorAssetLibrary.save_loaded_asset(bp,False)
 
-path=folder+'/Lvl_ZigguratPyramitPreview'
+path=folder+'/Maps/Lvl_ZigguratPyramitPreview'
 if not unreal.EditorAssetLibrary.does_asset_exist(path):
     world=unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
     actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
@@ -91,7 +91,7 @@ if not unreal.EditorAssetLibrary.does_asset_exist(path):
     ground.set_actor_label('Preview_Ground')
     ground.set_folder_path('Preview')
     ground.static_mesh_component.set_static_mesh(unreal.load_asset('/Engine/BasicShapes/Cube'))
-    ground.static_mesh_component.set_material(0,load(folder+'/MI_PyramitStage'))
+    ground.static_mesh_component.set_material(0,load(folder+'/Materials/MI_PyramitStage'))
     ground.set_actor_scale3d(unreal.Vector(70,70,.5))
     start=actors.spawn_actor_from_class(unreal.PlayerStart,unreal.Vector(0,-2000,125),unreal.Rotator(pitch=0,yaw=90,roll=0))
     start.set_folder_path('Preview')

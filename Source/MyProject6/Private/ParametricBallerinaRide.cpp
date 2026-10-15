@@ -64,7 +64,7 @@ ABallerinaRideFigure::ABallerinaRideFigure()
     Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("FigureMesh"));
     SetRootComponent(Mesh); Mesh->SetMobility(EComponentMobility::Movable);
     Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> Asset(TEXT("/Game/Fairground/BallerinaRide/Meshes/SM_BallerinaFigure.SM_BallerinaFigure"));
+    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> Asset(TEXT("/Game/GameplayActors/BallerinaRide/Meshes/SM_BallerinaFigure.SM_BallerinaFigure"));
     Mesh->SetStaticMesh(Asset.Get());
 }
 
@@ -74,7 +74,7 @@ ABallerinaRideSeat::ABallerinaRideSeat()
     Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SeatMesh"));
     SetRootComponent(Mesh); Mesh->SetMobility(EComponentMobility::Movable);
     Mesh->SetCollisionProfileName(TEXT("BlockAllDynamic"));
-    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> Asset(TEXT("/Game/Fairground/BallerinaRide/Meshes/SM_BallerinaSeat.SM_BallerinaSeat"));
+    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> Asset(TEXT("/Game/GameplayActors/BallerinaRide/Meshes/SM_BallerinaSeat.SM_BallerinaSeat"));
     Mesh->SetStaticMesh(Asset.Get());
 }
 
@@ -109,9 +109,9 @@ AParametricBallerinaRide::AParametricBallerinaRide()
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Cylinder(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
     Deck->SetStaticMesh(Cylinder.Object); Base->SetStaticMesh(Cylinder.Object); SphereMesh = Sphere.Object;
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Surface(TEXT("/Game/Fairground/BallerinaRide/Materials/M_RideSurface.M_RideSurface"));
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Pattern(TEXT("/Game/Fairground/BallerinaRide/Materials/M_RideSkirt.M_RideSkirt"));
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Bulb(TEXT("/Game/Fairground/BallerinaRide/Materials/M_RideBulb.M_RideBulb"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Surface(TEXT("/Game/GameplayActors/BallerinaRide/Materials/M_RideSurface.M_RideSurface"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Pattern(TEXT("/Game/GameplayActors/BallerinaRide/Materials/M_RideSkirt.M_RideSkirt"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Bulb(TEXT("/Game/GameplayActors/BallerinaRide/Materials/M_RideBulb.M_RideBulb"));
     DefaultSurfaceMaterial = Surface.Get(); DefaultPatternMaterial = Pattern.Get(); DefaultBulbMaterial = Bulb.Get();
     FigureActorClass = ABallerinaRideFigure::StaticClass(); SeatActorClass = ABallerinaRideSeat::StaticClass();
     SliceColors = {FLinearColor(1,.76f,.08f), FLinearColor(1,.9f,.47f)};

@@ -38,13 +38,13 @@ ADarkSorcererNPC::ADarkSorcererNPC()
 	Staff->SetCanEverAffectNavigation(false);
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> Body(
-		TEXT("/Game/Characters/DarkSorcerer/Meshes/SK_DarkSorcerer_NPC.SK_DarkSorcerer_NPC"));
+		TEXT("/Game/NPC/DarkSorcerer/Meshes/SK_DarkSorcerer_NPC.SK_DarkSorcerer_NPC"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Weapon(
-		TEXT("/Game/Characters/DarkSorcerer/Meshes/SM_DarkSorcerer_Staff_NPC.SM_DarkSorcerer_Staff_NPC"));
+		TEXT("/Game/NPC/DarkSorcerer/Meshes/SM_DarkSorcerer_Staff_NPC.SM_DarkSorcerer_Staff_NPC"));
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> Attack(
-		TEXT("/Game/Characters/DarkSorcerer/Animations/A_DS_Cast.A_DS_Cast"));
+		TEXT("/Game/NPC/DarkSorcerer/Animations/A_DS_Cast.A_DS_Cast"));
 	static ConstructorHelpers::FClassFinder<UAnimInstance> Locomotion(
-		TEXT("/Game/Characters/DarkSorcerer/Animations/ABP_DarkSorcerer"));
+		TEXT("/Game/NPC/DarkSorcerer/Animations/ABP_DarkSorcerer"));
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> Death(
 		TEXT("/Game/Characters/Mannequins/Anims/Death/MM_Death_Front_01.MM_Death_Front_01"));
 	if (Body.Succeeded()) { GetMesh()->SetSkeletalMeshAsset(Body.Object); }

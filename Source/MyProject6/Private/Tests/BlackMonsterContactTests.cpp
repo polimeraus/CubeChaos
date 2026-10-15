@@ -25,7 +25,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBlackMonsterContactTest, "MyProject6.NPC.Black
 bool FBlackMonsterContactTest::RunTest(const FString& Parameters)
 {
 	UClass* NPCClass = LoadClass<AWhisperFollower>(nullptr,
-		TEXT("/Game/Characters/black-monster/BP_BlackMonster_Follower.BP_BlackMonster_Follower_C"));
+		TEXT("/Game/NPC/BlackMonster/BP_BlackMonster_Follower.BP_BlackMonster_Follower_C"));
 	if (!TestNotNull(TEXT("Drag-and-drop Black Monster Blueprint loads"), NPCClass)) { return false; }
 	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
 	GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);

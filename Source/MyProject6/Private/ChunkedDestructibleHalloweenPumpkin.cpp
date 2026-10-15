@@ -56,7 +56,7 @@ AChunkedDestructibleHalloweenPumpkin::AChunkedDestructibleHalloweenPumpkin()
 	}
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> GlowMaterialFinder(
-		TEXT("/Game/LevelPrototyping/Interactable/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+		TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
 	if (GlowMaterialFinder.Succeeded())
 	{
 		DefaultGlowMaterial = GlowMaterialFinder.Object;

@@ -8,13 +8,13 @@ from pathlib import Path
 import shutil
 import unreal
 
-folder = '/Game/NPC/Spawning'
+folder = '/Game/GameplayActors/NPCSpawner/Materials'
 name = 'M_NPCSpawnPortal'
 path = f'{folder}/{name}'
 source = Path(unreal.Paths.project_dir()) / 'Source/MyProject6/Private/NPCSpawnPortalMaterial.ush'
 material = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None
 if material:
-    package_file = Path(unreal.Paths.project_content_dir()) / 'NPC/Spawning/M_NPCSpawnPortal.uasset'
+    package_file = Path(unreal.Paths.project_content_dir()) / 'GameplayActors/NPCSpawner/Materials/M_NPCSpawnPortal.uasset'
     if package_file.exists():
         backup = Path(unreal.Paths.project_saved_dir()) / 'NPCSpawnPoint/MaterialBackups' / datetime.now().strftime('%Y%m%d_%H%M%S')
         backup.mkdir(parents=True, exist_ok=True)

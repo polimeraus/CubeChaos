@@ -10,7 +10,7 @@ import unreal
 
 root = '/Game/Weapons/Railgun'
 edit = unreal.MaterialEditingLibrary
-path = root + '/M_RailEnergy'
+path = root + '/Materials/M_RailEnergy'
 if not unreal.EditorAssetLibrary.does_asset_exist(path):
     material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
         'M_RailEnergy', root, unreal.Material, unreal.MaterialFactoryNew())
@@ -37,7 +37,7 @@ if not unreal.EditorAssetLibrary.does_asset_exist(path):
 
 output = Path(unreal.Paths.project_saved_dir()) / 'Railgun'
 output.mkdir(parents=True, exist_ok=True)
-arms_path = root + '/M_RailArms'
+arms_path = root + '/Materials/M_RailArms'
 if not unreal.EditorAssetLibrary.does_asset_exist(arms_path):
     material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
         'M_RailArms', root, unreal.Material, unreal.MaterialFactoryNew())
@@ -86,7 +86,7 @@ if not any(isinstance(node, unreal.MaterialExpressionVertexInterpolator) for nod
 
 runpy.run_path(str(Path(__file__).with_name('SetupRailgunArms.py')), run_name='__main__')
 
-if not unreal.EditorAssetLibrary.does_asset_exist(root + '/S_RailFire'):
+if not unreal.EditorAssetLibrary.does_asset_exist(root + '/Audio/S_RailFire'):
     sound_file = output / 'S_RailFire.wav'
     rng = random.Random(27)
     rate = 48000
@@ -107,11 +107,11 @@ if not unreal.EditorAssetLibrary.does_asset_exist(root + '/S_RailFire'):
         stream.writeframes(samples)
     task = unreal.AssetImportTask()
     task.set_editor_property('filename', str(sound_file))
-    task.set_editor_property('destination_path', root)
+    task.set_editor_property('destination_path', root + '/Audio')
     task.set_editor_property('automated', True)
     task.set_editor_property('save', True)
     unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
-    assert unreal.load_asset(root + '/S_RailFire')
+    assert unreal.load_asset(root + '/Audio/S_RailFire')
 
 player_cls = unreal.load_class(None, '/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
 player = unreal.get_default_object(player_cls)

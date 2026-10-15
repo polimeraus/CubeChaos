@@ -38,9 +38,9 @@ def configure(actor):
 
 
 report = {'blueprints':[], 'placed':[], 'backup':str(backup)}
-for path in ['/Game/Characters/RadicalMike/BP_RadicalMike_NPC',
-             '/Game/Characters/Whisper/BP_Whisper_Follower',
-             '/Game/Characters/black-monster/BP_BlackMonster_Follower']:
+for path in ['/Game/NPC/RadicalMike/BP_RadicalMike_NPC',
+             '/Game/NPC/Whisper/BP_Whisper_Follower',
+             '/Game/NPC/BlackMonster/BP_BlackMonster_Follower']:
     blueprint = unreal.load_asset(path)
     if blueprint is None:
         raise RuntimeError('Missing NPC Blueprint: ' + path)

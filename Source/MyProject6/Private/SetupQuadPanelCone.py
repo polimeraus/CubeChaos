@@ -30,7 +30,7 @@ source = originals[0]
 assert not any(isinstance(a, unreal.QuadPanelConeStructure) for a in actors.get_all_level_actors()), 'Clone already exists; leaving it unchanged'
 source_transform = source.get_actor_transform()
 source_metrics = source.get_cone_structure_metrics().generated_block_count
-path = '/Game/Structures/BP_QuadPanelCone'
+path = '/Game/Structures/DynamicMesh/QuadPanelCone/BP_QuadPanelCone'
 assert not unreal.EditorAssetLibrary.does_asset_exist(path), 'Blueprint already exists; leaving it unchanged'
 factory = unreal.BlueprintFactory()
 factory.set_editor_property('parent_class', unreal.QuadPanelConeStructure)

@@ -12,7 +12,7 @@ output = Path(unreal.Paths.project_saved_dir()) / 'Pickups/Preview'
 output.mkdir(parents=True, exist_ok=True)
 unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
 actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-bp = unreal.load_asset('/Game/Gameplay/Pickups/BP_ParametricPickup')
+bp = unreal.load_asset('/Game/GameplayActors/Pickups/ParametricPickup/BP_ParametricPickup')
 assert bp, 'Run SetupParametricPickup.py first'
 shapes = [unreal.PickupShape.CUBE, unreal.PickupShape.SPHERE, unreal.PickupShape.ROUNDED_CUBE, unreal.PickupShape.PYRAMID]
 icons = [unreal.PickupMotif.STAR, unreal.PickupMotif.QUESTION_MARK, unreal.PickupMotif.CRESCENT,

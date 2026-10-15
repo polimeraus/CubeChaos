@@ -32,7 +32,7 @@ ARadicalBusterProjectile::ARadicalBusterProjectile()
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 	if (Sphere.Succeeded()) { Visual->SetStaticMesh(Sphere.Object); }
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> Glow(
-		TEXT("/Game/Characters/RadicalMike/Materials/M_BusterEnergy.M_BusterEnergy"));
+		TEXT("/Game/NPC/RadicalMike/Materials/M_BusterEnergy.M_BusterEnergy"));
 	if (Glow.Succeeded()) { Visual->SetMaterial(0, Glow.Object); }
 
 	Movement = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("ProjectileMovement"));

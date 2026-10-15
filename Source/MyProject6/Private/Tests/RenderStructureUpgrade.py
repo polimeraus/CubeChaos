@@ -3,7 +3,7 @@ import json,time
 from pathlib import Path
 import unreal
 out=Path(unreal.Paths.project_saved_dir())/'StructureUpgrade/Preview';out.mkdir(parents=True,exist_ok=True)
-world=unreal.EditorLoadingAndSavingUtils.load_map('/Game/Structures/PolygonTower/Lvl_PolygonTowerPreview')
+world=unreal.EditorLoadingAndSavingUtils.load_map('/Game/Structures/Destructible/PolygonTower/Maps/Lvl_PolygonTowerPreview')
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 tower=next(a for a in actors.get_all_level_actors() if isinstance(a,unreal.ChunkedDestructiblePolygonTower))
 cone=next(a for a in actors.get_all_level_actors() if isinstance(a,unreal.QuadPanelConeStructure))

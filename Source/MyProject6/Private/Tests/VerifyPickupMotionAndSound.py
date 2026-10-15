@@ -15,7 +15,7 @@ output = Path(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_sa
 output.mkdir(parents=True, exist_ok=True)
 unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
 actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-bp = unreal.load_asset('/Game/Gameplay/Pickups/BP_ParametricPickup')
+bp = unreal.load_asset('/Game/GameplayActors/Pickups/ParametricPickup/BP_ParametricPickup')
 assert unreal.get_default_object(bp.generated_class()).get_editor_property('motion') == unreal.PickupMotion.STATIONARY
 modes = [unreal.PickupMotion.STATIONARY, unreal.PickupMotion.SPIN, unreal.PickupMotion.BOB,
          unreal.PickupMotion.SPIN_AND_BOB, unreal.PickupMotion.ORBIT, unreal.PickupMotion.ORBIT_AND_SPIN]

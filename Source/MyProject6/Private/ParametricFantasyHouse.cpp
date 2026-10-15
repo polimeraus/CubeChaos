@@ -390,7 +390,7 @@ AParametricFantasyHouse::AParametricFantasyHouse()
     HouseMesh->SetCollisionObjectType(ECC_WorldStatic);
     HouseMesh->SetCollisionResponseToAllChannels(ECR_Block);
     HouseMesh->SetTangentsType(EDynamicMeshComponentTangentsMode::AutoCalculated);
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Mat(TEXT("/Game/Structures/FantasyHouse/M_FantasyHouse"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Mat(TEXT("/Game/Structures/DynamicMesh/FantasyHouse/Materials/M_FantasyHouse"));
     BaseMaterial=Mat.Get();
 }
 

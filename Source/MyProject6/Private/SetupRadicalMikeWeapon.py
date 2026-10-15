@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 import unreal
 
-root = '/Game/Characters/RadicalMike'
+root = '/Game/NPC/RadicalMike'
 material_path = root + '/Materials/M_BusterEnergy'
 material = unreal.load_asset(material_path) if unreal.EditorAssetLibrary.does_asset_exist(material_path) else None
 if material is None:

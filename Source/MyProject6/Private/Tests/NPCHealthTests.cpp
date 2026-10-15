@@ -61,9 +61,9 @@ bool FNPCProjectileHealthTest::RunTest(const FString& Parameters)
 			: CastChecked<AWhisperFollower>(NPC)->IsDead();
 	};
 	UClass* MikeClass = LoadClass<ARadicalMikeNPC>(nullptr,
-		TEXT("/Game/Characters/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C"));
+		TEXT("/Game/NPC/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C"));
 	UClass* WhisperClass = LoadClass<AWhisperFollower>(nullptr,
-		TEXT("/Game/Characters/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C"));
+		TEXT("/Game/NPC/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C"));
 	if (!TestNotNull(TEXT("Saved Mike blueprint loads"), MikeClass)
 		|| !TestNotNull(TEXT("Saved Whisper blueprint loads"), WhisperClass)) { return false; }
 	const TArray<UClass*> Classes = { AChasingNPC::StaticClass(), WhisperClass, MikeClass };

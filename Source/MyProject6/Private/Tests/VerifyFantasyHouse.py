@@ -10,7 +10,7 @@ out = Path(unreal.Paths.project_saved_dir()) / 'FantasyHouse'
 out.mkdir(parents=True, exist_ok=True)
 unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
 actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-bp = unreal.load_asset('/Game/Structures/FantasyHouse/BP_ParametricFantasyHouse')
+bp = unreal.load_asset('/Game/Structures/DynamicMesh/FantasyHouse/BP_ParametricFantasyHouse')
 assert bp and unreal.get_default_object(bp.generated_class()).get_editor_property('base_material')
 house = actors.spawn_actor_from_class(bp.generated_class(), unreal.Vector())
 results = {}

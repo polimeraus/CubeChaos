@@ -7,8 +7,8 @@ out=Path(unreal.Paths.project_saved_dir())/'ZigguratTraversal/Preview'
 out.mkdir(parents=True,exist_ok=True)
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 types=(unreal.ChunkedDestructibleZiggurat,unreal.ChunkedDestructibleZigguratPyramit)
-specs=[('Ziggurat','/Game/Structures/Ziggurat/BP_DestructibleZiggurat','/Game/Structures/Ziggurat/Lvl_ZigguratPreview'),
-       ('Pyramit','/Game/Structures/ZigguratPyramit/BP_ChunkedDestructibleZigguratPyramit','/Game/Structures/ZigguratPyramit/Lvl_ZigguratPyramitPreview')]
+specs=[('Ziggurat','/Game/Structures/Destructible/Ziggurat/BP_DestructibleZiggurat','/Game/Structures/Destructible/Ziggurat/Maps/Lvl_ZigguratPreview'),
+       ('Pyramit','/Game/Structures/Destructible/ZigguratPyramit/BP_ChunkedDestructibleZigguratPyramit','/Game/Structures/Destructible/ZigguratPyramit/Maps/Lvl_ZigguratPyramitPreview')]
 results={'fresh_process':True,'instances':[]}
 keys=('floor_openings','ground_launch_pad','opening_width','pad_width','auto_launch_height','height_above_roof',
       'launch_up_speed','cooldown','affect_np_cs','pattern','color','brightness','animation_speed','ring_count',

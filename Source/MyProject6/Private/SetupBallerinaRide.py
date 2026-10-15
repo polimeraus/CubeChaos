@@ -6,7 +6,7 @@ from pathlib import Path
 import json, unreal
 
 ROOT=Path(unreal.Paths.project_dir())
-BASE='/Game/Fairground/BallerinaRide'
+BASE='/Game/GameplayActors/BallerinaRide'
 OUT=ROOT/'Saved/BallerinaRide';OUT.mkdir(parents=True,exist_ok=True)
 assets=unreal.AssetToolsHelpers.get_asset_tools()
 edit=unreal.MaterialEditingLibrary
@@ -114,10 +114,10 @@ unreal.get_default_object(unreal.BallerinaRideFigure).mesh.set_static_mesh(meshe
 unreal.get_default_object(unreal.BallerinaRideSeat).mesh.set_static_mesh(meshes['SM_BallerinaSeat'])
 
 def blueprint(name,parent):
-    path=BASE+'/Blueprints/'+name
+    path=BASE+('' if name=='BP_ParametricBallerinaRide' else '/Blueprints')+'/'+name
     if unreal.EditorAssetLibrary.does_asset_exist(path):return unreal.load_asset(path)
     f=unreal.BlueprintFactory();f.set_editor_property('parent_class',parent)
-    return assets.create_asset(name,BASE+'/Blueprints',unreal.Blueprint,f)
+    return assets.create_asset(name,BASE+('' if name=='BP_ParametricBallerinaRide' else '/Blueprints'),unreal.Blueprint,f)
 
 figure=blueprint('BP_BallerinaFigure',unreal.BallerinaRideFigure)
 seat=blueprint('BP_BallerinaSeat',unreal.BallerinaRideSeat)

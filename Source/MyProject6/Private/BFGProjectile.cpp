@@ -29,9 +29,9 @@ ABFGProjectile::ABFGProjectile()
     Plasma->SetCastShadow(false);
     Plasma->bReceivesDecals = false;
     Plasma->SetTranslucentSortPriority(3);
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Surface(TEXT("/Game/Weapons/Railgun/M_BFGPlasma.M_BFGPlasma"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Surface(TEXT("/Game/Weapons/BFG/Materials/M_BFGPlasma.M_BFGPlasma"));
     PlasmaMaterial = Surface.Get();
-    static ConstructorHelpers::FObjectFinderOptional<USoundBase> Sound(TEXT("/Game/Weapons/Railgun/S_BFGImpact.S_BFGImpact"));
+    static ConstructorHelpers::FObjectFinderOptional<USoundBase> Sound(TEXT("/Game/Weapons/BFG/Audio/S_BFGImpact.S_BFGImpact"));
     ImpactSound = Sound.Get();
 }
 

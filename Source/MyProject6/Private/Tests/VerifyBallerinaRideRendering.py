@@ -5,7 +5,7 @@ out=Path(unreal.Paths.project_saved_dir())/'BallerinaRide/Preview';out.mkdir(par
 state={'index':0,'captures':0,'export':False,'next':time.monotonic()+12}
 unreal.EditorPythonScripting.set_keep_python_script_alive(True)
 try:
-    world=unreal.EditorLoadingAndSavingUtils.load_map('/Game/Fairground/BallerinaRide/Maps/L_BallerinaRide_Demo')
+    world=unreal.EditorLoadingAndSavingUtils.load_map('/Game/GameplayActors/BallerinaRide/Maps/L_BallerinaRide_Demo')
     actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     ride=next(a for a in actors.get_all_level_actors() if isinstance(a,unreal.ParametricBallerinaRide))
     assert ride.get_generated_seat_count()==24,'Saved demo must retain its child seats after reload'

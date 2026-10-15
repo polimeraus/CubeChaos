@@ -54,7 +54,7 @@ bool FDarkSorcererIntegrationTest::RunTest(const FString& Parameters)
     Controller->Possess(Player);
     Player->GetCharacterMovement()->DisableMovement();
     UClass* Class = LoadClass<ADarkSorcererNPC>(nullptr,
-        TEXT("/Game/Characters/DarkSorcerer/BP_DarkSorcerer_NPC.BP_DarkSorcerer_NPC_C"));
+        TEXT("/Game/NPC/DarkSorcerer/BP_DarkSorcerer_NPC.BP_DarkSorcerer_NPC_C"));
     if (!TestNotNull(TEXT("Saved NPC Blueprint loads"), Class)) { return false; }
     auto* NPC = World->SpawnActor<ADarkSorcererNPC>(Class, FVector(0, 0, 100), FRotator::ZeroRotator, Spawn);
     if (!TestNotNull(TEXT("Saved NPC spawns"), NPC)) { return false; }

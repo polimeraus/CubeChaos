@@ -11,7 +11,7 @@ actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 floor = actors.spawn_actor_from_class(unreal.ChunkedDestructibleTriangle, unreal.Vector())
 floor.configure_triangle(800, 700, .2, unreal.Vector(80, 80, 40), unreal.Vector2D(2, 2), False)
 floor.set_planar_animation_type(unreal.PlanarAnimationType.FLOWING_WAVE)
-errors = unreal.MaterialEditingLibrary.recompile_material(unreal.load_asset("/Game/Destructible/Materials/M_PlanarAnimation"))
+errors = unreal.MaterialEditingLibrary.recompile_material(unreal.load_asset("/Game/Materials/Structures/M_PlanarAnimation"))
 if errors:
     raise RuntimeError("Planar shader compile errors: " + str(errors))
 floor.play_fixed_animation()

@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 import unreal
 
-unreal.EditorLoadingAndSavingUtils.load_map('/Game/Structures/FantasyHouse/Lvl_FantasyHousePreview')
+unreal.EditorLoadingAndSavingUtils.load_map('/Game/Structures/DynamicMesh/FantasyHouse/Maps/Lvl_FantasyHousePreview')
 out = Path(unreal.Paths.project_saved_dir()) / 'FantasyHouse/Preview'
 started = time.monotonic()
 
@@ -19,7 +19,7 @@ def tick(delta):
         assert len(placed)==1
         assert placed[0].house_mesh.get_dynamic_mesh().get_triangle_count()==8502
         unreal.SystemLibrary.execute_console_command(game,'EnableCheats')
-        unreal.SystemLibrary.execute_console_command(game,'Summon /Game/Structures/FantasyHouse/BP_ParametricFantasyHouse.BP_ParametricFantasyHouse_C')
+        unreal.SystemLibrary.execute_console_command(game,'Summon /Game/Structures/DynamicMesh/FantasyHouse/BP_ParametricFantasyHouse.BP_ParametricFantasyHouse_C')
         spawned_actors = unreal.GameplayStatics.get_all_actors_of_class(game,unreal.ParametricFantasyHouse)
         assert len(spawned_actors)==2, 'Summon did not create a game-world actor'
         spawned = next(a for a in spawned_actors if a != placed[0])

@@ -10,8 +10,8 @@ content=Path(unreal.Paths.project_content_dir())
 out=Path(unreal.Paths.project_saved_dir())/'ZigguratTraversal'
 backup=out/'Backups'/datetime.now().strftime('%Y%m%d_%H%M%S')
 backup.mkdir(parents=True,exist_ok=True)
-paths=['/Game/Structures/Ziggurat/BP_DestructibleZiggurat',
-       '/Game/Structures/ZigguratPyramit/BP_ChunkedDestructibleZigguratPyramit']
+paths=['/Game/Structures/Destructible/Ziggurat/BP_DestructibleZiggurat',
+       '/Game/Structures/Destructible/ZigguratPyramit/BP_ChunkedDestructibleZigguratPyramit']
 records=[]
 for path in paths:
     source=content/(path.removeprefix('/Game/')+'.uasset')

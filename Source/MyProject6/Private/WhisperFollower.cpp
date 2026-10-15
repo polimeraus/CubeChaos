@@ -50,13 +50,13 @@ AWhisperFollower::AWhisperFollower()
 	Movement->bUseRVOAvoidance = true;
 	Movement->AvoidanceConsiderationRadius = 400.0f;
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> Death(
-		TEXT("/Game/Characters/Whisper/Animations/Anim_Whisper_Death.Anim_Whisper_Death"));
+		TEXT("/Game/NPC/Whisper/Animations/Anim_Whisper_Death.Anim_Whisper_Death"));
 	if (Death.Succeeded()) { DeathAnimation = Death.Object; }
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> Glow(
-		TEXT("/Game/NPC/Materials/M_NPCContactGlow.M_NPCContactGlow"));
+		TEXT("/Game/Materials/NPC/M_NPCContactGlow.M_NPCContactGlow"));
 	if (Glow.Succeeded()) { ContactGlowMaterial = Glow.Object; }
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> Attack(
-		TEXT("/Game/Characters/Whisper/Animations/Anim_Whisper_Attack2.Anim_Whisper_Attack2"));
+		TEXT("/Game/NPC/Whisper/Animations/Anim_Whisper_Attack2.Anim_Whisper_Attack2"));
 	if (Attack.Succeeded()) { ContactAttackAnimation = Attack.Object; }
 }
 

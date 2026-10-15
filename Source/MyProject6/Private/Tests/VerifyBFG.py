@@ -2,14 +2,14 @@
 from pathlib import Path
 import json,time,unreal
 out=Path(unreal.Paths.project_saved_dir())/'BFG';out.mkdir(parents=True,exist_ok=True)
-base='/Game/Weapons/Railgun/'
+base='/Game/Weapons/BFG/'
 for name in ['SM_BFG10K','M_BFGPlasma','S_BFGFire','S_BFGImpact']:
-    assert unreal.load_asset(base+name),name
+    assert unreal.load_asset(base+({'SM':'Meshes','M':'Materials','S':'Audio','A':'Animations'}[name.split('_',1)[0]])+'/'+name),name
 gun_cdo=unreal.get_default_object(unreal.RailgunWeapon)
 assert gun_cdo.damage==200
 assert abs(gun_cdo.bfg_fire_interval-.2)<.001
 assert gun_cdo.bfg_damage==100 and gun_cdo.bfg_splash_damage==100 and gun_cdo.bfg_splash_radius==300
-pickup_class=unreal.load_class(None,'/Game/Gameplay/Pickups/BP_BFGPickup.BP_BFGPickup_C')
+pickup_class=unreal.load_class(None,'/Game/GameplayActors/Pickups/BFG/BP_BFGPickup.BP_BFGPickup_C')
 assert unreal.get_default_object(pickup_class).weapon_reward==unreal.PickupWeapon.BFG
 level=unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)

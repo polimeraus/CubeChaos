@@ -8,7 +8,7 @@ output = Path(unreal.Paths.project_saved_dir()) / 'RadicalMikeWeapon/Preview'
 output.mkdir(parents=True, exist_ok=True)
 world = unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
 actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-cls = unreal.load_class(None, '/Game/Characters/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C')
+cls = unreal.load_class(None, '/Game/NPC/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C')
 npc = actors.spawn_actor_from_class(cls, unreal.Vector(0, 0, 96))
 mesh = npc.mesh
 anim_data = mesh.get_editor_property('animation_data')

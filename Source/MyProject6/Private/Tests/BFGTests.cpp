@@ -42,8 +42,8 @@ bool FBFGTest::RunTest(const FString&)
         { ++GFrameCounter;World->Tick(LEVELTICK_All,Seconds/N); }
     };
     auto* PlayerClass=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
-    auto* BFGPickupClass=LoadClass<AParametricPickup>(nullptr,TEXT("/Game/Gameplay/Pickups/BP_BFGPickup.BP_BFGPickup_C"));
-    auto* RailPickupClass=LoadClass<AParametricPickup>(nullptr,TEXT("/Game/Gameplay/Pickups/BP_ParametricPickup.BP_ParametricPickup_C"));
+    auto* BFGPickupClass=LoadClass<AParametricPickup>(nullptr,TEXT("/Game/GameplayActors/Pickups/BFG/BP_BFGPickup.BP_BFGPickup_C"));
+    auto* RailPickupClass=LoadClass<AParametricPickup>(nullptr,TEXT("/Game/GameplayActors/Pickups/ParametricPickup/BP_ParametricPickup.BP_ParametricPickup_C"));
     if(!TestNotNull(TEXT("Player BP"),PlayerClass)||!TestNotNull(TEXT("BFG pickup BP"),BFGPickupClass)||!TestNotNull(TEXT("Rail pickup BP"),RailPickupClass))return false;
     auto* Player=World->SpawnActor<AMyProject6Character>(PlayerClass,FVector(0,0,500),FRotator::ZeroRotator);
     Player->GetCharacterMovement()->DisableMovement();

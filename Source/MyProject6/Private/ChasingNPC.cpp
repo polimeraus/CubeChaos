@@ -75,7 +75,7 @@ AChasingNPC::AChasingNPC()
 	Movement->AvoidanceConsiderationRadius = 500.0f;
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> CharacterMesh(
-		TEXT("/Game/Characters/Ghoul/Mesh/SK_Ghoul_UE5.SK_Ghoul_UE5"));
+		TEXT("/Game/NPC/Ghoul/Mesh/SK_Ghoul_UE5.SK_Ghoul_UE5"));
 	if (CharacterMesh.Succeeded())
 	{
 		GetMesh()->SetSkeletalMeshAsset(CharacterMesh.Object);
@@ -91,14 +91,14 @@ AChasingNPC::AChasingNPC()
 	}
 
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> DefaultContactAttack(
-		TEXT("/Game/Characters/Ghoul/Animations/Anim_Ghoul_Claw.Anim_Ghoul_Claw"));
+		TEXT("/Game/NPC/Ghoul/Animations/Anim_Ghoul_Claw.Anim_Ghoul_Claw"));
 	if (DefaultContactAttack.Succeeded())
 	{
 		ContactAttackAnimation = DefaultContactAttack.Object;
 	}
 
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> DefaultDeathAnimation(
-		TEXT("/Game/Characters/Ghoul/Animations/A_Ghoul_Death_FullFall.A_Ghoul_Death_FullFall"));
+		TEXT("/Game/NPC/Ghoul/Animations/A_Ghoul_Death_FullFall.A_Ghoul_Death_FullFall"));
 	if (DefaultDeathAnimation.Succeeded())
 	{
 		DeathAnimation = DefaultDeathAnimation.Object;
@@ -121,16 +121,16 @@ AChasingNPC::AChasingNPC()
 	}
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> FadeBody(
-		TEXT("/Game/NPC/Materials/MI_NPCDeath_Slot0.MI_NPCDeath_Slot0"));
+		TEXT("/Game/Materials/NPC/MI_NPCDeath_Slot0.MI_NPCDeath_Slot0"));
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> FadeClothes(
-		TEXT("/Game/NPC/Materials/MI_NPCDeath_Slot1.MI_NPCDeath_Slot1"));
+		TEXT("/Game/Materials/NPC/MI_NPCDeath_Slot1.MI_NPCDeath_Slot1"));
 	if (FadeBody.Succeeded() && FadeClothes.Succeeded())
 	{
 		DeathFadeMaterials = { FadeBody.Object, FadeClothes.Object };
 	}
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> DefaultContactGlow(
-		TEXT("/Game/NPC/Materials/M_NPCContactGlow.M_NPCContactGlow"));
+		TEXT("/Game/Materials/NPC/M_NPCContactGlow.M_NPCContactGlow"));
 	if (DefaultContactGlow.Succeeded())
 	{
 		ContactGlowMaterial = DefaultContactGlow.Object;

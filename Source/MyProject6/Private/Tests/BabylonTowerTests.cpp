@@ -7,8 +7,9 @@
 #include "Engine/World.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/ScopeExit.h"
-#include "PhysicsEngine/AggregateGeom.h"
 #include "UDynamicMesh.h"
+#include "PhysicsEngine/BodySetup.h"
+#include "Chaos/Convex.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBabylonTowerTest,"MyProject6.Destructible.BabylonTower",
     EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
@@ -19,97 +20,118 @@ bool FBabylonTowerTest::RunTest(const FString& Parameters)
     World->InitializeActorsForPlay(FURL());
     ON_SCOPE_EXIT { World->DestroyWorld(false);GEngine->DestroyWorldContext(World); };
     auto* A=World->SpawnActor<AChunkedDestructibleBabylonTower>();
-    if (!TestNotNull(TEXT("New native actor spawns"),A)) return false;
+    if (!TestNotNull(TEXT("Native actor spawns"),A)) return false;
     A->FlashDuration=0;A->bPlayDestroyTickSound=false;A->bUseDestructionRipple=false;
-    const int32 Count=A->GeneratedPieceCount;
-    TestEqual(TEXT("Reference has six storeys including the summit"),A->TierCount,6);
-    TestTrue(TEXT("All facade windows are actual openings"),A->bOpenFacadeRecesses && A->GeneratedOpeningCount>11);
-    TestTrue(TEXT("Facade aperture has no back panel or collision"),!World->LineTraceTestByChannel(FVector(1351,-1600,300),FVector(1351,-1350,300),ECC_Visibility));
-    TestTrue(TEXT("Default geometry fits budget"),Count>100 && Count<50000);
-    TestTrue(TEXT("Height includes summit, floors, cornices and plinth"),
-        FMath::IsNearlyEqual(A->GeneratedHeight,A->FoundationHeight+5*A->TierHeight+A->SummitHeight+6*(A->CorniceHeight+A->FloorThickness)));
-    auto Triangles=[&]() { int32 N=0;for (auto& C:A->ChunkComponents) N+=C->GetDynamicMesh()->GetTriangleCount();return N; };
-    TestEqual(TEXT("Every piece has six quadrilateral faces"),Triangles(),Count*12);
-    int32 Sloping=0;
+    A->Traversal.bGroundLaunchPad=false;A->RebuildTower();
+    auto Triangles=[&]() {int32 N=0;for (auto& C:A->ChunkComponents) N+=C->GetDynamicMesh()->GetTriangleCount();return N;};
+    auto PieceMesh=[&](const auto& P)
+    {
+        UE::Geometry::FDynamicMesh3 M;M.EnableVertexNormals(FVector3f::UnitZ());M.EnableAttributes();
+        M.Attributes()->SetNumUVLayers(1);M.Attributes()->EnableMaterialID();A->AppendPiece(M,P,P.Material);return M;
+    };
+    auto Trace=[&](FVector S,FVector E) {return World->LineTraceTestByChannel(S,E,ECC_Visibility);};
+    const int32 DefaultCount=A->GeneratedPieceCount,DefaultTriangles=Triangles();
+    TestEqual(TEXT("Reference preset is octagonal"),A->SideCount,8);
+    TestEqual(TEXT("Reference preset has fifteen tiers"),A->TierCount,15);
+    TestFalse(TEXT("Reference has no entrance staircase"),A->bEntranceStairs);
+    TestFalse(TEXT("Reference has no decorative cornice bands"),A->bCornices);
+    TestTrue(TEXT("Default geometry fits budget"),DefaultCount>100 && DefaultCount<50000 && A->GenerationWarning.IsEmpty());
+    for (const auto& Component:A->ChunkComponents)
+        for (const auto& Convex:Component->GetBodySetup()->AggGeom.ConvexElems)
+            if (!TestTrue(TEXT("Every visible fragment has a valid cooked collision hull"),
+                Convex.GetChaosConvexMesh() && Convex.GetChaosConvexMesh()->IsValidGeometry()))
+            {
+                for (const auto& V:Convex.VertexData) AddInfo(V.ToString());
+                return false;
+            }
+    TestEqual(TEXT("Each base face has a door, each upper face has one window"),A->GeneratedOpeningCount,120);
+    TestTrue(TEXT("Default height includes actual enabled features"),FMath::IsNearlyEqual(A->GeneratedHeight,
+        A->FoundationHeight+14*A->TierHeight+A->SummitHeight+15*A->FloorThickness));
     for (const auto& P:A->Pieces)
     {
-        FVector V[8];P.Vertices(V);
-        if (!P.BottomMin.Equals(P.TopMin,.001)) ++Sloping;
-        if (!TestTrue(TEXT("Fragments have positive bottom/top volume"),
-            P.Z1>P.Z0 && (P.BottomMax-P.BottomMin).GetMin()>0 && (P.TopMax-P.TopMin).GetMin()>0)) return false;
-        FDynamicMesh3 Mesh;Mesh.EnableVertexNormals(FVector3f::UnitZ());Mesh.EnableAttributes();
-        Mesh.Attributes()->SetNumUVLayers(1);Mesh.Attributes()->EnableMaterialID();
-        A->AppendPiece(Mesh,P,P.Material);
+        const auto Mesh=PieceMesh(P);
+        if (!TestTrue(TEXT("Every fragment has positive height"),P.Bounds.GetSize().Z>0)) return false;
         for (int32 T:Mesh.TriangleIndicesItr())
-            if (!TestTrue(TEXT("No degenerate triangles at tapering corners"),Mesh.GetTriArea(T)>1.e-8)) return false;
+            if (!TestTrue(TEXT("No degenerate triangles in polygon walls or slabs"),Mesh.GetTriArea(T)>1.e-8)) return false;
+        FVector Center=FVector::ZeroVector;for (const auto& V:P.V) Center+=V;Center/=8;
+        if (!TestTrue(TEXT("Convex containment includes fragment centroid"),P.Contains(Center,.001))) return false;
     }
-    TestTrue(TEXT("Walls and crown have genuine continuous slopes"),Sloping>100);
-
-    // A ray through a real base aperture must reach the room without any blocking hull.
+    TestFalse(TEXT("Base door is open"),Trace({0,-1950,100},{0,-1700,100}));
+    const double UpperZ=A->FoundationHeight+A->TierHeight+A->FloorThickness;
+    const double UpperDepth=A->BaseDepth*.5*(1-(1-A->TopScale)/(A->TierCount-1));
+    TestFalse(TEXT("Upper window is open"),Trace({0,-UpperDepth-100,UpperZ+100},{0,-UpperDepth+100,UpperZ+100}));
+    TestTrue(TEXT("Upper window has solid sill, never a doorway"),Trace({0,-UpperDepth-100,UpperZ+15},{0,-UpperDepth+100,UpperZ+15}));
+    TestTrue(TEXT("Window width leaves adjacent wall intact"),Trace({100,-UpperDepth-100,UpperZ+100},{100,-UpperDepth+100,UpperZ+100}));
     FHitResult Hit;
-    TestFalse(TEXT("Central base passage is open"),World->LineTraceSingleByChannel(Hit,
-        FVector(0,-1750,300),FVector(0,-1300,300),ECC_Visibility));
-    int32 Target=INDEX_NONE;
-    for (int32 I=0;I<A->Pieces.Num();++I)
-    {
-        const auto& P=A->Pieces[I];const FVector C=P.Bounds.GetCenter();
-        if (P.Material==0 && C.Y<-1400 && C.Z>300 && C.Z<500 && C.X>700 && C.X<1300 &&
-            P.Bounds.GetSize().X>30 && P.Z1-P.Z0>20) { Target=I;break; }
-    }
-    if (!TestTrue(TEXT("Found a sloping front pier fragment"),Target!=INDEX_NONE)) return false;
-    const auto P=A->Pieces[Target];const FVector Center=P.Bounds.GetCenter();
-    const FVector Start=Center-FVector(0,200,0),End=Center+FVector(0,150,0);
-    TestTrue(TEXT("Shot collides with sloping pier"),World->LineTraceSingleByChannel(Hit,Start,End,ECC_Visibility));
+    const FVector Start(400,-1950,110),End(400,-1650,110);
+    if (!TestTrue(TEXT("Shot hits a polygon pier"),World->LineTraceSingleByChannel(Hit,Start,End,ECC_Visibility))) return false;
     FIntPoint Cell;
-    TestTrue(TEXT("Slope hit resolves to exact convex fragment"),A->ResolveExistingCellFromHit(Hit,Cell));
-    TestEqual(TEXT("Correct fragment selected"),Cell.X,Target);
-    const FVector Empty(P.Bounds.GetCenter().X,P.Bounds.Min.Y+.01,P.Z1-.01);
-    TestTrue(TEXT("Air sample lies inside broad-phase box"),P.Bounds.IsInside(Empty));
-    TestFalse(TEXT("Air outside sloped solid does not resolve as that piece"),P.Contains(Empty,.01));
+    if (!TestTrue(TEXT("Hit maps to a destructible fragment"),A->ResolveExistingCellFromHit(Hit,Cell))) return false;
+    const int32 Target=Cell.X;const auto Piece=A->Pieces[Target];const int32 RemovedTriangles=PieceMesh(Piece).TriangleCount();
     TestTrue(TEXT("Nonlethal shot applies health"),A->DamageCellFromHit(Hit,5));
-    TestEqual(TEXT("Nonlethal shot retains mesh"),Triangles(),Count*12);
-    TestTrue(TEXT("Lethal shot removes a piece"),A->DamageCellFromHit(Hit,100));
+    TestEqual(TEXT("Nonlethal damage retains mesh"),Triangles(),DefaultTriangles);
+    TestTrue(TEXT("Lethal shot removes piece"),A->DamageCellFromHit(Hit,100));
     A->ProcessQueuedDestructions(1.e10);A->FlushDirtyChunks();
-    TestEqual(TEXT("Exactly twelve triangles disappear"),Triangles(),Count*12-12);
-    TestFalse(TEXT("Convex collision disappears with fragment"),World->LineTraceSingleByChannel(Hit,Start,End,ECC_Visibility));
-    A->RestoreCell(FIntPoint(Target,0));
-    TestTrue(TEXT("Restored fragment collides"),World->LineTraceSingleByChannel(Hit,Start,End,ECC_Visibility));
-
+    TestEqual(TEXT("Only hit fragment triangles disappear"),Triangles(),DefaultTriangles-RemovedTriangles);
+    TestFalse(TEXT("Destroyed convex collision disappears"),Trace(Start,End));
+    A->RestoreCell({Target,0});TestTrue(TEXT("Restored piece collides"),Trace(Start,End));
     const FTransform Transform(FRotator(0,41,0),FVector(700,-250,100),FVector(1.4,.8,1.2));
     A->SetActorTransform(Transform);
-    TestTrue(TEXT("Transformed piece center maps correctly"),A->WorldLocationToCell(Transform.TransformPosition(Center),Cell));
+    FVector Center=FVector::ZeroVector;for (const auto& V:Piece.V) Center+=V;Center/=8;
+    TestTrue(TEXT("Transformed convex piece maps correctly"),A->WorldLocationToCell(Transform.TransformPosition(Center),Cell));
     TestEqual(TEXT("Transformed identity"),Cell.X,Target);
-    const int32 Removed=A->DestroyCellsInRadius(Transform.TransformPosition(Center),230,EChunkedFloorBlastShape::Circle);
+    TestTrue(TEXT("Explosion affects multiple pieces"),A->DestroyCellsInRadius(Transform.TransformPosition(Center),230,EChunkedFloorBlastShape::Circle)>1);
     A->ProcessQueuedDestructions(1.e10);A->FlushDirtyChunks();
-    TestTrue(TEXT("Explosion affects several fragments"),Removed>1);
-    TestEqual(TEXT("Explosion mesh matches removed fragments"),Triangles(),(Count-Removed)*12);
-    A->RebuildTower();
-    TestEqual(TEXT("Rebuild is deterministic and repairs damage"),Triangles(),Count*12);
+    A->SetActorTransform(FTransform::Identity);A->RebuildTower();
+    TestEqual(TEXT("Rebuild deterministically restores geometry"),Triangles(),DefaultTriangles);
 
-    A->TierCount=3;A->BaseWidth=2800;A->BaseDepth=2200;A->SummitHeight=700;A->PieceSize=150;
-    A->RebuildTower();
-    TestTrue(TEXT("Three-storey parameter variant rebuilds"),A->GenerationWarning.IsEmpty());
-    TestTrue(TEXT("Window count follows actual storeys"),A->GeneratedOpeningCount>5);
-    TestTrue(TEXT("Size/count changes produce distinct geometry"),A->GeneratedPieceCount!=Count);
-    A->bEntrance=false;A->bUpperWindows=false;A->FrontRecessCount=0;A->SideRecessCount=0;
-    A->bSummitCorbels=false;A->RebuildTower();
-    TestEqual(TEXT("Disabled entrance/windows close all openings"),A->GeneratedOpeningCount,0);
-    for (const auto& Q:A->Pieces) if (!TestTrue(TEXT("Portal and recesses are disabled"),Q.Material!=3 && Q.Material!=5)) return false;
-    const int32 PreviousCount=A->GeneratedPieceCount,PreviousTriangles=Triangles();
+    A->TierCount=3;A->TopScale=.45f;A->EntranceCount=1;A->WindowsPerSide=2;
+    for (int32 Sides:{3,4,5,7,8,12,32})
+    {
+        A->SideCount=Sides;A->RebuildTower();
+        TestTrue(TEXT("Polygon variant generates without warnings"),A->GenerationWarning.IsEmpty());
+        TestEqual(TEXT("Window count uses every requested polygon face"),A->GeneratedOpeningCount,1+4*Sides);
+        const double Z=A->FoundationHeight+10;
+        for (int32 Face=0;Face<Sides;++Face)
+        {
+            const double Angle=-UE_HALF_PI+Face*UE_TWO_PI/Sides;
+            const FVector N(FMath::Cos(Angle),FMath::Sin(Angle),0);
+            TestEqual(TEXT("Every polygon edge has solid ground wall except entrance"),Trace(N*1600+FVector(0,0,Z),N*1900+FVector(0,0,Z)),Face!=0);
+        }
+        // Square traversal aperture must remain clear through every polygon slab.
+        TestFalse(TEXT("Polygon slabs preserve square shaft corner"),Trace({85,85,100},{85,85,A->GeneratedHeight+100}));
+    }
+    A->SideCount=7;A->WindowsPerSide=1;A->TierWindowCounts={0,3,0};A->TierWindowWidths={0,180};A->RebuildTower();
+    TestEqual(TEXT("Per-tier window counts override the global count including zero"),A->GeneratedOpeningCount,22);
+    A->TierWindowCounts.Reset();A->WindowsPerSide=1;A->RebuildTower();
+    const double Z=A->FoundationHeight+A->TierHeight+A->FloorThickness+100;
+    const double Depth=A->BaseDepth*.5*(1+A->TopScale)*.5;
+    TestFalse(TEXT("Per-tier width opens wall at 75 cm from center"),Trace({75,-Depth-100,Z},{75,-Depth+100,Z}));
+    A->TierWindowWidths.Reset();A->WindowWidth=60;A->RebuildTower();
+    TestTrue(TEXT("Reducing width restores wall at same point"),Trace({75,-Depth-100,Z},{75,-Depth+100,Z}));
+    const int32 Plain=A->GeneratedPieceCount;const float PlainHeight=A->GeneratedHeight;
+    A->bCornices=true;A->RebuildTower();
+    TestTrue(TEXT("Cornice toggle adds damageable bands"),A->GeneratedPieceCount>Plain);
+    TestTrue(TEXT("Band height is parameterized"),FMath::IsNearlyEqual(A->GeneratedHeight,PlainHeight+3*A->CorniceHeight));
+    A->bCornices=false;A->bEntranceStairs=true;A->RebuildTower();
+    TestTrue(TEXT("Stair toggle adds steps outside ground entrance"),Trace({0,-2000,100},{0,-2000,-10}));
+    A->bEntranceStairs=false;A->RebuildTower();
+    TestFalse(TEXT("Stair toggle removes both mesh and collision"),Trace({0,-2000,100},{0,-2000,-10}));
+    A->bEntrance=false;A->WindowsPerSide=0;A->RebuildTower();
+    TestEqual(TEXT("Zero count disables all windows"),A->GeneratedOpeningCount,0);
+    const int32 Previous=A->GeneratedPieceCount,PreviousTriangles=Triangles();
     AddExpectedMessage(TEXT("Piece budget exceeded"),EAutomationExpectedMessageFlags::Contains,1);
     A->MaxGeneratedCells=5;A->RebuildTower();
-    TestEqual(TEXT("Budget rejection preserves previous piece count"),A->GeneratedPieceCount,PreviousCount);
-    TestEqual(TEXT("Budget rejection preserves previous visible geometry"),Triangles(),PreviousTriangles);
-    A->MaxGeneratedCells=50000;A->BaseWidth=600;A->BaseDepth=600;A->TopScale=.2f;A->WallThickness=180;
-    A->WallBatter=.08f;A->TierCount=12;A->bEntrance=true;A->bUpperWindows=true;A->RebuildTower();
-    TestTrue(TEXT("Narrow twelve-storey variant stays valid"),A->GenerationWarning.IsEmpty());
-    A->TierCount=1;A->FoundationHeight=0;A->RebuildTower();
-    TestTrue(TEXT("Single summit with no plinth is supported"),A->GenerationWarning.IsEmpty());
-    TestEqual(TEXT("Single storey has only the entrance"),A->GeneratedOpeningCount,1);
-    A->DispatchBeginPlay();
-    TestEqual(TEXT("BeginPlay rebuild retains piece geometry"),Triangles(),A->GeneratedPieceCount*12);
+    TestEqual(TEXT("Budget failure preserves geometry count"),A->GeneratedPieceCount,Previous);
+    TestEqual(TEXT("Budget failure preserves visible mesh"),Triangles(),PreviousTriangles);
+    A->MaxGeneratedCells=50000;A->BaseWidth=600;A->BaseDepth=900;A->TopScale=.05f;
+    A->SideCount=3;A->TierCount=32;A->WallThickness=180;A->WallBatter=.08f;A->RebuildTower();
+    TestTrue(TEXT("Narrow stretched polygon at parameter limits is valid"),A->GenerationWarning.IsEmpty());
+    A->TierCount=1;A->FoundationHeight=0;A->bEntrance=true;A->RebuildTower();
+    TestEqual(TEXT("Single storey has only ground entrance"),A->GeneratedOpeningCount,1);
+    A->DispatchBeginPlay();TestTrue(TEXT("Runtime rebuild generates geometry"),Triangles()>0);
     TestFalse(TEXT("Idle actor does not tick"),A->IsActorTickEnabled());
-    AddInfo(FString::Printf(TEXT("Reference preset: %d pieces, %d triangles"),Count,Count*12));
+    AddInfo(FString::Printf(TEXT("Reference preset: %d pieces, %d triangles"),DefaultCount,DefaultTriangles));
     return true;
 }
 #endif

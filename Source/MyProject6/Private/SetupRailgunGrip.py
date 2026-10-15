@@ -23,7 +23,7 @@ def arc(a,b):
     return mul(q,1/length(q))
 
 source = unreal.load_asset('/Game/Characters/Mannequins/Anims/Rifle/MF_Rifle_Idle_ADS')
-path = '/Game/Weapons/Railgun/A_RailgunHold'
+path = '/Game/Weapons/Railgun/Animations/A_RailgunHold'
 target = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else unreal.EditorAssetLibrary.duplicate_asset(source.get_path_name(), path)
 assert target
 options = unreal.AnimPoseEvaluationOptions()

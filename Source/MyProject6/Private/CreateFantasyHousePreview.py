@@ -3,11 +3,11 @@ import json
 from pathlib import Path
 import unreal
 
-path = '/Game/Structures/FantasyHouse/Lvl_FantasyHousePreview'
+path = '/Game/Structures/DynamicMesh/FantasyHouse/Maps/Lvl_FantasyHousePreview'
 assert not unreal.EditorAssetLibrary.does_asset_exist(path), 'Preview already exists; preserving it'
 world = unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
 actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-bp = unreal.load_asset('/Game/Structures/FantasyHouse/BP_ParametricFantasyHouse')
+bp = unreal.load_asset('/Game/Structures/DynamicMesh/FantasyHouse/BP_ParametricFantasyHouse')
 house = actors.spawn_actor_from_class(bp.generated_class(), unreal.Vector())
 house.set_actor_label('FantasyHouse_Parametric')
 house.set_folder_path('Fantasy House')

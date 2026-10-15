@@ -18,7 +18,7 @@ if blueprint:
 else:
     factory = unreal.AnimBlueprintFactory()
     factory.set_editor_property('parent_class', unreal.NPCHitBendAnimInstance)
-    mesh = unreal.load_asset('/Game/Characters/Ghoul/Mesh/SK_Ghoul_UE5')
+    mesh = unreal.load_asset('/Game/NPC/Ghoul/Mesh/SK_Ghoul_UE5')
     factory.set_editor_property('target_skeleton', mesh.skeleton)
     blueprint = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
         'ABP_NPCHitBend', '/Game/NPC/Animations', unreal.AnimBlueprint, factory)

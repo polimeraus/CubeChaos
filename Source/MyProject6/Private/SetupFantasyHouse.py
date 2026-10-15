@@ -7,13 +7,13 @@ import json
 from pathlib import Path
 import unreal
 
-folder = '/Game/Structures/FantasyHouse'
+folder = '/Game/Structures/DynamicMesh/FantasyHouse'
 assets = unreal.AssetToolsHelpers.get_asset_tools()
 edit = unreal.MaterialEditingLibrary
-path = folder + '/M_FantasyHouse'
+path = folder + '/Materials/M_FantasyHouse'
 mat = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None
 if mat is None:
-    mat = assets.create_asset('M_FantasyHouse', folder, unreal.Material, unreal.MaterialFactoryNew())
+    mat = assets.create_asset('M_FantasyHouse', folder+'/Materials', unreal.Material, unreal.MaterialFactoryNew())
     tint = edit.create_material_expression(mat, unreal.MaterialExpressionVectorParameter, -500, 0)
     tint.set_editor_property('parameter_name', 'Tint')
     tint.set_editor_property('default_value', unreal.LinearColor(.36, .24, .51, 1))

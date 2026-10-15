@@ -43,17 +43,17 @@ ARailgunWeapon::ARailgunWeapon()
     Arms->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Rifle(TEXT("/Game/Weapons/Rifle/Meshes/SM_Rifle.SM_Rifle"));
     WeaponMesh->SetStaticMesh(Rifle.Object);
-    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> RailModel(TEXT("/Game/Weapons/Railgun/SM_QuakeRailgun.SM_QuakeRailgun"));
+    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> RailModel(TEXT("/Game/Weapons/Railgun/Meshes/SM_QuakeRailgun.SM_QuakeRailgun"));
     RailgunModel = RailModel.Get();
-    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> BFGMesh(TEXT("/Game/Weapons/Railgun/SM_BFG10K.SM_BFG10K"));
+    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> BFGMesh(TEXT("/Game/Weapons/BFG/Meshes/SM_BFG10K.SM_BFG10K"));
     BFGModel = BFGMesh.Get();
-    static ConstructorHelpers::FObjectFinderOptional<USoundBase> BFGSound(TEXT("/Game/Weapons/Railgun/S_BFGFire.S_BFGFire"));
+    static ConstructorHelpers::FObjectFinderOptional<USoundBase> BFGSound(TEXT("/Game/Weapons/BFG/Audio/S_BFGFire.S_BFGFire"));
     BFGFireSound = BFGSound.Get();
-    static ConstructorHelpers::FObjectFinder<UAnimSequence> Hold(TEXT("/Game/Weapons/Railgun/A_RailgunHold.A_RailgunHold"));
+    static ConstructorHelpers::FObjectFinder<UAnimSequence> Hold(TEXT("/Game/Weapons/Railgun/Animations/A_RailgunHold.A_RailgunHold"));
     HoldAnimation = Hold.Object;
-    static ConstructorHelpers::FObjectFinder<USoundBase> Sound(TEXT("/Game/Weapons/Railgun/S_RailFire.S_RailFire"));
+    static ConstructorHelpers::FObjectFinder<USoundBase> Sound(TEXT("/Game/Weapons/Railgun/Audio/S_RailFire.S_RailFire"));
     FireSound = Sound.Object;
-    static ConstructorHelpers::FObjectFinder<UMaterialInterface> ArmSurface(TEXT("/Game/Weapons/Railgun/M_RailArms.M_RailArms"));
+    static ConstructorHelpers::FObjectFinder<UMaterialInterface> ArmSurface(TEXT("/Game/Weapons/Railgun/Materials/M_RailArms.M_RailArms"));
     ArmsMaterial = ArmSurface.Object;
 }
 

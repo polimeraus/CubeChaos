@@ -83,7 +83,7 @@ def create_hit_sound():
 
 def create_fade_material(source, index):
     # Duplicate the character's shader so normal maps, textures and lighting stay intact.
-    path = ROOT + f'/Materials/M_NPCDeath_Slot{index}'
+    path = f'/Game/Materials/NPC/M_NPCDeath_Slot{index}'
     material = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None
     if material is None:
         material = unreal.EditorAssetLibrary.duplicate_asset(source.get_base_material().get_path_name(), path)
@@ -100,11 +100,11 @@ def create_fade_material(source, index):
             raise RuntimeError('Could not connect the death opacity mask')
         edit.recompile_material(material)
         save(material)
-    instance_path = ROOT + f'/Materials/MI_NPCDeath_Slot{index}'
+    instance_path = f'/Game/Materials/NPC/MI_NPCDeath_Slot{index}'
     instance = unreal.load_asset(instance_path) if unreal.EditorAssetLibrary.does_asset_exist(instance_path) else None
     if instance is None:
         instance = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
-            f'MI_NPCDeath_Slot{index}', ROOT + '/Materials', unreal.MaterialInstanceConstant,
+            f'MI_NPCDeath_Slot{index}', '/Game/Materials/NPC', unreal.MaterialInstanceConstant,
             unreal.MaterialInstanceConstantFactoryNew())
         edit.set_material_instance_parent(instance, material)
         edit.set_material_instance_scalar_parameter_value(instance, PARAMETER, 1.0)
@@ -113,7 +113,7 @@ def create_fade_material(source, index):
 
 
 sound = create_hit_sound()
-mesh = unreal.load_asset('/Game/Characters/Ghoul/Mesh/SK_Ghoul_UE5')
+mesh = unreal.load_asset('/Game/NPC/Ghoul/Mesh/SK_Ghoul_UE5')
 materials = [create_fade_material(slot.get_editor_property('material_interface'), index)
              for index, slot in enumerate(mesh.get_editor_property('materials'))]
 animation = unreal.load_asset('/Game/Characters/Mannequins/Anims/Death/MM_Death_Front_01')

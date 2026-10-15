@@ -13,7 +13,7 @@ floor.static_mesh_component.set_static_mesh(unreal.load_asset('/Engine/BasicShap
 floor.set_actor_scale3d(unreal.Vector(30, 30, .2))
 light = actors.spawn_actor_from_class(unreal.DirectionalLight, unreal.Vector(0, 0, 500), unreal.Rotator(pitch=-50, yaw=-30))
 light.light_component.set_editor_property('intensity', 3)
-pad = actors.spawn_actor_from_class(unreal.load_asset('/Game/Gameplay/LaunchPad/BP_LaunchPad').generated_class(), unreal.Vector())
+pad = actors.spawn_actor_from_class(unreal.load_asset('/Game/GameplayActors/LaunchPad/BP_LaunchPad').generated_class(), unreal.Vector())
 test_character = actors.spawn_actor_from_class(unreal.Character, unreal.Vector(400, 0, 120))
 test_character.set_editor_property('tags', ['LaunchPadPreviewCharacter'])
 position = unreal.Vector(260, -320, 350)

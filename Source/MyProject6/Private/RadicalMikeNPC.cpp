@@ -49,17 +49,17 @@ ARadicalMikeNPC::ARadicalMikeNPC()
 	MuzzleFlash->SetVisibility(false);
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Weapon(
-		TEXT("/Game/Characters/RadicalMike/Mesh/SM_RadicalBuster.SM_RadicalBuster"));
+		TEXT("/Game/NPC/RadicalMike/Mesh/SM_RadicalBuster.SM_RadicalBuster"));
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> Body(
-		TEXT("/Game/Characters/RadicalMike/Mesh/SKM_MegaMikeZ.SKM_MegaMikeZ"));
+		TEXT("/Game/NPC/RadicalMike/Mesh/SKM_MegaMikeZ.SKM_MegaMikeZ"));
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> Fire(
-		TEXT("/Game/Characters/RadicalMike/Animations/Anim_ZMIKE_FireR.Anim_ZMIKE_FireR"));
+		TEXT("/Game/NPC/RadicalMike/Animations/Anim_ZMIKE_FireR.Anim_ZMIKE_FireR"));
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> Idle(
-		TEXT("/Game/Characters/RadicalMike/Animations/Anim_ZMIKE_BusterIdle_R.Anim_ZMIKE_BusterIdle_R"));
+		TEXT("/Game/NPC/RadicalMike/Animations/Anim_ZMIKE_BusterIdle_R.Anim_ZMIKE_BusterIdle_R"));
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> Run(
-		TEXT("/Game/Characters/RadicalMike/Animations/Anim_ZMIKE_RunChase.Anim_ZMIKE_RunChase"));
+		TEXT("/Game/NPC/RadicalMike/Animations/Anim_ZMIKE_RunChase.Anim_ZMIKE_RunChase"));
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> Death(
-		TEXT("/Game/Characters/RadicalMike/Animations/Anim_ZMIKE_DeathState.Anim_ZMIKE_DeathState"));
+		TEXT("/Game/NPC/RadicalMike/Animations/Anim_ZMIKE_DeathState.Anim_ZMIKE_DeathState"));
 	static ConstructorHelpers::FObjectFinder<USoundBase> Sound(
 		TEXT("/Game/Weapons/GrenadeLauncher/Audio/FirstPersonTemplateWeaponFire02.FirstPersonTemplateWeaponFire02"));
 	if (Weapon.Succeeded()) { BusterWeapon->SetStaticMesh(Weapon.Object); }

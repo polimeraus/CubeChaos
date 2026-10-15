@@ -125,7 +125,7 @@ AParametricRetroTriangleSign::AParametricRetroTriangleSign()
 	ConfigureSafeTextRenderer(SubtitleShadowComponent);
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> GlowMaterialFinder(
-		TEXT("/Game/LevelPrototyping/Interactable/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+		TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
 	if (GlowMaterialFinder.Succeeded())
 	{
 		MaterialAssignments.PanelMaterial = GlowMaterialFinder.Object;
@@ -502,7 +502,7 @@ UMaterialInstanceDynamic* AParametricRetroTriangleSign::CreateTintedMaterial(
 	{
 		ParentMaterial = LoadObject<UMaterialInterface>(
 			nullptr,
-			TEXT("/Game/LevelPrototyping/Interactable/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+			TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
 	}
 	if (!ParentMaterial)
 	{
@@ -1582,7 +1582,7 @@ void AParametricRetroTriangleSign::ApplyReferenceShieldPreset()
 
 	if (UFont* BlockFont = LoadObject<UFont>(
 		nullptr,
-		TEXT("/Game/RetroSign/Fonts/RetroBlock_RussoOne_Font.RetroBlock_RussoOne_Font")))
+		TEXT("/Game/Structures/DynamicMesh/RetroTriangleSign/Fonts/RetroBlock_RussoOne_Font.RetroBlock_RussoOne_Font")))
 	{
 		MainText.Font = BlockFont;
 	}
@@ -1619,7 +1619,7 @@ void AParametricRetroTriangleSign::ApplyReferenceShieldPreset()
 
 	if (UFont* ScriptFont = LoadObject<UFont>(
 		nullptr,
-		TEXT("/Game/RetroSign/Fonts/RetroScript_Yellowtail_Font.RetroScript_Yellowtail_Font")))
+		TEXT("/Game/Structures/DynamicMesh/RetroTriangleSign/Fonts/RetroScript_Yellowtail_Font.RetroScript_Yellowtail_Font")))
 	{
 		SubtitleText.Font = ScriptFont;
 	}

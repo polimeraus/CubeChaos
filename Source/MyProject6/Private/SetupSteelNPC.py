@@ -5,8 +5,8 @@ import unreal
 
 OUT = (Path(unreal.Paths.project_saved_dir()) / 'SteelNPC').resolve()
 OUT.mkdir(parents=True, exist_ok=True)
-ROOT = '/Game/Characters/ParagonSteel'
-CRUNCH = '/Game/Characters/ParagonCrunch/Characters/Heroes/Crunch'
+ROOT = '/Game/NPC/ParagonSteel'
+CRUNCH = '/Game/NPC/ParagonCrunch/Characters/Heroes/Crunch'
 LIB = unreal.EditorAssetLibrary
 TOOLS = unreal.AssetToolsHelpers.get_asset_tools()
 

@@ -10,8 +10,8 @@ out = root / 'Saved/Railgun/Quake'
 out.mkdir(parents=True, exist_ok=True)
 
 def make_material(name, code, inputs, additive=False):
-    path = base + '/' + name
-    m = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else assets.create_asset(name, base, unreal.Material, unreal.MaterialFactoryNew())
+    path = base + '/Materials/' + name
+    m = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else assets.create_asset(name, base+'/Materials', unreal.Material, unreal.MaterialFactoryNew())
     # Reuse existing nodes when rerun: constructor-loaded expressions can be rooted.
     expressions = list(edit.get_material_expressions(m))
     def node(cls, parameter=None):
@@ -70,15 +70,15 @@ palette={
  'RailBrass':((.28,.20,.07),.8,.35,0)}
 materials={}
 for name,(color,metal,rough,emission) in palette.items():
-    path=base+'/MI_'+name
-    mi=unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else assets.create_asset('MI_'+name,base,unreal.MaterialInstanceConstant,unreal.MaterialInstanceConstantFactoryNew())
+    path=base+'/Materials/MI_'+name
+    mi=unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else assets.create_asset('MI_'+name,base+'/Materials',unreal.MaterialInstanceConstant,unreal.MaterialInstanceConstantFactoryNew())
     edit.set_material_instance_parent(mi,surface)
     edit.set_material_instance_vector_parameter_value(mi,'Tint',unreal.LinearColor(*color,1))
     for key,val in [('Metallic',metal),('Roughness',rough),('Emission',emission)]:edit.set_material_instance_scalar_parameter_value(mi,key,val)
     unreal.EditorAssetLibrary.save_loaded_asset(mi,False);materials[name]=mi
 
 task=unreal.AssetImportTask()
-for key,value in {'filename':str(root/'ContentSource/Railgun/SM_QuakeRailgun.fbx'),'destination_path':base,
+for key,value in {'filename':str(root/'ContentSource/Railgun/SM_QuakeRailgun.fbx'),'destination_path':base+'/Meshes',
                   'destination_name':'SM_QuakeRailgun','automated':True,'replace_existing':True,'save':True}.items():task.set_editor_property(key,value)
 options=unreal.FbxImportUI()
 for key,value in {'import_mesh':True,'import_as_skeletal':False,'import_materials':False,'import_textures':False,
@@ -87,7 +87,7 @@ data=options.get_editor_property('static_mesh_import_data')
 for key,value in {'combine_meshes':True,'auto_generate_collision':False,'convert_scene':True,'convert_scene_unit':True,
                   'normal_import_method':unreal.FBXNormalImportMethod.FBXNIM_IMPORT_NORMALS_AND_TANGENTS}.items():data.set_editor_property(key,value)
 task.set_editor_property('options',options);assets.import_asset_tasks([task])
-mesh=unreal.load_asset(base+'/SM_QuakeRailgun');assert mesh
+mesh=unreal.load_asset(base+'/Meshes/SM_QuakeRailgun');assert mesh
 slots=mesh.get_editor_property('static_materials')
 for index,slot in enumerate(slots):
     name=str(slot.get_editor_property('material_slot_name'));assert name in materials,name

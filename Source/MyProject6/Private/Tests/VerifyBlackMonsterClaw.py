@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 import unreal
 
-asset = unreal.load_asset('/Game/Characters/black-monster/Animations/Anim_BlackMonster_Claw')
+asset = unreal.load_asset('/Game/NPC/BlackMonster/Animations/Anim_BlackMonster_Claw')
 ext = unreal.AnimPoseExtensions
 world = unreal.AnimPoseSpaces.WORLD
 names = ['Hips', 'Head', 'LeftArm', 'RightArm', 'LeftForeArm', 'RightForeArm',

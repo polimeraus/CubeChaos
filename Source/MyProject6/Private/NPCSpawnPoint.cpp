@@ -100,7 +100,7 @@ ANPCSpawnPoint::ANPCSpawnPoint()
 	PortalRoot->SetupAttachment(RootComponent);
 	PortalRoot->SetAbsolute(false, true, true);
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> PortalPlane(TEXT("/Engine/BasicShapes/Plane.Plane"));
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> PortalShader(TEXT("/Game/NPC/Spawning/M_NPCSpawnPortal.M_NPCSpawnPortal"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> PortalShader(TEXT("/Game/GameplayActors/NPCSpawner/Materials/M_NPCSpawnPortal.M_NPCSpawnPortal"));
 	PortalMaterial = PortalShader.Object;
 	const FName LayerNames[] = { TEXT("PortalFloorGlyph"), TEXT("PortalRisingHaloA"), TEXT("PortalRisingHaloB") };
 	for (const FName LayerName : LayerNames)

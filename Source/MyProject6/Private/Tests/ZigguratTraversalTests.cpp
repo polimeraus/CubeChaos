@@ -82,6 +82,8 @@ bool FZigguratTraversalTest::RunTest(const FString&)
         TestEqual(TEXT("Closed-floor effective width"),Temple->EffectiveOpeningWidth,0.f);
         Temple->Traversal.bGroundLaunchPad=true;Rebuild();
         TestNotNull(TEXT("Pad flag is independent of floor flag"),Temple->GroundLaunchPad->GetChildActor());
+        // The Babylon reference has a narrower summit; enlarge it for the 360 cm shaft case.
+        if constexpr (std::is_same_v<T,AChunkedDestructibleBabylonTower>) Temple->TopScale=.2f;
         Temple->Traversal.bFloorOpenings=true;Temple->Traversal.OpeningWidth=360;
         Temple->Traversal.PadWidth=240;Temple->Traversal.AnimationSpeed=2.5;
         Temple->Traversal.Brightness=6;Temple->Traversal.bAutoLaunchHeight=false;

@@ -17,8 +17,8 @@ backup = out / ('Backup_' + datetime.now().strftime('%Y%m%d_%H%M%S'))
 external = content / '__ExternalActors__/FirstPerson/Lvl_FirstPerson'
 files = list(external.rglob('*.uasset')) + [
     content / 'FirstPerson/Lvl_FirstPerson.umap',
-    content / 'Structures/FantasyHouse/Lvl_FantasyHousePreview.umap',
-    content / 'Structures/FantasyHouse/BP_ParametricFantasyHouse.uasset']
+    content / 'Structures/DynamicMesh/FantasyHouse/Maps/Lvl_FantasyHousePreview.umap',
+    content / 'Structures/DynamicMesh/FantasyHouse/BP_ParametricFantasyHouse.uasset']
 before = {}
 for path in files:
     if not path.exists(): continue
@@ -28,7 +28,7 @@ for path in files:
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(path, destination)
 
-bp = unreal.load_asset('/Game/Structures/FantasyHouse/BP_ParametricFantasyHouse')
+bp = unreal.load_asset('/Game/Structures/DynamicMesh/FantasyHouse/BP_ParametricFantasyHouse')
 assert bp
 cdo = unreal.get_default_object(bp.generated_class())
 cdo.modify()
@@ -39,7 +39,7 @@ assert unreal.EditorAssetLibrary.save_loaded_asset(bp, False)
 
 subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 report = []
-for level in ('/Game/Structures/FantasyHouse/Lvl_FantasyHousePreview', '/Game/FirstPerson/Lvl_FirstPerson'):
+for level in ('/Game/Structures/DynamicMesh/FantasyHouse/Maps/Lvl_FantasyHousePreview', '/Game/FirstPerson/Lvl_FirstPerson'):
     world = unreal.EditorLoadingAndSavingUtils.load_map(level)
     assert world
     houses = [a for a in subsystem.get_all_level_actors() if isinstance(a, unreal.ParametricFantasyHouse)]

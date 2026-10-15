@@ -5,10 +5,11 @@ import unreal
 
 root=Path(unreal.Paths.project_dir())
 out=root/'Saved/BFG';out.mkdir(parents=True,exist_ok=True)
-base='/Game/Weapons/Railgun'  # Keep the weapons' assets together.
+base='/Game/Weapons/BFG'
 assets=unreal.AssetToolsHelpers.get_asset_tools()
 edit=unreal.MaterialEditingLibrary
 def load_or_create(name,cls,factory,folder=base):
+    if cls in (unreal.Material, unreal.MaterialInstanceConstant): folder += '/Materials'
     path=folder+'/'+name
     return unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else assets.create_asset(name,folder,cls,factory)
 
@@ -39,7 +40,7 @@ edit.connect_material_property(opacity,'',unreal.MaterialProperty.MP_OPACITY)
 edit.layout_material_expressions(plasma);edit.recompile_material(plasma)
 assert unreal.EditorAssetLibrary.save_loaded_asset(plasma,False)
 
-surface=unreal.load_asset(base+'/M_RailMetal');assert surface
+surface=unreal.load_asset('/Game/Weapons/Railgun/Materials/M_RailMetal');assert surface
 palette={'BFGSteel':((.27,.30,.25),.8,.38,0),'BFGBronze':((.35,.16,.048),.7,.4,0),
          'BFGDark':((.022,.029,.024),.45,.5,0),'BFGEnergy':((.03,1,.12),.25,.28,2.4),
          'BFGRubber':((.012,.016,.013),.05,.68,0)}
@@ -53,7 +54,7 @@ for name,(color,metal,rough,emission) in palette.items():
     materials[name]=mi
 
 task=unreal.AssetImportTask()
-for key,val in {'filename':str(root/'ContentSource/Railgun/SM_BFG10K.fbx'),'destination_path':base,
+for key,val in {'filename':str(root/'ContentSource/Railgun/SM_BFG10K.fbx'),'destination_path':base+'/Meshes',
                 'destination_name':'SM_BFG10K','automated':True,'replace_existing':True,'save':True}.items():task.set_editor_property(key,val)
 options=unreal.FbxImportUI()
 for key,val in {'import_mesh':True,'import_as_skeletal':False,'import_materials':False,'import_textures':False,
@@ -62,7 +63,7 @@ data=options.get_editor_property('static_mesh_import_data')
 for key,val in {'combine_meshes':True,'auto_generate_collision':False,'convert_scene':True,'convert_scene_unit':True,
                 'normal_import_method':unreal.FBXNormalImportMethod.FBXNIM_IMPORT_NORMALS_AND_TANGENTS}.items():data.set_editor_property(key,val)
 task.set_editor_property('options',options);assets.import_asset_tasks([task])
-mesh=unreal.load_asset(base+'/SM_BFG10K');assert mesh
+mesh=unreal.load_asset(base+'/Meshes/SM_BFG10K');assert mesh
 slots=mesh.get_editor_property('static_materials')
 for i,slot in enumerate(slots):
     name=str(slot.get_editor_property('material_slot_name'));assert name in materials,name
@@ -85,11 +86,11 @@ for name,duration,impact in [('S_BFGFire',.23,False),('S_BFGImpact',.48,True)]:
         samples.append(struct.pack('<h',int(max(-1,min(1,sample))*.8*32767)))
     with wave.open(str(path),'wb') as f:f.setnchannels(1);f.setsampwidth(2);f.setframerate(44100);f.writeframes(b''.join(samples))
     task=unreal.AssetImportTask()
-    for key,val in {'filename':str(path),'destination_path':base,'destination_name':name,'automated':True,'replace_existing':True,'save':True}.items():task.set_editor_property(key,val)
-    assets.import_asset_tasks([task]);assert unreal.load_asset(base+'/'+name)
+    for key,val in {'filename':str(path),'destination_path':base+'/Audio','destination_name':name,'automated':True,'replace_existing':True,'save':True}.items():task.set_editor_property(key,val)
+    assets.import_asset_tasks([task]);assert unreal.load_asset(base+'/Audio/'+name)
 
 factory=unreal.BlueprintFactory();factory.set_editor_property('parent_class',unreal.ParametricPickup)
-bp=load_or_create('BP_BFGPickup',unreal.Blueprint,factory,'/Game/Gameplay/Pickups')
+bp=load_or_create('BP_BFGPickup',unreal.Blueprint,factory,'/Game/GameplayActors/Pickups/BFG')
 cdo=unreal.get_default_object(bp.generated_class())
 settings={'weapon_reward':unreal.PickupWeapon.BFG,'icon':unreal.PickupMotif.RADIATION_BOMB,
           'icon_color':unreal.LinearColor(.03,1,.12,1),'body_color':unreal.LinearColor(.02,.055,.025,1)}

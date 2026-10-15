@@ -15,9 +15,9 @@ AChunkedDestructiblePolygonTower::AChunkedDestructiblePolygonTower()
     GroundLaunchPad=CreateDefaultSubobject<UChildActorComponent>(TEXT("GroundLaunchPad"));
     GroundLaunchPad->SetupAttachment(GetRootComponent());
     ZigguratTraversal::InitializeMaterials(Traversal);
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Stone(TEXT("/Game/Structures/PolygonTower/MI_PolygonStone"));
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Trim(TEXT("/Game/Structures/PolygonTower/MI_PolygonCornice"));
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Floor(TEXT("/Game/Structures/PolygonTower/MI_PolygonFloor"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Stone(TEXT("/Game/Structures/Destructible/PolygonTower/Materials/MI_PolygonStone"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Trim(TEXT("/Game/Structures/Destructible/PolygonTower/Materials/MI_PolygonCornice"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Floor(TEXT("/Game/Structures/Destructible/PolygonTower/Materials/MI_PolygonFloor"));
     StoneMaterial=Stone.Get();CorniceMaterial=Trim.Get();FloorMaterial=Floor.Get();
 }
 void AChunkedDestructiblePolygonTower::RebuildTower() { GenerateFloor(false); }

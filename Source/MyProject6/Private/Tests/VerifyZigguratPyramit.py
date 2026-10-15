@@ -3,10 +3,10 @@ import json,time
 from pathlib import Path
 import unreal
 
-folder='/Game/Structures/ZigguratPyramit'
+folder='/Game/Structures/Destructible/ZigguratPyramit'
 out=Path(unreal.Paths.project_saved_dir())/'ZigguratPyramit/Preview'
 out.mkdir(parents=True,exist_ok=True)
-world=unreal.EditorLoadingAndSavingUtils.load_map(folder+'/Lvl_ZigguratPyramitPreview')
+world=unreal.EditorLoadingAndSavingUtils.load_map(folder+'/Maps/Lvl_ZigguratPyramitPreview')
 assert world
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 bp=unreal.load_asset(folder+'/BP_ChunkedDestructibleZigguratPyramit')
@@ -97,7 +97,7 @@ def tick(dt):
                     (out/'RenderMetrics.json').write_text(json.dumps(results,indent=2))
                     unreal.log('ZIGGURAT_PYRAMIT_RENDER_OK')
                     stop();return
-                unreal.EditorLoadingAndSavingUtils.load_map(folder+'/Lvl_ZigguratPyramitPreview')
+                unreal.EditorLoadingAndSavingUtils.load_map(folder+'/Maps/Lvl_ZigguratPyramitPreview')
                 state.update(runtime=True,next=time.monotonic()+5,deadline=time.monotonic()+60)
                 unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).editor_play_simulate()
                 return

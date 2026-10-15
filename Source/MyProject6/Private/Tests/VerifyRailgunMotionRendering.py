@@ -27,7 +27,7 @@ gun.arms.set_update_animation_in_editor(True)
 gun.arms.stop()
 options = unreal.AnimPoseEvaluationOptions()
 options.set_editor_property('optional_skeletal_mesh', gun.arms.get_editor_property('skeletal_mesh_asset'))
-pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(unreal.load_asset('/Game/Weapons/Railgun/A_RailgunHold'), 0, options)
+pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(unreal.load_asset('/Game/Weapons/Railgun/Animations/A_RailgunHold'), 0, options)
 reference = {}
 for bone in ('lowerarm_l', 'lowerarm_r', 'hand_l', 'hand_r'):
     position = unreal.AnimPoseExtensions.get_ref_bone_pose(pose, bone, unreal.AnimPoseSpaces.WORLD).translation

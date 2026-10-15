@@ -34,8 +34,8 @@ def configure(actor, health):
     return changed
 
 
-for path, health in [('/Game/Characters/RadicalMike/BP_RadicalMike_NPC', 200.0),
-                     ('/Game/Characters/Whisper/BP_Whisper_Follower', 150.0)]:
+for path, health in [('/Game/NPC/RadicalMike/BP_RadicalMike_NPC', 200.0),
+                     ('/Game/NPC/Whisper/BP_Whisper_Follower', 150.0)]:
     bp = unreal.load_asset(path)
     assert bp, path
     backup_package(path)

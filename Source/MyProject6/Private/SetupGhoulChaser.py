@@ -10,7 +10,7 @@ import shutil
 import unreal
 
 
-GHOUL = '/Game/Characters/Ghoul/Mesh/SK_Ghoul_UE5'
+GHOUL = '/Game/NPC/Ghoul/Mesh/SK_Ghoul_UE5'
 ANIMATION = '/Game/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed'
 LEVEL = '/Game/FirstPerson/Lvl_FirstPerson'
 backup_dir = Path(unreal.Paths.project_saved_dir()) / 'GhoulChaserBackup' / datetime.now().strftime('%Y%m%d_%H%M%S')

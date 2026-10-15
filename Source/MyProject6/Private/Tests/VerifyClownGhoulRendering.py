@@ -47,7 +47,7 @@ def show_case(index):
         actors.destroy_actor(actor)
     spawned.clear()
     cls = unreal.ChasingNPC if index == 0 else unreal.load_class(None,
-        '/Game/Characters/clown_monster/BP_ClownMonster_NPC.BP_ClownMonster_NPC_C')
+        '/Game/NPC/ClownMonster/BP_ClownMonster_NPC.BP_ClownMonster_NPC_C')
     source = unreal.get_default_object(cls).mesh
     for column, stage in enumerate(['Before', 'Impact', 'Dead']):
         actor = actors.spawn_actor_from_class(unreal.Actor, unreal.Vector((column - 1) * 255, (column - 1) * 170, 0))
@@ -71,7 +71,7 @@ def show_case(index):
                     rotation=unreal.Rotator(pitch=v[3], yaw=v[4], roll=v[5]), scale=unreal.Vector(*v[6:9]))))
         else:
             name, seconds = [('anim_idle_1', .3), ('anim_attack_1', 1.0), ('anim_death', 2.2)][column]
-            animation = unreal.load_asset('/Game/Characters/clown_monster/demo/animation/' + name)
+            animation = unreal.load_asset('/Game/NPC/ClownMonster/demo/animation/' + name)
             pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(animation, seconds, unreal.AnimPoseEvaluationOptions())
             transforms = [(bone, unreal.AnimPoseExtensions.get_bone_pose(pose, bone, unreal.AnimPoseSpaces.WORLD))
                           for bone in unreal.AnimPoseExtensions.get_bone_names(pose)]

@@ -16,7 +16,7 @@ UNPCHitReactionComponent::UNPCHitReactionComponent()
 	PrimaryComponentTick.bStartWithTickEnabled = false;
 	PrimaryComponentTick.TickGroup = TG_PrePhysics;
 	ForwardBendAnimClass = TSoftClassPtr<UAnimInstance>(FSoftObjectPath(TEXT("/Game/NPC/Animations/ABP_NPCHitBend.ABP_NPCHitBend_C")));
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> Flash(TEXT("/Game/NPC/Materials/M_NPCHitFlash.M_NPCHitFlash"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> Flash(TEXT("/Game/Materials/NPC/M_NPCHitFlash.M_NPCHitFlash"));
 	HitFlashMaterial = Flash.Object;
 }
 

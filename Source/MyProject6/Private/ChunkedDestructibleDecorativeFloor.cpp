@@ -537,7 +537,7 @@ AChunkedDestructibleDecorativeFloor::AChunkedDestructibleDecorativeFloor()
 	// material in slot 1 so a newly placed actor immediately demonstrates the intended layering.
 	UMaterialInterface* DarkMaterial = FloorMaterials.IsValidIndex(1) ? FloorMaterials[1].Get() : nullptr;
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> GlowMaterialFinder(
-		TEXT("/Game/LevelPrototyping/Interactable/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+		TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
 	if (GlowMaterialFinder.Succeeded())
 	{
 		if (FloorMaterials.IsValidIndex(1))

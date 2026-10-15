@@ -23,12 +23,12 @@ AChunkedDestructibleZigguratPyramit::AChunkedDestructibleZigguratPyramit()
     GroundLaunchPad->SetupAttachment(GetRootComponent());
     ZigguratTraversal::InitializeMaterials(Traversal);
     // Native placement and runtime native spawns share the saved reference palette too.
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Stone(TEXT("/Game/Structures/ZigguratPyramit/MI_PyramitStone"));
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Cornice(TEXT("/Game/Structures/ZigguratPyramit/MI_PyramitCornice"));
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Terrace(TEXT("/Game/Structures/ZigguratPyramit/MI_PyramitTerrace"));
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Lintel(TEXT("/Game/Structures/ZigguratPyramit/MI_PyramitLintel"));
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Foundation(TEXT("/Game/Structures/ZigguratPyramit/MI_PyramitFoundation"));
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Crown(TEXT("/Game/Structures/ZigguratPyramit/MI_PyramitCrown"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Stone(TEXT("/Game/Structures/Destructible/ZigguratPyramit/Materials/MI_PyramitStone"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Cornice(TEXT("/Game/Structures/Destructible/ZigguratPyramit/Materials/MI_PyramitCornice"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Terrace(TEXT("/Game/Structures/Destructible/ZigguratPyramit/Materials/MI_PyramitTerrace"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Lintel(TEXT("/Game/Structures/Destructible/ZigguratPyramit/Materials/MI_PyramitLintel"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Foundation(TEXT("/Game/Structures/Destructible/ZigguratPyramit/Materials/MI_PyramitFoundation"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Crown(TEXT("/Game/Structures/Destructible/ZigguratPyramit/Materials/MI_PyramitCrown"));
     StoneMaterial=Stone.Get();CorniceMaterial=Cornice.Get();TerraceMaterial=Terrace.Get();
     LintelMaterial=Lintel.Get();FoundationMaterial=Foundation.Get();CrownMaterial=Crown.Get();
 }

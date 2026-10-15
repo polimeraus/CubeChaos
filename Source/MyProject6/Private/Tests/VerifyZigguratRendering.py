@@ -6,10 +6,10 @@ import unreal
 
 out = Path(unreal.Paths.project_saved_dir()) / 'Ziggurat/Preview'
 out.mkdir(parents=True, exist_ok=True)
-world = unreal.EditorLoadingAndSavingUtils.load_map('/Game/Structures/Ziggurat/Lvl_ZigguratPreview')
+world = unreal.EditorLoadingAndSavingUtils.load_map('/Game/Structures/Destructible/Ziggurat/Maps/Lvl_ZigguratPreview')
 assert world
 actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-bp = unreal.load_asset('/Game/Structures/Ziggurat/BP_DestructibleZiggurat')
+bp = unreal.load_asset('/Game/Structures/Destructible/Ziggurat/BP_DestructibleZiggurat')
 cdo = unreal.get_default_object(bp.generated_class())
 placed = [a for a in actors.get_all_level_actors() if isinstance(a, unreal.ChunkedDestructibleZiggurat)]
 assert len(placed) == 1
@@ -107,7 +107,7 @@ def tick(delta):
                     stop()
                     return
                 # Reload the saved preview before PIE so no test damage or variant persists.
-                unreal.EditorLoadingAndSavingUtils.load_map('/Game/Structures/Ziggurat/Lvl_ZigguratPreview')
+                unreal.EditorLoadingAndSavingUtils.load_map('/Game/Structures/Destructible/Ziggurat/Maps/Lvl_ZigguratPreview')
                 state.update(runtime=True,next=time.monotonic()+5,deadline=time.monotonic()+60)
                 unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).editor_play_simulate()
                 return

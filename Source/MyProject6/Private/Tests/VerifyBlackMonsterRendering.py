@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 import unreal
 
-root = '/Game/Characters/black-monster'
+root = '/Game/NPC/BlackMonster'
 output = Path(unreal.Paths.project_saved_dir()) / 'BlackMonster/ClawPreview'
 output.mkdir(parents=True, exist_ok=True)
 world = unreal.EditorLoadingAndSavingUtils.new_blank_map(False)

@@ -3,11 +3,11 @@ from pathlib import Path
 import unreal
 
 root = '/Game/Weapons/Railgun'
-path = root + '/M_RailTrail'
+path = root + '/Materials/M_RailTrail'
 edit = unreal.MaterialEditingLibrary
 material = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None
 if material is None:
-    material = unreal.AssetToolsHelpers.get_asset_tools().create_asset('M_RailTrail', root, unreal.Material, unreal.MaterialFactoryNew())
+    material = unreal.AssetToolsHelpers.get_asset_tools().create_asset('M_RailTrail', root+'/Materials', unreal.Material, unreal.MaterialFactoryNew())
 # Update existing expressions in place: constructor-loaded material nodes can be
 # rooted by Unreal, so deleting them during a later setup pass is unsafe.
 expressions = list(edit.get_material_expressions(material))

@@ -2,7 +2,7 @@
 from pathlib import Path
 import unreal
 
-folder = "/Game/Destructible/Materials"
+folder = "/Game/Materials/Structures"
 name = "M_PlanarAnimation"
 path = f"{folder}/{name}"
 material = unreal.EditorAssetLibrary.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None

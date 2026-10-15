@@ -31,8 +31,8 @@ for level in sorted(set(r['map'] for r in records)):
         else:assert a.generated_piece_count==row['pieces'] and not a.generation_warning,row
         assert a.effective_opening_width==row['opening_width'],row
 
-folder='/Game/Structures/PolygonTower'
-assert unreal.EditorLoadingAndSavingUtils.load_map(folder+'/Lvl_PolygonTowerPreview')
+folder='/Game/Structures/Destructible/PolygonTower'
+assert unreal.EditorLoadingAndSavingUtils.load_map(folder+'/Maps/Lvl_PolygonTowerPreview')
 bp=unreal.load_asset(folder+'/BP_ChunkedDestructiblePolygonTower');cdo=unreal.get_default_object(bp.generated_class())
 placed=next(a for a in actors.get_all_level_actors() if isinstance(a,unreal.ChunkedDestructiblePolygonTower))
 native=actors.spawn_actor_from_class(unreal.ChunkedDestructiblePolygonTower,unreal.Vector(10000,0,0))

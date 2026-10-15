@@ -38,7 +38,7 @@ for record in saved['actors']:
                     'triangles':house.triangle_count,'steps':house.stair_step_count})
 
 for cls in (unreal.ParametricFantasyHouse,
-            unreal.load_asset('/Game/Structures/FantasyHouse/BP_ParametricFantasyHouse').generated_class()):
+            unreal.load_asset('/Game/Structures/DynamicMesh/FantasyHouse/BP_ParametricFantasyHouse').generated_class()):
     cdo = unreal.get_default_object(cls)
     assert cdo.get_editor_property('stairs').get_editor_property('enabled')
     fresh = actors.spawn_actor_from_class(cls,unreal.Vector(25000,0,0))

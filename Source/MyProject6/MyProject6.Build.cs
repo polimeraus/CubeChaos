@@ -39,6 +39,7 @@ public class MyProject6 : ModuleRules
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.Add("PropertyEditor");
+			PrivateDependencyModuleNames.Add("AssetTools");
 			PrivateDependencyModuleNames.Add("RenderCore");
 			PrivateDependencyModuleNames.AddRange(new string[] { "AnimGraph", "BlueprintGraph", "UnrealEd" });
 		}

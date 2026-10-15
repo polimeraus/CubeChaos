@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import unreal
 
-ROOT = '/Game/Characters/DarkSorcerer'
+ROOT = '/Game/NPC/DarkSorcerer'
 LIB = unreal.EditorAssetLibrary
 TOOLS = unreal.AssetToolsHelpers.get_asset_tools()
 OUT = Path(unreal.Paths.project_saved_dir()) / 'DarkSorcerer'

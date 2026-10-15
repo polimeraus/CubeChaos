@@ -507,7 +507,7 @@ protected:
 	/** Serialized soft reference is cookable and only loads the asset when neon is enabled. */
 	UPROPERTY()
 	TSoftObjectPtr<UMaterialInterface> SideNeonMaterial = TSoftObjectPtr<UMaterialInterface>(
-		FSoftObjectPath(TEXT("/Game/Destructible/Materials/M_FloorSideNeon.M_FloorSideNeon")));
+		FSoftObjectPath(TEXT("/Game/Materials/Structures/M_FloorSideNeon.M_FloorSideNeon")));
 
 	UPROPERTY(Transient, DuplicateTransient)
 	TObjectPtr<UMaterialInstanceDynamic> SideNeonMaterialInstance;
@@ -611,7 +611,7 @@ protected:
 	/** Surface material with the shared planar-mask parameter contract. Loaded only on activation. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "Animation|Flow")
 	TSoftObjectPtr<UMaterialInterface> PlanarAnimationMaterial = TSoftObjectPtr<UMaterialInterface>(
-		FSoftObjectPath(TEXT("/Game/Destructible/Materials/M_PlanarAnimation.M_PlanarAnimation")));
+		FSoftObjectPath(TEXT("/Game/Materials/Structures/M_PlanarAnimation.M_PlanarAnimation")));
 
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Fixed", meta = (DisplayName = "Auto Play Fixed Animation", EditCondition = "HasFixedAnimationSelected"))

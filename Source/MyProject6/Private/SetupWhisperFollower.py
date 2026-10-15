@@ -10,7 +10,7 @@ import shutil
 import unreal
 
 
-ROOT = '/Game/Characters/Whisper'
+ROOT = '/Game/NPC/Whisper'
 MAP = '/Game/FirstPerson/Lvl_FirstPerson'
 LABEL = 'NPC_Whisper'
 content = Path(unreal.Paths.project_content_dir())
@@ -41,8 +41,8 @@ mesh = require_asset(ROOT + '/Base_Mesh/SK_Whisper')
 skeleton = mesh.get_editor_property('skeleton')
 tools = unreal.AssetToolsHelpers.get_asset_tools()
 for source in [content / 'FirstPerson/Lvl_FirstPerson.umap',
-               content / 'Characters/Whisper/BP_Whisper_Follower.uasset',
-               content / 'Characters/Whisper/Animations/BS_Whisper_Locomotion.uasset']:
+               content / 'NPC/Whisper/BP_Whisper_Follower.uasset',
+               content / 'NPC/Whisper/Animations/BS_Whisper_Locomotion.uasset']:
     backup_file(source)
 for source in (content / '__ExternalActors__/FirstPerson/Lvl_FirstPerson').rglob('*.uasset'):
     backup_file(source)

@@ -63,7 +63,7 @@ bool FRadicalMikeCombatTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Target lookup finds the actual player pawn"), UGameplayStatics::GetPlayerCharacter(World, 0), static_cast<ACharacter*>(Player));
 
 	UClass* NPCClass = LoadClass<ARadicalMikeNPC>(nullptr,
-		TEXT("/Game/Characters/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C"));
+		TEXT("/Game/NPC/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C"));
 	if (!TestNotNull(TEXT("Saved RadicalMike blueprint inherits the armed native class"), NPCClass)) { return false; }
 	ARadicalMikeNPC* NPC = World->SpawnActor<ARadicalMikeNPC>(NPCClass, FVector(0, 0, 100), FRotator::ZeroRotator, Spawn);
 	if (!TestNotNull(TEXT("RadicalMike spawns"), NPC)) { return false; }

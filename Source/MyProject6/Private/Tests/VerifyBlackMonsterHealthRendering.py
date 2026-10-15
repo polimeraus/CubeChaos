@@ -23,7 +23,7 @@ settings.set_editor_property('override_auto_exposure_bias', True)
 settings.set_editor_property('auto_exposure_bias', 10.0)
 post.set_editor_property('settings', settings)
 actors.spawn_actor_from_class(unreal.PlayerStart, unreal.Vector(-500,0,100))
-cls = unreal.load_class(None, '/Game/Characters/black-monster/BP_BlackMonster_Follower.BP_BlackMonster_Follower_C')
+cls = unreal.load_class(None, '/Game/NPC/BlackMonster/BP_BlackMonster_Follower.BP_BlackMonster_Follower_C')
 npc = actors.spawn_actor_from_class(cls, unreal.Vector(0,0,100), unreal.Rotator(pitch=0,yaw=180,roll=0))
 npc.set_editor_property('auto_possess_ai', unreal.AutoPossessAI.DISABLED)
 state = {'stage':'start','started':time.monotonic()}

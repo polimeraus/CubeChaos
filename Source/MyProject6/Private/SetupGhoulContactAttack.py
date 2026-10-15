@@ -7,7 +7,7 @@ Existing generated assets and the source animation are preserved.
 import unreal
 
 source_path = '/Game/Characters/Mannequins/Anims/Unarmed/Attack/MM_Attack_02'
-target_path = '/Game/Characters/Ghoul/Animations/Anim_Ghoul_Claw'
+target_path = '/Game/NPC/Ghoul/Animations/Anim_Ghoul_Claw'
 
 if not unreal.EditorAssetLibrary.does_asset_exist(target_path):
     animation = unreal.EditorAssetLibrary.duplicate_asset(source_path, target_path)

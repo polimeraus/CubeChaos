@@ -10,10 +10,10 @@ import shutil
 import unreal
 
 LEVEL = '/Game/FirstPerson/Lvl_FirstPerson'
-BLACK = '/Game/Characters/black-monster/BP_BlackMonster_Follower'
-CLOWN = '/Game/Characters/clown_monster/BP_ClownMonster_NPC'
-BLEND = '/Game/Characters/clown_monster/Animations/BS_ClownMonster_Locomotion'
-WHISPER = '/Game/Characters/Whisper/BP_Whisper_Follower'
+BLACK = '/Game/NPC/BlackMonster/BP_BlackMonster_Follower'
+CLOWN = '/Game/NPC/ClownMonster/BP_ClownMonster_NPC'
+BLEND = '/Game/NPC/ClownMonster/Animations/BS_ClownMonster_Locomotion'
+WHISPER = '/Game/NPC/Whisper/BP_Whisper_Follower'
 CONTENT = Path(unreal.Paths.project_content_dir())
 OUT = Path(unreal.Paths.project_saved_dir()) / 'NPCAggression'
 BACKUP = OUT / 'Backup' / datetime.now().strftime('%Y%m%d_%H%M%S')

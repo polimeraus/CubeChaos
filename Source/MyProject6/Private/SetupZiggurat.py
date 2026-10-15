@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import unreal
 
-folder = '/Game/Structures/Ziggurat'
+folder = '/Game/Structures/Destructible/Ziggurat'
 assets = unreal.AssetToolsHelpers.get_asset_tools()
 edit = unreal.MaterialEditingLibrary
 out = Path(unreal.Paths.project_saved_dir()) / 'Ziggurat'
@@ -12,9 +12,9 @@ out.mkdir(parents=True, exist_ok=True)
 def load(path):
     return unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None
 
-master = load(folder + '/M_ZigguratStone')
+master = load(folder + '/Materials/M_ZigguratStone')
 if not master:
-    master = assets.create_asset('M_ZigguratStone', folder, unreal.Material, unreal.MaterialFactoryNew())
+    master = assets.create_asset('M_ZigguratStone', folder+'/Materials', unreal.Material, unreal.MaterialFactoryNew())
     tint = edit.create_material_expression(master, unreal.MaterialExpressionVectorParameter, -600, 0)
     tint.set_editor_property('parameter_name', 'StoneColor')
     tint.set_editor_property('default_value', unreal.LinearColor(.55, .34, .17, 1))
@@ -44,9 +44,9 @@ for name, color in {
     'Railing': (.40,.26,.13), 'Stair': (.49,.32,.17), 'Crown': (.065,.23,.25),
     'Stage': (.16,.145,.12),
 }.items():
-    material = load(folder + '/MI_Ziggurat' + name)
+    material = load(folder + '/Materials/MI_Ziggurat' + name)
     if not material:
-        material = assets.create_asset('MI_Ziggurat' + name, folder, unreal.MaterialInstanceConstant,
+        material = assets.create_asset('MI_Ziggurat' + name, folder+'/Materials', unreal.MaterialInstanceConstant,
                                        unreal.MaterialInstanceConstantFactoryNew())
         edit.set_material_instance_parent(material, master)
         edit.set_material_instance_vector_parameter_value(material, 'StoneColor', unreal.LinearColor(*color, 1))
@@ -64,7 +64,7 @@ if not bp:
     unreal.BlueprintEditorLibrary.compile_blueprint(bp)
     assert unreal.EditorAssetLibrary.save_loaded_asset(bp, False)
 
-map_path = folder + '/Lvl_ZigguratPreview'
+map_path = folder + '/Maps/Lvl_ZigguratPreview'
 if not unreal.EditorAssetLibrary.does_asset_exist(map_path):
     world = unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
     actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
@@ -93,7 +93,7 @@ if not unreal.EditorAssetLibrary.does_asset_exist(map_path):
     ground.set_actor_label('Preview_Ground')
     ground.set_folder_path('Preview')
     ground.static_mesh_component.set_static_mesh(unreal.load_asset('/Engine/BasicShapes/Cube'))
-    ground.static_mesh_component.set_material(0, load(folder + '/MI_ZigguratStage'))
+    ground.static_mesh_component.set_material(0, load(folder + '/Materials/MI_ZigguratStage'))
     ground.set_actor_scale3d(unreal.Vector(70,70,.7))
     start = actors.spawn_actor_from_class(unreal.PlayerStart, unreal.Vector(0,-2200,120),
                                          unreal.Rotator(pitch=0,yaw=90,roll=0))
@@ -113,7 +113,7 @@ else:
     for actor in actors.get_all_level_actors():
         label = actor.get_actor_label()
         if label == 'Preview_Ground':
-            actor.static_mesh_component.set_material(0, load(folder + '/MI_ZigguratStage'))
+            actor.static_mesh_component.set_material(0, load(folder + '/Materials/MI_ZigguratStage'))
         elif label in ('Preview_Key','Preview_Fill'):
             key = label == 'Preview_Key'
             actor.set_actor_rotation(unreal.Rotator(pitch=-38 if key else -25,yaw=130 if key else -40,roll=0),False)

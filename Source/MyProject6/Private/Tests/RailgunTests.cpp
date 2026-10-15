@@ -67,7 +67,7 @@ bool FRailgunTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Authored hand grip exists"), Gun->Arms->DoesSocketExist(TEXT("HandGrip_R")));
     TestEqual(TEXT("Weapon has no collision"), Gun->WeaponMesh->GetCollisionEnabled(), ECollisionEnabled::NoCollision);
     UStaticMesh* OriginalWeapon = Gun->WeaponMesh->GetStaticMesh();
-    UClass* PickupClass = LoadClass<AParametricPickup>(nullptr, TEXT("/Game/Gameplay/Pickups/BP_ParametricPickup.BP_ParametricPickup_C"));
+    UClass* PickupClass = LoadClass<AParametricPickup>(nullptr, TEXT("/Game/GameplayActors/Pickups/ParametricPickup/BP_ParametricPickup.BP_ParametricPickup_C"));
     if (!TestNotNull(TEXT("Saved pickup Blueprint loads"), PickupClass)) return false;
     for (int32 Shape = 0; Shape < 4; ++Shape)
     {

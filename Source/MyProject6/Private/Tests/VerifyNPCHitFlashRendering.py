@@ -12,9 +12,9 @@ world = unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
 actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 cases = [
     (unreal.ChasingNPC, '/Game/Characters/Mannequins/Anims/Unarmed/MM_Idle'),
-    (unreal.load_class(None, '/Game/Characters/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C'), '/Game/Characters/RadicalMike/Animations/Anim_ZMIKE_BusterIdle_R'),
-    (unreal.load_class(None, '/Game/Characters/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C'), '/Game/Characters/Whisper/Animations/Anim_Whisper_Idle1'),
-    (unreal.load_class(None, '/Game/Characters/black-monster/BP_BlackMonster_Follower.BP_BlackMonster_Follower_C'), '/Game/Characters/black-monster/Animations/Anim_BlackMonster_Idle')]
+    (unreal.load_class(None, '/Game/NPC/RadicalMike/BP_RadicalMike_NPC.BP_RadicalMike_NPC_C'), '/Game/NPC/RadicalMike/Animations/Anim_ZMIKE_BusterIdle_R'),
+    (unreal.load_class(None, '/Game/NPC/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C'), '/Game/NPC/Whisper/Animations/Anim_Whisper_Idle1'),
+    (unreal.load_class(None, '/Game/NPC/BlackMonster/BP_BlackMonster_Follower.BP_BlackMonster_Follower_C'), '/Game/NPC/BlackMonster/Animations/Anim_BlackMonster_Idle')]
 npcs = []
 for index, (cls, animation_path) in enumerate(cases):
     npc = actors.spawn_actor_from_class(cls, unreal.Vector(0, (index - 1.5) * 220, 100))

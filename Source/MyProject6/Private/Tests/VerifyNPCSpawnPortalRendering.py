@@ -18,7 +18,7 @@ for rot, intensity in [(unreal.Rotator(pitch=-50, yaw=-30, roll=0), 2.0), (unrea
     light = actors.spawn_actor_from_class(unreal.DirectionalLight, unreal.Vector(0, 0, 600), rot)
     light.light_component.set_editor_property('intensity', intensity)
 
-point_class = unreal.load_asset('/Game/NPC/Spawning/BP_NPCSpawnPoint').generated_class()
+point_class = unreal.load_asset('/Game/GameplayActors/NPCSpawner/BP_NPCSpawnPoint').generated_class()
 point = actors.spawn_actor_from_class(point_class, unreal.Vector(0, 0, 100))
 point.set_editor_property('spawn_point_id', 'Preview')
 point.set_editor_property('spawn_on_begin_play', False)

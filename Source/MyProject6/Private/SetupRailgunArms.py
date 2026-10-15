@@ -1,7 +1,7 @@
 """Restore the arm's actual anatomy; framing is handled by the authored elbow pose."""
 import unreal
 
-material = unreal.load_asset('/Game/Weapons/Railgun/M_RailArms')
+material = unreal.load_asset('/Game/Weapons/Railgun/Materials/M_RailArms')
 assert material, 'Run SetupRailgun.py once to create the arms material'
 edit = unreal.MaterialEditingLibrary
 mask = edit.get_material_property_input_node(material, unreal.MaterialProperty.MP_OPACITY_MASK)
