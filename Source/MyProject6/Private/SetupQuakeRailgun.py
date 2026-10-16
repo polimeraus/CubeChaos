@@ -66,7 +66,7 @@ palette={
  'RailSilver':((.39,.43,.45),.82,.3,0),
  'RailGunmetal':((.045,.06,.065),.75,.4,0),
  'RailRubber':((.013,.019,.018),.08,.65,0),
- 'RailEnergy':((.12,.8,.025),.25,.25,2.4),
+ 'RailEnergy':((.008,.22,1.),.25,.25,4.8),
  'RailBrass':((.28,.20,.07),.8,.35,0)}
 materials={}
 for name,(color,metal,rough,emission) in palette.items():
@@ -94,6 +94,7 @@ for index,slot in enumerate(slots):
     slot.set_editor_property('material_interface',materials[name]);slots[index]=slot
 mesh.set_editor_property('static_materials',slots)
 assert unreal.EditorAssetLibrary.save_loaded_asset(mesh,False)
+runpy.run_path(str(Path(__file__).with_name('SetupRailgunEnergy.py')))['build_material']()
 
 runpy.run_path(str(Path(__file__).with_name('SetupRailgunTrail.py')),run_name='__main__')
 

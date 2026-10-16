@@ -1,0 +1,22 @@
+// Flowing induction plasma shared by the exposed coils and square receiver display.
+struct FlowNoise
+{
+    float hash(float2 p) { return frac(sin(dot(p,float2(127.1,311.7)))*43758.5453); }
+    float noise(float2 p)
+    {
+        float2 i=floor(p), f=frac(p); f=f*f*(3.-2.*f);
+        return lerp(lerp(hash(i),hash(i+float2(1,0)),f.x),
+                    lerp(hash(i+float2(0,1)),hash(i+1),f.x),f.y);
+    }
+    float fbm(float2 p) { return noise(p)*.58+noise(p*2.07+7.3)*.28+noise(p*4.17-3.8)*.14; }
+};
+FlowNoise n;
+float t=Time*FlowSpeed;
+float2 p=UV*float2(3.2,4.4)+float2(t*.22,-t);
+float2 warp=float2(n.fbm(p+float2(t*.25,0)),n.fbm(p+9.7))-.5;
+float cloud=n.fbm(p+warp*2.7);
+float ribbon=pow(saturate(1.-abs(cloud-.52)*8.),3.);
+float currents=.5+.5*sin((p.y+warp.x*1.6)*7.+cloud*5.);
+float brightness=.3+cloud*.75+ribbon*1.4+currents*.18;
+float3 hot=lerp(Tint,float3(.25,.65,1.),ribbon*.18);
+return hot*brightness*Emission;

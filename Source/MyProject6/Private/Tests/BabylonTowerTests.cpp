@@ -1,5 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "ChunkedDestructibleBabylonTower.h"
+#include "MyProject6Character.h"
+#include "Components/CapsuleComponent.h"
 #include "Components/DynamicMeshComponent.h"
 #include "DynamicMesh/DynamicMesh3.h"
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
@@ -57,11 +59,18 @@ bool FBabylonTowerTest::RunTest(const FString& Parameters)
         if (!TestTrue(TEXT("Convex containment includes fragment centroid"),P.Contains(Center,.001))) return false;
     }
     TestFalse(TEXT("Base door is open"),Trace({0,-1950,100},{0,-1700,100}));
-    const FCollisionShape StandingPlayer = FCollisionShape::MakeCapsule(34.f,96.f);
+    const auto* PlayerClass=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+    if (!TestNotNull(TEXT("Saved player class loads for doorway clearance"),PlayerClass)) return false;
+    const auto* Capsule=PlayerClass->GetDefaultObject<AMyProject6Character>()->GetCapsuleComponent();
+    const FCollisionShape StandingPlayer = FCollisionShape::MakeCapsule(Capsule->GetUnscaledCapsuleRadius(),Capsule->GetUnscaledCapsuleHalfHeight());
     FHitResult DoorHit;
-    const float StandingZ=A->FoundationHeight+98.f;
+    const float StandingZ=A->FoundationHeight+Capsule->GetUnscaledCapsuleHalfHeight()+2.f;
     TestFalse(TEXT("Standing 192 cm player capsule passes through the default ground entrance"),
         World->SweepSingleByChannel(DoorHit,{0,-1950,StandingZ},{0,-1600,StandingZ},
+            FQuat::Identity,ECC_Pawn,StandingPlayer));
+    const float JambOffset=A->EntranceWidth*.5f-Capsule->GetUnscaledCapsuleRadius()+6.f;
+    TestTrue(TEXT("Entrance retains solid jamb beside the passing capsule"),
+        World->SweepSingleByChannel(DoorHit,{JambOffset,-1950,StandingZ},{JambOffset,-1600,StandingZ},
             FQuat::Identity,ECC_Pawn,StandingPlayer));
     TestTrue(TEXT("Door lintel remains solid above the 200 cm clearance"),
         Trace({0,-1950,A->FoundationHeight+210},{0,-1700,A->FoundationHeight+210}));
@@ -70,6 +79,8 @@ bool FBabylonTowerTest::RunTest(const FString& Parameters)
     TestFalse(TEXT("Upper window is open"),Trace({0,-UpperDepth-100,UpperZ+100},{0,-UpperDepth+100,UpperZ+100}));
     TestTrue(TEXT("Upper window has solid sill, never a doorway"),Trace({0,-UpperDepth-100,UpperZ+15},{0,-UpperDepth+100,UpperZ+15}));
     TestTrue(TEXT("Window width leaves adjacent wall intact"),Trace({100,-UpperDepth-100,UpperZ+100},{100,-UpperDepth+100,UpperZ+100}));
+    TestTrue(TEXT("Reduced window width restores its outer edge"),Trace({60,-UpperDepth-100,UpperZ+100},{60,-UpperDepth+100,UpperZ+100}));
+    TestTrue(TEXT("Reduced window height restores its upper edge"),Trace({0,-UpperDepth-100,UpperZ+175},{0,-UpperDepth+100,UpperZ+175}));
     FHitResult Hit;
     const FVector Start(400,-1950,110),End(400,-1650,110);
     if (!TestTrue(TEXT("Shot hits a polygon pier"),World->LineTraceSingleByChannel(Hit,Start,End,ECC_Visibility))) return false;

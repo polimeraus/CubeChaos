@@ -83,9 +83,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Facade")
     bool bUpperWindows=true;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Facade", meta=(ClampMin="30",ClampMax="400",Units="cm",EditCondition="bUpperWindows"))
-    float WindowWidth=125;
+    float WindowWidth=110;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Facade", meta=(ClampMin="40",ClampMax="800",Units="cm",EditCondition="bUpperWindows"))
-    float WindowHeight=150;
+    float WindowHeight=135;
     /** A positive sill keeps upper windows distinct from ground-floor doorways. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Facade", meta=(ClampMin="10",ClampMax="500",Units="cm",EditCondition="bUpperWindows"))
     float WindowSillHeight=35;
@@ -108,7 +108,8 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Entrance", meta=(ClampMin="1",ClampMax="32",EditCondition="bEntrance"))
     int32 EntranceCount=8;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Entrance", meta=(ClampMin="80",ClampMax="800",Units="cm",EditCondition="bEntrance"))
-    float EntranceWidth=220;
+    // Match the default facade window opening width.
+    float EntranceWidth=110;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Entrance", meta=(ClampMin="100",ClampMax="1500",Units="cm",EditCondition="bEntrance"))
     // Standing player capsule is 192 cm; 200 leaves room for floor contact tolerance.
     float EntranceHeight=200;

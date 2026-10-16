@@ -138,6 +138,11 @@ void ARailgunWeapon::ActivateRailgun()
         const int32 Slot = WeaponMesh->GetMaterialIndex(TEXT("RailEnergy"));
         if (Slot != INDEX_NONE) ChargeMaterial = WeaponMesh->CreateDynamicMaterialInstance(Slot);
     }
+    if (ChargeMaterial)
+    {
+        ChargeMaterial->SetVectorParameterValue(TEXT("Tint"), Visuals.Color);
+        ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), 4.8f);
+    }
 }
 
 void ARailgunWeapon::ActivateBFG()
@@ -245,7 +250,7 @@ bool ARailgunWeapon::Fire()
         }
     }
     NextFireTime = World->GetTimeSeconds() + FMath::Max(.1f, FireInterval);
-    if (ChargeMaterial) ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), .15f);
+    if (ChargeMaterial) ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), 2.2f);
     ++ShotsFired;
     LastShotEnd = End;
     for (const FHitResult& ShotHit : ShotHits) ApplyHit(ShotHit, Direction);
@@ -304,7 +309,8 @@ void ARailgunWeapon::Tick(float DeltaSeconds)
         const float Charge = 1.f - FMath::Clamp(float(NextShot - GetWorld()->GetTimeSeconds()) / FMath::Max(.05f, Interval), 0.f, 1.f);
         ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), Wielder->bBFGEquipped
             ? 2.8f + Charge + 4.2f*FMath::Clamp(BFGMuzzleFlashRemaining/.065f,0.f,1.f)
-            : .15f + 2.25f * Charge);
+            : 2.2f + 2.6f * Charge);
+        if (Wielder->bRailgunEquipped) ChargeMaterial->SetVectorParameterValue(TEXT("Tint"), Visuals.Color);
     }
     BFGMuzzleFlashRemaining = FMath::Max(0.f, BFGMuzzleFlashRemaining - DeltaSeconds);
     BFGMuzzleLight->SetIntensity(6500.f * FMath::Square(BFGMuzzleFlashRemaining / .065f));

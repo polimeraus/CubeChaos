@@ -22,7 +22,7 @@ def material(name, color, metal, rough):
 silver = material('RailSilver', (.39, .43, .45), .82, .3)
 dark = material('RailGunmetal', (.045, .06, .065), .75, .4)
 black = material('RailRubber', (.013, .019, .018), .08, .65)
-green = material('RailEnergy', (.12, .8, .025), .25, .25)
+energy = material('RailEnergy', (.008, .22, 1.), .25, .25)
 brass = material('RailBrass', (.28, .20, .07), .8, .35)
 
 def finish(o, name, mat, bevel=0):
@@ -63,13 +63,15 @@ def ring(name, y, outer, inner, width, mat):
 # Broad rear housing, long exposed accelerator and the distinctive repeated clamps.
 box('Rear receiver',(0,-.065,.10),(.148,.20,.135),silver,.012)
 box('Receiver top',(0,-.06,.171),(.095,.15,.018),dark)
+box('Energy display bezel',(0,-.055,.183),(.084,.084,.006),silver,.003)
+box('Flowing energy display',(0,-.055,.187),(.068,.068,.003),energy,.001)
 box('Back plate',(0,-.169,.10),(.132,.012,.112),dark)
 for x in [-.076,.076]:
     box('Receiver inset',(x,-.07,.103),(.004,.115,.068),dark,.002)
     for y in [-.108,-.085,-.062,-.039]:
         box('Cooling fins',(x*1.02,y,.103),(.007,.010,.058),silver,.001)
 cylinder('Accelerator dark bed',.305,.044,.55,dark)
-cylinder('Green induction chamber',.285,.046,.46,green)
+cylinder('Blue induction chamber',.285,.046,.46,energy)
 for y in [.065,.155,.245,.335,.425,.515]:
     ring('Induction clamp',y,.063,.045,.026,silver)
     ring('Clamp gasket',y+.018,.054,.044,.007,black)
@@ -85,9 +87,9 @@ cylinder('Muzzle housing',.591,.068,.096,silver)
 ring('Muzzle gasket',.635,.070,.035,.018,dark)
 ring('Muzzle rim',.654,.058,.031,.027,silver)
 cylinder('Recessed bore',.645,.030,.002,black)
-ring('Energy aperture',.653,.034,.029,.003,green)
+ring('Energy aperture',.653,.034,.029,.003,energy)
 box('Forward sight',(0,.58,.174),(.016,.04,.025),dark)
-box('Sight tip',(0,.58,.189),(.007,.012,.006),green,.001)
+box('Sight tip',(0,.58,.189),(.007,.012,.006),energy,.001)
 
 # Trigger hand and support hand use the existing two-handed pose.
 grip=box('Pistol grip',(0,-.025,-.035),(.046,.062,.135),black,.01)
