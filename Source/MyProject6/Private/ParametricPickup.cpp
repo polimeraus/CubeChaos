@@ -310,6 +310,7 @@ bool AParametricPickup::TryCollect(APawn* Collector)
     if (AMyProject6Character* Player = Cast<AMyProject6Character>(Collector))
     {
         if (WeaponReward == EPickupWeapon::BFG) Player->EquipBFG();
+        else if (WeaponReward == EPickupWeapon::DefaultWeapon) Player->EquipDefaultWeapon();
         else Player->EquipRailgun();
     }
     if (CollectionSound && SoundVolume > 0)

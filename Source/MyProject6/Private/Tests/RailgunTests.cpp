@@ -179,13 +179,16 @@ bool FRailgunTest::RunTest(const FString& Parameters)
     const int32 BeforeKeys = Gun->ShotsFired;
     TestTrue(TEXT("Middle mouse has a pressed binding"), Press(EKeys::MiddleMouseButton));
     TestEqual(TEXT("Middle mouse fires railgun"), Gun->ShotsFired, BeforeKeys + 1);
-    TestTrue(TEXT("Number 1 has a pressed binding"), Press(EKeys::One));
+    TestTrue(TEXT("Primary fire has a pressed binding"), Press(EKeys::LeftMouseButton));
+    for (FInputKeyBinding& Binding : Player->InputComponent->KeyBindings)
+        if (Binding.Chord.Key == EKeys::LeftMouseButton && Binding.KeyEvent == IE_Released)
+            Binding.KeyDelegate.Execute(EKeys::LeftMouseButton);
     TestEqual(TEXT("Switching keys cannot bypass cooldown"), Gun->ShotsFired, BeforeKeys + 1);
     Advance(1.55f);
     // Aim away so the final key press doesn't trigger NPC replacement spawning on death.
     Camera->SetWorldRotation(FRotator(0, 90, 0));
-    TestTrue(TEXT("Number 1 remains bound"), Press(EKeys::One));
-    TestEqual(TEXT("Number 1 also fires railgun after cooldown"), Gun->ShotsFired, BeforeKeys + 2);
+    TestTrue(TEXT("Middle mouse remains bound"), Press(EKeys::MiddleMouseButton));
+    TestEqual(TEXT("Railgun fires after cooldown"), Gun->ShotsFired, BeforeKeys + 2);
     Advance(1.55f);
 
     int32 BallsBefore = 0;

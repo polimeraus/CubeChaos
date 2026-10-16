@@ -6,6 +6,7 @@
 #include "SimpleHouseActor.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/DynamicMeshComponent.h"
+#include "Components/PointLightComponent.h"
 #include "DynamicMesh/DynamicMesh3.h"
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
 #include "Engine/World.h"
@@ -29,9 +30,17 @@ ABFGProjectile::ABFGProjectile()
     Plasma->SetCastShadow(false);
     Plasma->bReceivesDecals = false;
     Plasma->SetTranslucentSortPriority(3);
+    PlasmaLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("PlasmaLight"));
+    PlasmaLight->SetupAttachment(RootComponent);
+    PlasmaLight->SetLightColor(FLinearColor(.12f,1.f,.035f));
+    PlasmaLight->SetIntensityUnits(ELightUnits::Lumens);
+    PlasmaLight->SetIntensity(FlightLightIntensity);
+    PlasmaLight->SetAttenuationRadius(FlightLightRadius);
+    PlasmaLight->SetSourceRadius(14.f);
+    PlasmaLight->SetCastShadows(false);
     static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Surface(TEXT("/Game/Weapons/BFG/Materials/M_BFGPlasma.M_BFGPlasma"));
     PlasmaMaterial = Surface.Get();
-    static ConstructorHelpers::FObjectFinderOptional<USoundBase> Sound(TEXT("/Game/Weapons/BFG/Audio/S_BFGImpact.S_BFGImpact"));
+    static ConstructorHelpers::FObjectFinderOptional<USoundBase> Sound(TEXT("/Game/Weapons/BFG/Fusion/Audio/S_BFGFusionImpact.S_BFGFusionImpact"));
     ImpactSound = Sound.Get();
 }
 
@@ -100,7 +109,7 @@ void ABFGProjectile::Explode(const FHitResult& Hit)
     if (DirectTarget) Ignore.Add(DirectTarget);
     UGameplayStatics::ApplyRadialDamageWithFalloff(this, FMath::Max(0.f, SplashDamage), 0.f, Origin,
         0.f, FMath::Max(1.f, SplashRadius), 1.f, nullptr, Ignore, this, GetInstigatorController(), ECC_GameTraceChannel1);
-    if (ImpactSound) UGameplayStatics::PlaySoundAtLocation(this, ImpactSound, Origin, .65f);
+    if (ImpactSound) UGameplayStatics::PlaySoundAtLocation(this, ImpactSound, Origin, .9f);
     SetLifeSpan(.5f);
 }
 
@@ -147,27 +156,60 @@ void ABFGProjectile::DrawEffect(float Seconds, bool bImpact, FVector ViewLocatio
     if (bImpact)
     {
         const float Fade = FMath::Square(FMath::Clamp(1.f-Seconds/.5f,0.f,1.f));
-        const float Radius = 25.f+Seconds*340.f;
-        Quad(FVector::ZeroVector,Right*Radius,Up*Radius,Fade*.7f,0);
-        Quad(FVector::ZeroVector,Right*Radius,Up*Radius,Fade*.3f,1);
-        for (int32 I=0; I<12; ++I)
+        const float Radius = 26.f+FMath::Sqrt(Seconds)*165.f;
+        Quad(FVector::ZeroVector,Right*Radius,Up*Radius,Fade,1);
+        Quad(Normal*2,Right*Radius*.5f,Up*Radius*.5f,Fade*.8f,0);
+        PlasmaLight->SetIntensity(ImpactLightIntensity*Fade);
+        PlasmaLight->SetAttenuationRadius(FlightLightRadius*1.65f);
+        for (int32 I=0; I<9; ++I)
         {
-            const float Angle = I*UE_TWO_PI/12.f+.16f*FMath::Sin(I*4.3f);
+            const float Angle = I*2.39996f+.36f*FMath::Sin(I*4.3f);
             const FVector Radial = Right*FMath::Cos(Angle)+Up*FMath::Sin(Angle);
             const FVector Tangent = -Right*FMath::Sin(Angle)+Up*FMath::Cos(Angle);
             const FVector Centre = Radial*Radius*(.6f+.5f*FMath::Abs(FMath::Sin(I*7.3f)));
-            Quad(Centre,Radial*(5.f+Seconds*45.f),Tangent*2.f,Fade,0);
+            Quad(Centre,Radial*(8.f+Seconds*38.f),Tangent*(3.f+Seconds*5.f),Fade*.7f,0);
         }
     }
     else
     {
-        const float Pulse = 1.f+.07f*FMath::Sin(Seconds*65.f);
-        Quad(FVector::ZeroVector,Right*16.f*Pulse,Up*16.f*Pulse,1,0);
-        // Short luminous wake follows the projectile in world space.
+        const float Pulse = 1.f+.055f*FMath::Sin(Seconds*39.f)+.035f*FMath::Sin(Seconds*71.f);
+        PlasmaLight->SetIntensity(FlightLightIntensity*Pulse);
+        PlasmaLight->SetAttenuationRadius(FlightLightRadius);
+        // Rotating uneven volume gives the core parallax from every viewing angle.
+        const int32 Rings=10, Segments=20;
+        for(int32 R=0; R<=Rings; ++R) for(int32 S=0; S<=Segments; ++S)
+        {
+            const float V=float(R)/Rings,U=float(S)/Segments;
+            const float Phi=V*UE_PI,Theta=U*UE_TWO_PI+Seconds*3.5f;
+            const FVector N(FMath::Cos(Phi),FMath::Sin(Phi)*FMath::Cos(Theta),FMath::Sin(Phi)*FMath::Sin(Theta));
+            const float Radius=11.f*Pulse*(1+.14f*FMath::Sin(Theta*5+Seconds*19)*FMath::Sin(Phi*4-Seconds*11));
+            Mesh.AppendVertex(FVector3d(N*Radius));
+            Mesh.Attributes()->PrimaryNormals()->AppendElement(FVector3f(N));
+            Mesh.Attributes()->PrimaryUV()->AppendElement(FVector2f(U,V));
+            Mesh.Attributes()->PrimaryColors()->AppendElement(FVector4f(.2f,1,1,.46f));
+        }
+        for(int32 R=0; R<Rings; ++R) for(int32 S=0; S<Segments; ++S)
+        {
+            const int32 A=R*(Segments+1)+S,B=A+Segments+1;
+            for(FIndex3i T : {FIndex3i(A,B,A+1),FIndex3i(A+1,B,B+1)})
+            {
+                const int32 ID=Mesh.AppendTriangle(T);
+                Mesh.Attributes()->PrimaryNormals()->SetTriangle(ID,T);
+                Mesh.Attributes()->PrimaryUV()->SetTriangle(ID,T);
+                Mesh.Attributes()->PrimaryColors()->SetTriangle(ID,T);
+            }
+        }
+        Quad(FVector::ZeroVector,Right*29.f*Pulse,Up*29.f*Pulse,.85f,0);
+        // Short irregular wake, with moving wisps rather than evenly spaced beads.
         const FVector Side = FVector::CrossProduct(FVector::ForwardVector,View).GetSafeNormal(UE_SMALL_NUMBER,Right);
-        Quad(FVector(-35,0,0),FVector(32,0,0),Side*7.f,.65f,.5f);
-        for (int32 I=1; I<=3; ++I)
-            Quad(FVector(-I*15.f,0,0),Right*(8.f-I),Up*(8.f-I),.3f/I,0);
+        Quad(FVector(-31,0,0),FVector(39,0,0),Side*13.f,.7f,.5f);
+        for (int32 I=0; I<4; ++I)
+        {
+            const float Phase=FMath::Frac(Seconds*9.f+I*.25f);
+            const FVector Centre(-8.f-Phase*64.f,FMath::Sin(I*7.f+Seconds*12.f)*Phase*8.f,FMath::Cos(I*9.f+Seconds*15.f)*Phase*6.f);
+            const float Size=12.f*(1.f-Phase)+3.f;
+            Quad(Centre,Right*Size,Up*Size,.35f*(1-Phase),0);
+        }
     }
     Plasma->SetMesh(MoveTemp(Mesh));
 }

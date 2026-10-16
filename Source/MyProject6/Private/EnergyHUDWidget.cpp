@@ -2,6 +2,7 @@
 
 #include "EnergyHUDWidget.h"
 #include "MyProject6PlayerController.h"
+#include "SWeaponHUD.h"
 
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Styling/CoreStyle.h"
@@ -104,6 +105,11 @@ TSharedRef<SWidget> UEnergyHUDWidget::RebuildWidget()
 			]
 		]
 
+		+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(24)
+		[
+			SNew(SWeaponHUD).Player_Lambda([this]() { return TWeakObjectPtr<AMyProject6Character>(Cast<AMyProject6Character>(GetOwningPlayerPawn())); })
+		]
+
 		+ SOverlay::Slot()
 		[
 			SAssignNew(GameOverPanel, SBorder)
@@ -190,7 +196,7 @@ TSharedRef<SWidget> UEnergyHUDWidget::RebuildWidget()
 								.Padding(14)
 								[
 									SNew(STextBlock)
-									.Text(NSLOCTEXT("EnergyHUD", "ControlsHelp", "W A S D   ·   Hareket\nFare   ·   Etrafa bak\nBoşluk   ·   Zıpla\nSol tık   ·   Ateş et\nOrta fare / 1   ·   Railgun\nBackspace   ·   Havadayken platform oluştur"))
+									.Text(NSLOCTEXT("EnergyHUD", "ControlsHelp", "W A S D   ·   Hareket\nFare   ·   Etrafa bak\nBoşluk   ·   Zıpla\nSol tık   ·   Ateş et\nFare tekerleği   ·   Silah değiştir\n1 / 2 / 3   ·   Silah seç\nOrta fare   ·   Railgun ateşi\nBackspace   ·   Havadayken platform oluştur"))
 									.Font(CaptionFont).ColorAndOpacity(FLinearColor(0.75f, 0.83f, 0.91f))
 									.AutoWrapText(true)
 								]

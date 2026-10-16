@@ -9,6 +9,7 @@
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/InputComponent.h"
+#include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/StaticMesh.h"
@@ -53,7 +54,7 @@ bool FBFGTest::RunTest(const FString&)
     if(!TestNotNull(TEXT("Shared hands/weapon rig"),Gun))return false;
     TestFalse(TEXT("BFG starts locked"),Player->bBFGEquipped);
     TestFalse(TEXT("Cannot bypass BFG pickup"),Gun->FireBFG());
-    TestEqual(TEXT("BFG Q3 firing interval"),Gun->BFGFireInterval,.2f);
+    TestEqual(TEXT("BFG arena firing interval"),Gun->BFGFireInterval,.3f);
     TestEqual(TEXT("BFG Q3 direct damage"),Gun->BFGDamage,100.f);
     TestEqual(TEXT("BFG Q3 splash damage"),Gun->BFGSplashDamage,100.f);
     TestEqual(TEXT("BFG Q3 radius scaled to centimetres"),Gun->BFGSplashRadius,300.f);
@@ -69,7 +70,8 @@ bool FBFGTest::RunTest(const FString&)
     TestTrue(TEXT("Saved BFG pickup equips BFG"),Player->bBFGEquipped);
     TestFalse(TEXT("BFG pickup unequips railgun"),Player->bRailgunEquipped);
     TestFalse(TEXT("Rail input cannot fire while BFG is equipped"),Gun->Fire());
-    TestEqual(TEXT("BFG mesh is actually displayed"),Gun->WeaponMesh->GetStaticMesh()->GetName(),FString(TEXT("SM_Mini_Gun")));
+    TestEqual(TEXT("New fusion cannon mesh is actually displayed"),Gun->WeaponMesh->GetStaticMesh()->GetName(),FString(TEXT("SM_BFGFusion")));
+    TestTrue(TEXT("New gun's forward barrel and muzzle align"),Gun->Muzzle->GetRelativeLocation().Equals(FVector(0,65,12.5f),.01));
     auto* Camera=Player->GetFirstPersonCameraComponent();
     Camera->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
     Camera->bUsePawnControlRotation=false;
@@ -91,13 +93,16 @@ bool FBFGTest::RunTest(const FString&)
     auto* Protected=SpawnTarget(FVector(1000,-180,600));
     auto* SplashCover=Wall(FVector(1000,-90,600),FVector(200,8,160));
     TestTrue(TEXT("First BFG shot fires"),Gun->FireBFG());
+    TestTrue(TEXT("Discharge emits a local muzzle flash"),Gun->BFGMuzzleLight->Intensity>6000);
     TestFalse(TEXT("Repeated request respects cooldown"),Gun->FireBFG());
     TestEqual(TEXT("BFG is a travelling projectile, not instant damage"),Direct->GetCurrentHealth(),500.f);
     TWeakObjectPtr<ABFGProjectile> Shot;
     for(TActorIterator<ABFGProjectile> It(World);It;++It)Shot=*It;
     if(!TestTrue(TEXT("BFG projectile exists"),Shot.IsValid()))return false;
-    TestEqual(TEXT("Q3 projectile speed scaled to cm/s"),Shot->Speed,5000.f);
+    TestEqual(TEXT("Fusion projectile is 60 percent faster"),Shot->Speed,8000.f);
+    TestTrue(TEXT("Projectile illuminates nearby geometry"),Shot->PlasmaLight->Intensity>3000 && Shot->PlasmaLight->AttenuationRadius>=420);
     Advance(.24f);
+    TestEqual(TEXT("Muzzle flash turns off after discharge"),Gun->BFGMuzzleLight->Intensity,0.f);
     TestTrue(TEXT("Projectile hits and explodes"),Shot->bExploded);
     TestEqual(TEXT("Direct damage applied once without additional splash"),Direct->GetCurrentHealth(),400.f);
     TestTrue(TEXT("Nearby target takes radial falloff damage"),Nearby->GetCurrentHealth()<500.f&&Nearby->GetCurrentHealth()>400.f);
@@ -129,9 +134,9 @@ bool FBFGTest::RunTest(const FString&)
     };
     const int32 Before=Gun->BFGShotsFired;
     TestTrue(TEXT("BFG uses primary fire binding"),Key(IE_Pressed));Advance(.45f);
-    TestEqual(TEXT("Held BFG fires every 200ms"),Gun->BFGShotsFired,Before+3);
+    TestEqual(TEXT("Held BFG fires every 300ms"),Gun->BFGShotsFired,Before+2);
     TestTrue(TEXT("BFG release binding"),Key(IE_Released));Advance(.3f);
-    TestEqual(TEXT("Release stops firing"),Gun->BFGShotsFired,Before+3);
+    TestEqual(TEXT("Release stops firing"),Gun->BFGShotsFired,Before+2);
     int32 Balls=0;for(TActorIterator<ABallProjectile> It(World);It;++It)++Balls;
     TestEqual(TEXT("BFG never also fires the old ball projectile"),Balls,0);
 

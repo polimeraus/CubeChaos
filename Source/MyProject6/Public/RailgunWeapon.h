@@ -14,6 +14,7 @@ class USoundBase;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class UStaticMesh;
+class UPointLightComponent;
 
 UCLASS()
 class MYPROJECT6_API ARailgunWeapon : public AActor
@@ -27,6 +28,9 @@ public:
 
     UFUNCTION(BlueprintCallable, Category="Railgun")
     void ActivateRailgun();
+
+    UFUNCTION(BlueprintCallable, Category="Weapons")
+    void ActivateDefaultWeapon();
 
     UFUNCTION(BlueprintCallable, Category="BFG")
     void ActivateBFG();
@@ -50,6 +54,8 @@ public:
     TObjectPtr<UStaticMeshComponent> WeaponMesh;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Railgun")
     TObjectPtr<USceneComponent> Muzzle;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="BFG")
+    TObjectPtr<UPointLightComponent> BFGMuzzleLight;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0"))
     float Damage = 200.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0.1", Units="s"))
@@ -60,7 +66,7 @@ public:
     float TrailDuration = .65f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG", meta=(ClampMin="0.05", Units="s"))
-    float BFGFireInterval = .2f;
+    float BFGFireInterval = .3f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG", meta=(ClampMin="0"))
     float BFGDamage = 100.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG", meta=(ClampMin="0"))
@@ -82,6 +88,7 @@ public:
     int32 ShotsFired = 0;
 
 private:
+    UPROPERTY() TObjectPtr<UStaticMesh> DefaultModel;
     UPROPERTY() TObjectPtr<AMyProject6Character> Wielder;
     UPROPERTY() TObjectPtr<UAnimSequence> HoldAnimation;
     UPROPERTY() TObjectPtr<UAnimSequence> BFGHoldAnimation;
@@ -93,6 +100,7 @@ private:
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> ChargeMaterial;
     double NextFireTime = 0;
     double NextBFGFireTime = 0;
+    float BFGMuzzleFlashRemaining = 0;
     FVector RestLocation = FVector::ZeroVector;
     FVector PreviousVelocity = FVector::ZeroVector;
     FRotator PreviousAim = FRotator::ZeroRotator;

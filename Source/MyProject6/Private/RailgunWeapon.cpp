@@ -11,6 +11,7 @@
 #include "Camera/CameraComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/PointLightComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -31,6 +32,14 @@ ARailgunWeapon::ARailgunWeapon()
     WeaponMesh->SetupAttachment(RootComponent);
     Muzzle = CreateDefaultSubobject<USceneComponent>(TEXT("RailgunMuzzle"));
     Muzzle->SetupAttachment(WeaponMesh);
+    BFGMuzzleLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("BFGMuzzleLight"));
+    BFGMuzzleLight->SetupAttachment(RootComponent);
+    BFGMuzzleLight->SetLightColor(FLinearColor(.15f,1.f,.06f));
+    BFGMuzzleLight->SetIntensityUnits(ELightUnits::Lumens);
+    BFGMuzzleLight->SetIntensity(0.f);
+    BFGMuzzleLight->SetAttenuationRadius(320.f);
+    BFGMuzzleLight->SetSourceRadius(8.f);
+    BFGMuzzleLight->SetCastShadows(false);
     for (UPrimitiveComponent* Mesh : {static_cast<UPrimitiveComponent*>(Arms), static_cast<UPrimitiveComponent*>(WeaponMesh)})
     {
         Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -43,15 +52,16 @@ ARailgunWeapon::ARailgunWeapon()
     Arms->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Rifle(TEXT("/Game/Weapons/Rifle/Meshes/SM_Rifle.SM_Rifle"));
     WeaponMesh->SetStaticMesh(Rifle.Object);
+    DefaultModel = Rifle.Object;
     static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> RailModel(TEXT("/Game/Weapons/Railgun/Meshes/SM_QuakeRailgun.SM_QuakeRailgun"));
     RailgunModel = RailModel.Get();
-    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> BFGMesh(TEXT("/Game/Weapons/AssetPacks/B_W_Mini_Gun/Mesh/SM_Mini_Gun.SM_Mini_Gun"));
+    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> BFGMesh(TEXT("/Game/Weapons/BFG/Fusion/Meshes/SM_BFGFusion.SM_BFGFusion"));
     BFGModel = BFGMesh.Get();
-    static ConstructorHelpers::FObjectFinderOptional<USoundBase> BFGSound(TEXT("/Game/Weapons/BFG/Audio/S_BFGFire.S_BFGFire"));
+    static ConstructorHelpers::FObjectFinderOptional<USoundBase> BFGSound(TEXT("/Game/Weapons/BFG/Fusion/Audio/S_BFGFusionFire.S_BFGFusionFire"));
     BFGFireSound = BFGSound.Get();
     static ConstructorHelpers::FObjectFinder<UAnimSequence> Hold(TEXT("/Game/Weapons/Railgun/Animations/A_RailgunHold.A_RailgunHold"));
     HoldAnimation = Hold.Object;
-    static ConstructorHelpers::FObjectFinder<UAnimSequence> BFGHold(TEXT("/Game/Weapons/BFG/Animations/A_BFGHold.A_BFGHold"));
+    static ConstructorHelpers::FObjectFinder<UAnimSequence> BFGHold(TEXT("/Game/Weapons/BFG/Fusion/Animations/A_BFGFusionHold.A_BFGFusionHold"));
     BFGHoldAnimation = BFGHold.Object;
     static ConstructorHelpers::FObjectFinder<USoundBase> Sound(TEXT("/Game/Weapons/Railgun/Audio/S_RailFire.S_RailFire"));
     FireSound = Sound.Object;
@@ -93,8 +103,24 @@ void ARailgunWeapon::Equip(AMyProject6Character* Character)
     AddTickPrerequisiteComponent(Character->GetCharacterMovement());
 }
 
+void ARailgunWeapon::ActivateDefaultWeapon()
+{
+    BFGMuzzleFlashRemaining = 0; BFGMuzzleLight->SetIntensity(0);
+    Arms->OverrideAnimationData(HoldAnimation, true, true, 0.f, 1.f);
+    Arms->TickAnimation(0.f, false);
+    Arms->RefreshBoneTransforms();
+    WeaponMesh->EmptyOverrideMaterials();
+    ChargeMaterial = nullptr;
+    WeaponMesh->SetStaticMesh(DefaultModel);
+    WeaponMesh->SetRelativeTransform(FTransform::Identity);
+    Muzzle->SetRelativeLocation(FVector(0, 52, 10));
+    RestLocation = FVector::ZeroVector;
+    GetRootComponent()->SetRelativeLocation(RestLocation);
+}
+
 void ARailgunWeapon::ActivateRailgun()
 {
+    BFGMuzzleFlashRemaining = 0; BFGMuzzleLight->SetIntensity(0);
     Arms->OverrideAnimationData(HoldAnimation, true, true, 0.f, 1.f);
     Arms->TickAnimation(0.f, false);
     Arms->RefreshBoneTransforms();
@@ -122,11 +148,14 @@ void ARailgunWeapon::ActivateBFG()
     WeaponMesh->EmptyOverrideMaterials();
     ChargeMaterial = nullptr;
     if (BFGModel) WeaponMesh->SetStaticMesh(BFGModel);
-    // Mini Gun is authored along +X; align its rear grip and barrel to HandGrip_R's +Y.
-    WeaponMesh->SetRelativeTransform(FTransform(FRotator(0, 90, 0), FVector(0, 13, 0)));
-    Muzzle->SetRelativeLocation(FVector(66, 0, .9f));
-    RestLocation = FVector(10, 3, -9);
+    // Original fusion cannon is authored in the grip frame, barrel along +Y.
+    WeaponMesh->SetRelativeTransform(FTransform::Identity);
+    WeaponMesh->SetRelativeScale3D(FVector(.8f));
+    Muzzle->SetRelativeLocation(FVector(0, 65, 12.5f));
+    RestLocation = FVector(14, 3, -17);
     GetRootComponent()->SetRelativeLocation(RestLocation);
+    const int32 EnergySlot = WeaponMesh->GetMaterialIndex(TEXT("FusionEnergy"));
+    if (EnergySlot != INDEX_NONE) ChargeMaterial = WeaponMesh->CreateDynamicMaterialInstance(EnergySlot);
 }
 
 bool ARailgunWeapon::FireBFG()
@@ -158,9 +187,12 @@ bool ARailgunWeapon::FireBFG()
     if (bMuzzleBlocked) Projectile->Explode(CoverHit);
     NextBFGFireTime = World->GetTimeSeconds() + FMath::Max(.05f, BFGFireInterval);
     ++BFGShotsFired;
-    if (BFGFireSound) UGameplayStatics::PlaySound2D(this, BFGFireSound, .65f);
-    if (ChargeMaterial) ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), .25f);
-    AddFireMotion(.65f);
+    if (BFGFireSound) UGameplayStatics::PlaySound2D(this, BFGFireSound, .92f);
+    if (ChargeMaterial) ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), 8.f);
+    BFGMuzzleFlashRemaining = .065f;
+    BFGMuzzleLight->SetWorldLocation(Start);
+    BFGMuzzleLight->SetIntensity(6500.f);
+    AddFireMotion(.9f);
     return true;
 }
 
@@ -270,8 +302,13 @@ void ARailgunWeapon::Tick(float DeltaSeconds)
         const double NextShot = Wielder->bBFGEquipped ? NextBFGFireTime : NextFireTime;
         const float Interval = Wielder->bBFGEquipped ? BFGFireInterval : FireInterval;
         const float Charge = 1.f - FMath::Clamp(float(NextShot - GetWorld()->GetTimeSeconds()) / FMath::Max(.05f, Interval), 0.f, 1.f);
-        ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), .15f + 2.25f * Charge);
+        ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), Wielder->bBFGEquipped
+            ? 2.8f + Charge + 4.2f*FMath::Clamp(BFGMuzzleFlashRemaining/.065f,0.f,1.f)
+            : .15f + 2.25f * Charge);
     }
+    BFGMuzzleFlashRemaining = FMath::Max(0.f, BFGMuzzleFlashRemaining - DeltaSeconds);
+    BFGMuzzleLight->SetIntensity(6500.f * FMath::Square(BFGMuzzleFlashRemaining / .065f));
+    if (BFGMuzzleFlashRemaining > 0) BFGMuzzleLight->SetWorldLocation(GetVisualMuzzleLocation());
     const FVector Velocity = Wielder->GetVelocity();
     const FRotator Aim = Wielder->GetBaseAimRotation();
     const FRotator AimDelta = (Aim - PreviousAim).GetNormalized();

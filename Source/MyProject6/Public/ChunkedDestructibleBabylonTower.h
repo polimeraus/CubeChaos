@@ -110,7 +110,8 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Entrance", meta=(ClampMin="80",ClampMax="800",Units="cm",EditCondition="bEntrance"))
     float EntranceWidth=220;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Entrance", meta=(ClampMin="100",ClampMax="1500",Units="cm",EditCondition="bEntrance"))
-    float EntranceHeight=185;
+    // Standing player capsule is 192 cm; 200 leaves room for floor contact tolerance.
+    float EntranceHeight=200;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Entrance")
     bool bEntranceFrame=false;
     /** Add steps up to the foundation. Requires FoundationHeight greater than zero. */

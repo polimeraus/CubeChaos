@@ -57,6 +57,14 @@ bool FBabylonTowerTest::RunTest(const FString& Parameters)
         if (!TestTrue(TEXT("Convex containment includes fragment centroid"),P.Contains(Center,.001))) return false;
     }
     TestFalse(TEXT("Base door is open"),Trace({0,-1950,100},{0,-1700,100}));
+    const FCollisionShape StandingPlayer = FCollisionShape::MakeCapsule(34.f,96.f);
+    FHitResult DoorHit;
+    const float StandingZ=A->FoundationHeight+98.f;
+    TestFalse(TEXT("Standing 192 cm player capsule passes through the default ground entrance"),
+        World->SweepSingleByChannel(DoorHit,{0,-1950,StandingZ},{0,-1600,StandingZ},
+            FQuat::Identity,ECC_Pawn,StandingPlayer));
+    TestTrue(TEXT("Door lintel remains solid above the 200 cm clearance"),
+        Trace({0,-1950,A->FoundationHeight+210},{0,-1700,A->FoundationHeight+210}));
     const double UpperZ=A->FoundationHeight+A->TierHeight+A->FloorThickness;
     const double UpperDepth=A->BaseDepth*.5*(1-(1-A->TopScale)/(A->TierCount-1));
     TestFalse(TEXT("Upper window is open"),Trace({0,-UpperDepth-100,UpperZ+100},{0,-UpperDepth+100,UpperZ+100}));
