@@ -1,0 +1,37 @@
+// A static procedural sky: no texture downloads, frame tick, volumetric cloud or Lumen cost.
+float3 d = normalize(-ViewToCamera);
+float elevation = saturate(d.z);
+float horizon = exp(-abs(d.z) * 5.5);
+float3 sky = DominantColor * lerp(0.045, 0.24, horizon);
+// Very faint broad high cloud wisps keep the gradient from looking perfectly flat.
+float longitude = atan2(d.y, d.x);
+float cloud = sin(longitude * 5.0 + d.z * 23.0 + sin(longitude * 11.0) * 0.25);
+cloud = pow(saturate(cloud * 0.5 + 0.5), 6.0) * exp(-pow((d.z - 0.18) / 0.16, 2.0));
+sky += DominantColor * cloud * 0.013;
+sky *= SkyBrightness;
+
+// Sparse fixed stars. Pixel footprint softens the small points at distance.
+float2 uv = float2(longitude * 0.15915494 + 0.5, asin(clamp(d.z, -1.0, 1.0)) * 0.31830989 + 0.5);
+float2 grid = uv * float2(760.0, 380.0);
+float2 cell = floor(grid);
+float seed = frac(sin(dot(cell, float2(127.1, 311.7))) * 43758.5453);
+float2 offset = float2(frac(seed * 43.7), frac(seed * 97.3)) * 0.6 + 0.2;
+float dist = length(frac(grid) - offset);
+float aa = max(length(fwidth(grid)) * 0.4, 0.035);
+float star = (1.0 - smoothstep(0.025, 0.025 + aa, dist)) * step(0.986, seed);
+sky += lerp(DominantColor, float3(1, 1, 1), 0.72) * star * StarBrightness * smoothstep(0.07, 0.4, d.z);
+
+float3 m = normalize(MoonDirection);
+float angle = acos(clamp(dot(d, m), -1.0, 1.0));
+float edge = max(fwidth(angle), 0.00008);
+float disc = 1.0 - smoothstep(MoonRadius - edge, MoonRadius + edge, angle);
+float3 tangent = normalize(cross(float3(0, 0, 1), m));
+float3 bitangent = cross(m, tangent);
+float2 p = float2(dot(d, tangent), dot(d, bitangent)) / max(MoonRadius, 0.0001);
+float terrain = 0.83 + sin(p.x * 11.0 + sin(p.y * 7.0)) * sin(p.y * 13.0 + p.x * 4.0) * 0.12;
+float crater = exp(-dot(p - float2(-0.3, 0.22), p - float2(-0.3, 0.22)) * 17.0);
+terrain -= crater * 0.22;
+float3 moonTint = lerp(DominantColor, float3(1.0, 1.0, 1.0), 0.83);
+float halo = exp(-pow(angle / max(MoonRadius * 3.5, 0.001), 2.0)) * 0.11;
+sky += MoonVisibility * (moonTint * disc * terrain * 2.3 + DominantColor * halo);
+return max(sky, float3(0, 0, 0));
