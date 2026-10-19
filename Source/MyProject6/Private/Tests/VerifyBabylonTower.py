@@ -28,7 +28,7 @@ keys=('side_count','base_width','base_depth','tier_count','tier_height','summit_
       'cornice_height','floor_thickness','summit_corbels','entrance','entrance_count','entrance_width','entrance_height',
       'entrance_frame','entrance_stairs','stair_count','stair_tread_depth','stair_width','foundation_height',
       'foundation_overhang','stone_material','cornice_material','terrace_material','portal_material',
-      'foundation_material','recess_material','open_facade_recesses')
+      'foundation_material','recess_material','open_facade_recesses','tier_heights','scale_windows_with_tiers','window_height_ratio')
 for name in keys:
     assert temple.get_editor_property(name)==fresh.get_editor_property(name)==cdo.get_editor_property(name),name
     assert native.get_editor_property(name)==cdo.get_editor_property(name),('native',name)

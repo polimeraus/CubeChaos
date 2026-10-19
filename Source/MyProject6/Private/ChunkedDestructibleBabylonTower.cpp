@@ -156,9 +156,14 @@ void AChunkedDestructibleBabylonTower::BuildFacade(int32 Face,int32 Tier,double 
     Count=bDoor?1:(Tier>0 && bUpperWindows?Count:0);
     const double RequestedWidth=TierWindowWidths.IsValidIndex(Tier) && FMath::IsFinite(TierWindowWidths[Tier]) && TierWindowWidths[Tier]>0?
         FMath::Clamp(double(TierWindowWidths[Tier]),20.,400.):WindowWidth;
-    const double Width=Count>0?FMath::Min(bDoor?double(EntranceWidth):RequestedWidth,ClearHalf*1.5/Count):0;
-    const double Sill=bDoor?0:FMath::Clamp(double(WindowSillHeight),10.,H*.5);
-    const double Height=FMath::Min(bDoor?double(EntranceHeight):double(WindowHeight),H-Sill-20);
+    const bool Proportional=!bDoor && bScaleWindowsWithTiers;
+    const double WidthScale=Proportional?W/BaseWidth:1.;
+    const double Width=Count>0?FMath::Min(bDoor?double(EntranceWidth):RequestedWidth*WidthScale,ClearHalf*1.5/Count):0;
+    const double Sill=bDoor?0:(Proportional?
+        FMath::Clamp(double(WindowSillHeight)/TierHeight,.025,FMath::Max(.025,1.-WindowHeightRatio-.05))*H:
+        FMath::Clamp(double(WindowSillHeight),10.,H*.5));
+    const double Height=Proportional?H*WindowHeightRatio:
+        FMath::Min(bDoor?double(EntranceHeight):double(WindowHeight),H-Sill-20);
     const double Usable=HalfSpan*TopFactor;
     TArray<FBox2D> Openings;
     TArray<double> Us={-1,1},Zs={Z,Z+H};
@@ -215,6 +220,7 @@ bool AChunkedDestructibleBabylonTower::CalculateLayout()
     WallThickness=FMath::Min(double(WallThickness),Smallest*.12);
     WindowsPerSide=FMath::Clamp(WindowsPerSide,0,20);EntranceCount=FMath::Clamp(EntranceCount,1,32);
     Clamp(RecessDepth,0,100);Clamp(WindowWidth,30,400);Clamp(WindowHeight,40,800);Clamp(WindowSillHeight,10,500);
+    Clamp(WindowHeightRatio,.05f,.9f);
     Clamp(CorniceOverhang,0,200);Clamp(CorniceHeight,0,150);Clamp(FloorThickness,10,150);
     Clamp(EntranceWidth,80,800);Clamp(EntranceHeight,100,1500);StairCount=FMath::Clamp(StairCount,1,32);
     Clamp(StairTreadDepth,20,120);Clamp(StairWidth,80,1600);Clamp(FoundationHeight,0,600);Clamp(FoundationOverhang,0,400);
@@ -238,7 +244,9 @@ bool AChunkedDestructibleBabylonTower::CalculateLayout()
     {
         const bool bSummit=Tier==TierCount-1;
         const double Scale=FMath::Lerp(1.,double(TopScale),TierCount>1?double(Tier)/(TierCount-1):0.);
-        const double W=BaseWidth*Scale,D=BaseDepth*Scale,H=bSummit?SummitHeight:TierHeight;
+        const double H=TierHeights.IsValidIndex(Tier) && FMath::IsFinite(TierHeights[Tier]) && TierHeights[Tier]>0?
+            FMath::Clamp(double(TierHeights[Tier]),150.,3000.):double(bSummit?SummitHeight:TierHeight);
+        const double W=BaseWidth*Scale,D=BaseDepth*Scale;
         for (int32 Face=0;Face<SideCount && !bBudgetExceeded;++Face) BuildFacade(Face,Tier,W,D,Z,H);
         Z+=H;
         const FVector2D Top(W*(1-2*WallBatter),D*(1-2*WallBatter));

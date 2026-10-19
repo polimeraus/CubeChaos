@@ -4,6 +4,12 @@ from pathlib import Path
 import unreal
 out=Path(unreal.Paths.project_saved_dir())/'BabylonTower/PolygonUpgrade'
 manifest=json.loads((out/'SavedInstances.json').read_text())
+features=Path(unreal.Paths.project_saved_dir())/'TowerFeatures/SavedInstances.json'
+if features.exists():
+    data=json.loads(features.read_text())
+    manifest['keys']=list(set(manifest['keys'])|set(data['keys']['Babylon']))
+    manifest['blueprints']=[r['path'] for r in data['blueprints'] if r['kind']=='Babylon']
+    manifest['instances']=[dict(r,**{'class':r['cls']}) for r in data['instances'] if r['kind']=='Babylon']
 native=unreal.get_default_object(unreal.ChunkedDestructibleBabylonTower)
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 def pose(a):

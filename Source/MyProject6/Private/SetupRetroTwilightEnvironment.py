@@ -17,49 +17,11 @@ if not backup.exists():
         shutil.copytree(external, backup / 'ExternalActors')
 
 assets = unreal.AssetToolsHelpers.get_asset_tools()
-edit = unreal.MaterialEditingLibrary
-mat_path = root + '/M_RetroTwilightSky'
-material = unreal.load_asset(mat_path) if unreal.EditorAssetLibrary.does_asset_exist(mat_path) else assets.create_asset(
-    'M_RetroTwilightSky', root, unreal.Material, unreal.MaterialFactoryNew())
-assert material
-material.set_editor_property('shading_model', unreal.MaterialShadingModel.MSM_UNLIT)
-material.set_editor_property('two_sided', True)
-material.set_editor_property('is_sky', True)
-remaining = list(edit.get_material_expressions(material))
-def expression(cls):
-    for node in remaining:
-        if isinstance(node, cls):
-            remaining.remove(node)
-            return node
-    return edit.create_material_expression(material, cls)
-
-nodes = {'ViewToCamera': (expression(unreal.MaterialExpressionCameraVectorWS), '')}
-for key, value in {'DominantColor': (0.32, 0.22, 0.65), 'MoonDirection': (-0.742, 0.52, 0.407)}.items():
-    node = expression(unreal.MaterialExpressionVectorParameter)
-    node.set_editor_property('parameter_name', key)
-    node.set_editor_property('default_value', unreal.LinearColor(*value, 1))
-    nodes[key] = (node, 'RGB')
-for key, value in {'SkyBrightness': 0.8, 'MoonVisibility': 1.0, 'MoonRadius': 0.0349066, 'StarBrightness': 0.35}.items():
-    node = expression(unreal.MaterialExpressionScalarParameter)
-    node.set_editor_property('parameter_name', key)
-    node.set_editor_property('default_value', value)
-    nodes[key] = (node, '')
-custom = expression(unreal.MaterialExpressionCustom)
-custom.set_editor_property('description', 'Twilight gradient, stars and aligned textured moon')
-custom.set_editor_property('output_type', unreal.CustomMaterialOutputType.CMOT_FLOAT3)
-custom.set_editor_property('code', (Path(__file__).parent / 'RetroTwilightSky.ush').read_text())
-inputs = []
-for key in nodes:
-    item = unreal.CustomInput()
-    item.set_editor_property('input_name', key)
-    inputs.append(item)
-custom.set_editor_property('inputs', inputs)
-for key, (node, pin) in nodes.items():
-    assert edit.connect_material_expressions(node, pin, custom, key)
-assert edit.connect_material_property(custom, '', unreal.MaterialProperty.MP_EMISSIVE_COLOR)
-edit.layout_material_expressions(material)
-edit.recompile_material(material)
-assert unreal.EditorAssetLibrary.save_loaded_asset(material, False)
+# The initial setup and subsequent upgrades share the same shader inputs.
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
+from BuildRetroTwilightMaterial import build_material
+material = build_material()
 
 bp_path = root + '/BP_RetroTwilightEnvironment'
 if unreal.EditorAssetLibrary.does_asset_exist(bp_path):

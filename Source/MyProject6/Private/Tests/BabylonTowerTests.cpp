@@ -120,6 +120,24 @@ bool FBabylonTowerTest::RunTest(const FString& Parameters)
         // Square traversal aperture must remain clear through every polygon slab.
         TestFalse(TEXT("Polygon slabs preserve square shaft corner"),Trace({85,85,100},{85,85,A->GeneratedHeight+100}));
     }
+    // Check the actual hole boundaries with unequal floor heights and a strong taper.
+    A->SideCount=4;A->WindowsPerSide=1;A->TopScale=.4f;A->WallBatter=0;
+    A->WindowWidth=200;A->WindowHeightRatio=.5f;A->TierHeights={300,400,600};A->RebuildTower();
+    TestTrue(TEXT("Per-floor heights include the summit and slab thickness"),FMath::IsNearlyEqual(A->GeneratedHeight,
+        A->FoundationHeight+1300+3*A->FloorThickness));
+    double FloorZ=A->FoundationHeight+300+A->FloorThickness;
+    for (int32 Tier=1;Tier<3;++Tier)
+    {
+        const double H=A->TierHeights[Tier],Scale=Tier==1?.7:.4,Depth=A->BaseDepth*.5*Scale;
+        const double Sill=H*A->WindowSillHeight/A->TierHeight;
+        const double Middle=FloorZ+Sill+H*.25,HalfWidth=100*Scale;
+        TestFalse(TEXT("Scaled window is empty inside its tapered edge"),Trace({HalfWidth-3,-Depth-100,Middle},{HalfWidth-3,-Depth+100,Middle}));
+        TestTrue(TEXT("Scaled window retains the jamb outside its tapered edge"),Trace({HalfWidth+3,-Depth-100,Middle},{HalfWidth+3,-Depth+100,Middle}));
+        TestFalse(TEXT("Window retains constant height fraction on taller storeys"),Trace({0,-Depth-100,FloorZ+Sill+H*.5-3},{0,-Depth+100,FloorZ+Sill+H*.5-3}));
+        TestTrue(TEXT("Window lintel starts at that same height fraction"),Trace({0,-Depth-100,FloorZ+Sill+H*.5+3},{0,-Depth+100,FloorZ+Sill+H*.5+3}));
+        FloorZ+=H+A->FloorThickness;
+    }
+    A->TierHeights.Reset();A->bScaleWindowsWithTiers=false;A->TopScale=.45f;A->WallBatter=.006f;
     A->SideCount=7;A->WindowsPerSide=1;A->TierWindowCounts={0,3,0};A->TierWindowWidths={0,180};A->RebuildTower();
     TestEqual(TEXT("Per-tier window counts override the global count including zero"),A->GeneratedOpeningCount,22);
     A->TierWindowCounts.Reset();A->WindowsPerSide=1;A->RebuildTower();

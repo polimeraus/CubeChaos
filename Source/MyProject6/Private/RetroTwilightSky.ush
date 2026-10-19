@@ -1,4 +1,28 @@
-// A static procedural sky: no texture downloads, frame tick, volumetric cloud or Lumen cost.
+// GPU sky: procedural atmosphere and retro disc, plus an optional NASA photographic moon.
+struct TwilightNoise
+{
+    float hash(float3 p)
+    {
+        p = frac(p * 0.1031);
+        p += dot(p, p.yzx + 33.33);
+        return frac((p.x + p.y) * p.z);
+    }
+    float noise(float3 p)
+    {
+        float3 i = floor(p);
+        float3 f = frac(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return lerp(lerp(lerp(hash(i), hash(i + float3(1,0,0)), f.x),
+                         lerp(hash(i + float3(0,1,0)), hash(i + float3(1,1,0)), f.x), f.y),
+                    lerp(lerp(hash(i + float3(0,0,1)), hash(i + float3(1,0,1)), f.x),
+                         lerp(hash(i + float3(0,1,1)), hash(i + float3(1,1,1)), f.x), f.y), f.z);
+    }
+    float cloud(float3 p)
+    {
+        return noise(p) * 0.57 + noise(p * 2.03 + 13.7) * 0.28 + noise(p * 4.11 + 27.2) * 0.15;
+    }
+};
+TwilightNoise field;
 float3 d = normalize(-ViewToCamera);
 float elevation = saturate(d.z);
 float horizon = exp(-abs(d.z) * 5.5);
@@ -9,6 +33,62 @@ float cloud = sin(longitude * 5.0 + d.z * 23.0 + sin(longitude * 11.0) * 0.25);
 cloud = pow(saturate(cloud * 0.5 + 0.5), 6.0) * exp(-pow((d.z - 0.18) / 0.16, 2.0));
 sky += DominantColor * cloud * 0.013;
 sky *= SkyBrightness;
+// Foreground atmosphere remains visible over the moon's unlit surface.
+float3 moonBackdrop = sky;
+
+// Periodic directional coordinates avoid a seam at the longitude wrap.
+// Three softly layered curtains with bright lower folds and wispy upper emission.
+float3 aurora = 0;
+float auroraVeil = 0;
+[branch] if (AuroraVisibility > 0.0 && AuroraIntensity > 0.0 && AuroraDensity > 0.0 && d.z > 0.0)
+{
+    float latitude = asin(clamp(d.z, -1.0, 1.0));
+    float theta = longitude - AuroraAzimuth;
+    float t = SkyTime * AuroraFlowSpeed;
+    float seedOffset = AuroraSeed * 0.731;
+    float width = max(AuroraWidth, 0.01745);
+    float azimuthDistance = acos(clamp(cos(theta), -1.0, 1.0));
+    float extent = AuroraCoverage * 0.5;
+    float coverage = 1.0 - smoothstep(extent * 0.68, extent, azimuthDistance);
+    if (AuroraCoverage > 6.28) coverage = 1.0;
+    coverage *= smoothstep(0.015, 0.12, d.z) * (1.0 - smoothstep(1.36, 1.56, latitude));
+    float3 domain = float3(cos(theta), sin(theta), latitude * 0.7);
+    float warp = field.cloud(domain * 2.1 + float3(t * 0.14, -t * 0.11, seedOffset));
+    [unroll] for (int layer = 0; layer < 3; ++layer)
+    {
+        float l = (float)layer;
+        float phase = theta + l * 1.93 + seedOffset;
+        float fold = sin(phase * 2.0 + t * 0.19 + sin(theta * 3.0 - t * 0.12 + l) * 0.55);
+        float smallerFold = sin(theta * 7.0 + l * 2.7 + t * 0.31 + warp * 3.0);
+        float base = AuroraElevation + (l - 1.0) * width * 0.72;
+        base += width * AuroraTurbulence * (fold * 0.52 + smallerFold * 0.12 + (warp - 0.5) * 1.3);
+        float h = (latitude - base) / width;
+        // The curtain rises from a green lower rim into a diffuse blue/violet cloud.
+        float lowerEdge = exp(-pow((h + 0.23) / 0.18, 2.0)) * 0.42;
+        float body = exp(-pow((h - 0.13) / 0.68, 2.0));
+        float3 q = float3(cos(theta + t * 0.06), sin(theta + t * 0.06), h * 0.65);
+        q = q * float3(3.6, 3.6, 1.0) * AuroraDetailScale + float3(l * 11.3, seedOffset, t * 0.15);
+        float billow = field.cloud(q + warp * AuroraTurbulence * 1.8);
+        float breakup = smoothstep(0.34, 0.74, billow);
+        float rayTheta = theta + sin(theta * 4.0 + h * 1.6 - t * 0.2 + l) * 0.028 * AuroraTurbulence;
+        float rays = field.noise(float3(cos(rayTheta), sin(rayTheta), h * 0.09 + t * 0.23)
+                                * float3(58.0, 58.0, 2.0) * AuroraDetailScale + l * 7.7 + seedOffset);
+        // Fade fine vertical rays when they become smaller than a screen pixel.
+        float rayResolve = 1.0 - saturate(fwidth(theta) * 58.0 * AuroraDetailScale);
+        float filaments = lerp(0.7, lerp(0.38, 1.0, rays), rayResolve);
+        float emission = (body * 0.68 + lowerEdge) * breakup * filaments;
+        emission = 1.0 - exp(-emission * AuroraDensity * 2.4);
+        float cloudTail = exp(-pow((h - 0.45) / 1.1, 2.0)) * breakup * 0.13 * AuroraDensity;
+        float3 curtainColor = lerp(AuroraLowerColor, AuroraUpperColor, smoothstep(-0.15, 0.85, h));
+        curtainColor = lerp(curtainColor, AuroraAccentColor,
+                           saturate((billow - 0.4) * 1.3) * smoothstep(0.0, 1.2, h) + l * 0.08);
+        float layerWeight = 1.0 / (1.0 + l * 0.42);
+        aurora += (curtainColor * emission + AuroraUpperColor * cloudTail) * layerWeight;
+        auroraVeil += (emission + cloudTail) * layerWeight;
+    }
+    aurora *= coverage * AuroraIntensity * AuroraVisibility * 0.6;
+    auroraVeil = saturate(auroraVeil * coverage * 0.28);
+}
 
 // Sparse fixed stars. Pixel footprint softens the small points at distance.
 float2 uv = float2(longitude * 0.15915494 + 0.5, asin(clamp(d.z, -1.0, 1.0)) * 0.31830989 + 0.5);
@@ -19,7 +99,8 @@ float2 offset = float2(frac(seed * 43.7), frac(seed * 97.3)) * 0.6 + 0.2;
 float dist = length(frac(grid) - offset);
 float aa = max(length(fwidth(grid)) * 0.4, 0.035);
 float star = (1.0 - smoothstep(0.025, 0.025 + aa, dist)) * step(0.986, seed);
-sky += lerp(DominantColor, float3(1, 1, 1), 0.72) * star * StarBrightness * smoothstep(0.07, 0.4, d.z);
+float3 starColor = lerp(float3(0.64, 0.77, 1.0), float3(1.0, 0.84, 0.65), frac(seed * 17.7));
+sky += starColor * star * StarBrightness * smoothstep(0.07, 0.4, d.z) * (1.0 - auroraVeil);
 
 float3 m = normalize(MoonDirection);
 float angle = acos(clamp(dot(d, m), -1.0, 1.0));
@@ -27,11 +108,86 @@ float edge = max(fwidth(angle), 0.00008);
 float disc = 1.0 - smoothstep(MoonRadius - edge, MoonRadius + edge, angle);
 float3 tangent = normalize(cross(float3(0, 0, 1), m));
 float3 bitangent = cross(m, tangent);
-float2 p = float2(dot(d, tangent), dot(d, bitangent)) / max(MoonRadius, 0.0001);
-float terrain = 0.83 + sin(p.x * 11.0 + sin(p.y * 7.0)) * sin(p.y * 13.0 + p.x * 4.0) * 0.12;
-float crater = exp(-dot(p - float2(-0.3, 0.22), p - float2(-0.3, 0.22)) * 17.0);
-terrain -= crater * 0.22;
-float3 moonTint = lerp(DominantColor, float3(1.0, 1.0, 1.0), 0.83);
-float halo = exp(-pow(angle / max(MoonRadius * 3.5, 0.001), 2.0)) * 0.11;
-sky += MoonVisibility * (moonTint * disc * terrain * 2.3 + DominantColor * halo);
+float2 p = float2(dot(d, tangent), dot(d, bitangent)) / max(sin(MoonRadius), 0.0001);
+float surfaceZ = sqrt(saturate(1.0 - dot(p, p)));
+float phaseAngle = saturate(MoonPhase) * 3.14159265;
+float phaseX = dot(p, float2(cos(MoonPhaseRotation), sin(MoonPhaseRotation)));
+// A spherical terminator gives a real full / gibbous / half / crescent progression.
+float sunFacing = phaseX * sin(phaseAngle) + surfaceZ * cos(phaseAngle);
+float phaseAA = max(fwidth(sunFacing), 0.0001);
+float lit = smoothstep(-phaseAA, phaseAA, sunFacing);
+if (MoonPhase <= 0.0) lit = 1.0;
+if (MoonPhase >= 1.0) lit = 0.0;
+float terrain = 0.82;
+bool retro = MoonPattern > 3.5 && MoonPattern < 4.5;
+bool realistic = MoonPattern > 4.5;
+float retroMask = 1.0;
+float s = sin(MoonTextureRotation), c = cos(MoonTextureRotation);
+// The sky basis is screen-right/up: preserve the familiar Earth-facing lunar geography.
+float2 photoP = p;
+photoP = float2(c * photoP.x - s * photoP.y, s * photoP.x + c * photoP.y);
+float2 photoUV = float2(0.5 + atan2(photoP.x, max(surfaceZ, 0.00001)) * 0.15915494,
+                       0.5 - asin(clamp(photoP.y, -1.0, 1.0)) * 0.31830989);
+// Derivatives must be evaluated before the spatially divergent disc branch.
+float2 photoDX = ddx(photoUV), photoDY = ddy(photoUV);
+[branch] if (disc > 0.0 && MoonVisibility > 0.0)
+{
+    if (retro)
+    {
+        // The top stays solid. Six progressively broader sky-filled cuts taper the lower half.
+        float cutAA = max(fwidth(p.y), 0.0015);
+        [unroll] for (int band = 0; band < 6; ++band)
+        {
+            float b = (float)band;
+            float center = 0.22 - b * 0.235;
+            float halfGap = (0.009 + b * b * 0.0026) * MoonRetroBandGap;
+            if (halfGap > 0.0)
+                retroMask *= smoothstep(halfGap - cutAA, halfGap + cutAA, abs(p.y - center));
+        }
+    }
+}
+terrain = clamp((terrain - 0.55) * MoonSurfaceContrast + 0.55, 0.08, 1.1);
+float limb = lerp(0.48, 1.0, pow(surfaceZ, 0.35));
+float phaseShading = lerp(0.35, 1.0, sqrt(saturate(sunFacing)));
+float3 albedo = MoonColor;
+float3 darkSide = moonBackdrop + albedo * terrain * MoonEarthshine * MoonBrightness;
+float3 moonSurface = lerp(darkSide, albedo * terrain * limb * phaseShading * 2.0 * MoonBrightness, lit);
+if (realistic && disc > 0.0 && MoonVisibility > 0.0)
+{
+    float3 photograph = Texture2DSampleGrad(MoonTexture, MoonTextureSampler, photoUV, photoDX, photoDY).rgb;
+    photograph = max((photograph - 0.18) * MoonSurfaceContrast + 0.18, 0.0);
+    // Preserve photographic color; procedural mineral tint and disc color presets do not recolor it.
+    moonSurface = lerp(moonBackdrop + photograph * MoonEarthshine * MoonBrightness,
+                       photograph * lerp(0.82, 1.0, surfaceZ) * phaseShading * MoonBrightness * MoonEmissiveIntensity, lit);
+}
+if (retro)
+{
+    float gradient = smoothstep(-0.85, 0.9, p.y);
+    float3 retroColor = lerp(MoonRetroBottomColor, MoonRetroTopColor, gradient);
+    // Flat luminous artwork: no geology, spherical limb darkening or color-preset multiplication.
+    moonSurface = lerp(moonBackdrop, retroColor * 1.6 * MoonBrightness, lit);
+    disc *= retroMask;
+}
+// The dark side occludes stars too. No bright ring around the unlit crescent edge.
+sky = lerp(sky, moonSurface, disc * MoonVisibility);
+float litFraction = 0.5 + 0.5 * cos(phaseAngle);
+// Overlapping scattering lobes create a gradual halo without a hard neon ring.
+float haloDistance = max(angle / max(MoonRadius, 0.0001) - 0.75, 0.0);
+float glowReach = max(MoonGlowWidth, 0.1);
+float innerGlow = exp(-pow(haloDistance / (glowReach * 0.32), 2.0 / max(MoonGlowSoftness, 0.25)));
+float outerGlow = exp(-pow(haloDistance / glowReach, 2.0));
+float3 glow = lerp(MoonColor, MoonGlowColor, 0.55) * innerGlow * 0.22 + MoonGlowColor * outerGlow * 0.09;
+if (retro)
+{
+    // A warm inner haze spills through the cuts into a broad pink/violet outer halo.
+    float radial = angle / max(MoonRadius, 0.0001);
+    float softness = max(MoonGlowSoftness, 0.25);
+    float corona = exp(-pow(max(radial - 0.94, 0.0) / (glowReach * 0.34), 2.0 / softness));
+    float haze = exp(-pow(radial / (1.0 + glowReach * 0.58), 2.0));
+    float3 pinkHalo = lerp(MoonRetroBottomColor, MoonGlowColor, 0.22);
+    glow = lerp(MoonRetroTopColor, pinkHalo, 0.65) * corona * 0.55 + pinkHalo * haze * 0.38;
+}
+sky += MoonVisibility * glow * MoonGlowIntensity * sqrt(saturate(litFraction)) * MoonBrightness * (1.0 - disc);
+// Aurora is high atmospheric light in front of the distant moon, with a restrained veil over its disc.
+sky += aurora * (1.0 - disc * MoonVisibility * 0.8);
 return max(sky, float3(0, 0, 0));

@@ -46,6 +46,10 @@ public:
     float TierHeight=240;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Shape", meta=(ClampMin="150",ClampMax="3000",Units="cm"))
     float SummitHeight=300;
+    /** Per-storey heights in cm, including the summit. Index 0 is the ground floor.
+     * Missing entries or zero use TierHeight / SummitHeight. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Shape", meta=(ClampMin="0",ClampMax="3000"))
+    TArray<float> TierHeights;
     /** Highest tier width and depth relative to the base. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Shape", meta=(ClampMin="0.05",ClampMax="1"))
     float TopScale=.12f;
@@ -77,14 +81,22 @@ public:
      * Missing entries or -1 use WindowsPerSide. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Facade", meta=(ClampMin="-1",ClampMax="20",EditCondition="bUpperWindows"))
     TArray<int32> TierWindowCounts;
-    /** Optional per-tier widths in cm. Missing entries or zero use WindowWidth. */
+    /** Optional per-tier reference widths in cm. Missing entries or zero use WindowWidth.
+     * These widths also follow the tier taper when Scale Windows With Tiers is enabled. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Facade", meta=(ClampMin="0",ClampMax="400",EditCondition="bUpperWindows"))
     TArray<float> TierWindowWidths;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Facade")
     bool bUpperWindows=true;
+    /** Scale window widths by the tier's pyramid scale and heights by WindowHeightRatio.
+     * Disable to use the legacy absolute window dimensions. Entrances are unaffected. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Facade", meta=(EditCondition="bUpperWindows"))
+    bool bScaleWindowsWithTiers=true;
+    /** Same fraction of the actual storey height on every floor, including the summit. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Facade", meta=(ClampMin="0.05",ClampMax="0.9",EditCondition="bUpperWindows && bScaleWindowsWithTiers"))
+    float WindowHeightRatio=.5625f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Facade", meta=(ClampMin="30",ClampMax="400",Units="cm",EditCondition="bUpperWindows"))
     float WindowWidth=110;
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Facade", meta=(ClampMin="40",ClampMax="800",Units="cm",EditCondition="bUpperWindows"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Facade", meta=(ClampMin="40",ClampMax="800",Units="cm",EditCondition="bUpperWindows && !bScaleWindowsWithTiers"))
     float WindowHeight=135;
     /** A positive sill keeps upper windows distinct from ground-floor doorways. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Babylon Tower|Facade", meta=(ClampMin="10",ClampMax="500",Units="cm",EditCondition="bUpperWindows"))

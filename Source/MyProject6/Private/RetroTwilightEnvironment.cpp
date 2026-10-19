@@ -7,8 +7,23 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/TextureCube.h"
+#include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
+
+namespace
+{
+ERetroMoonPattern SupportedMoonPattern(ERetroMoonPattern Pattern)
+{
+    switch (Pattern)
+    {
+    case ERetroMoonPattern::Smooth:
+    case ERetroMoonPattern::RetroBands:
+    case ERetroMoonPattern::Realistic: return Pattern;
+    default: return ERetroMoonPattern::Realistic;
+    }
+}
+}
 
 ARetroTwilightEnvironment::ARetroTwilightEnvironment()
 {
@@ -54,6 +69,15 @@ ARetroTwilightEnvironment::ARetroTwilightEnvironment()
     static ConstructorHelpers::FObjectFinder<UMaterialInterface> SkyFinder(
         TEXT("/Game/Environment/RetroTwilight/M_RetroTwilightSky.M_RetroTwilightSky"));
     if (SkyFinder.Succeeded()) SkyMaterial = SkyFinder.Object;
+    static ConstructorHelpers::FObjectFinder<UTexture2D> MoonFinder(
+        TEXT("/Game/Environment/RetroTwilight/T_Moon_NASA_LRO_8K.T_Moon_NASA_LRO_8K"));
+    if (MoonFinder.Succeeded()) MoonTexture = MoonFinder.Object;
+}
+
+void ARetroTwilightEnvironment::PostLoad()
+{
+    Super::PostLoad();
+    MoonPattern = SupportedMoonPattern(MoonPattern);
 }
 
 void ARetroTwilightEnvironment::OnConstruction(const FTransform& Transform)
@@ -76,9 +100,18 @@ void ARetroTwilightEnvironment::BeginPlay()
 
 void ARetroTwilightEnvironment::ApplyEnvironment()
 {
+    MoonPattern = SupportedMoonPattern(MoonPattern);
     if (IsTemplate() || !MoonLight || !SkyDome) return;
     const FLinearColor Tint = DominantColor.GetClamped(0.0f, 1.0f);
     const float Power = FMath::Max(0.0f, LightIntensity);
+    FLinearColor DiscColor = FLinearColor::White;
+    switch (MoonColorPreset)
+    {
+    case ERetroMoonColor::PaleYellow: DiscColor = FLinearColor(1.0f, 0.88f, 0.60f); break;
+    case ERetroMoonColor::PaleOrange: DiscColor = FLinearColor(1.0f, 0.65f, 0.38f); break;
+    case ERetroMoonColor::Custom: DiscColor = MoonCustomColor.GetClamped(0.0f, 1.0f); break;
+    default: break;
+    }
     const FVector MoonDirection = FRotator(FMath::Clamp(MoonElevation, 1.0f, 85.0f), MoonAzimuth, 0).Vector();
     // Light rays travel toward the scene, exactly opposite the visible disc.
     MoonLight->SetWorldRotation((-MoonDirection).Rotation());
@@ -128,7 +161,41 @@ void ARetroTwilightEnvironment::ApplyEnvironment()
         SkyMID->SetVectorParameterValue(TEXT("MoonDirection"), FLinearColor(MoonDirection.X, MoonDirection.Y, MoonDirection.Z));
         SkyMID->SetScalarParameterValue(TEXT("SkyBrightness"), FMath::Max(0.0f, SkyBrightness));
         SkyMID->SetScalarParameterValue(TEXT("MoonVisibility"), bShowMoon ? 1.0f : 0.0f);
-        SkyMID->SetScalarParameterValue(TEXT("MoonRadius"), FMath::DegreesToRadians(FMath::Clamp(MoonDiameter, 0.1f, 15.0f) * 0.5f));
+        SkyMID->SetScalarParameterValue(TEXT("MoonRadius"), FMath::DegreesToRadians(FMath::Clamp(MoonDiameter, 0.1f, 30.0f) * 0.5f));
+        SkyMID->SetVectorParameterValue(TEXT("MoonColor"), DiscColor);
+        SkyMID->SetScalarParameterValue(TEXT("MoonPattern"), static_cast<float>(MoonPattern));
+        // A missing optional texture falls back to the material's bundled NASA map.
+        UTexture* PhotoTexture = MoonTexture;
+        if (!PhotoTexture) SkyMaterial->GetTextureParameterValue(FMaterialParameterInfo(TEXT("MoonTexture")), PhotoTexture);
+        if (PhotoTexture) SkyMID->SetTextureParameterValue(TEXT("MoonTexture"), PhotoTexture);
+        SkyMID->SetScalarParameterValue(TEXT("MoonEmissiveIntensity"), FMath::Max(0.0f, MoonEmissiveIntensity));
+        SkyMID->SetScalarParameterValue(TEXT("MoonTextureRotation"), FMath::DegreesToRadians(MoonTextureRotation));
+        SkyMID->SetVectorParameterValue(TEXT("MoonRetroTopColor"), MoonRetroTopColor.GetClamped(0.0f, 1.0f));
+        SkyMID->SetVectorParameterValue(TEXT("MoonRetroBottomColor"), MoonRetroBottomColor.GetClamped(0.0f, 1.0f));
+        SkyMID->SetScalarParameterValue(TEXT("MoonRetroBandGap"), FMath::Clamp(MoonRetroBandGap, 0.0f, 2.0f));
+        SkyMID->SetScalarParameterValue(TEXT("MoonPhase"), FMath::Clamp(MoonCrescentAmount / 100.0f, 0.0f, 1.0f));
+        SkyMID->SetScalarParameterValue(TEXT("MoonPhaseRotation"), FMath::DegreesToRadians(MoonPhaseRotation));
+        SkyMID->SetScalarParameterValue(TEXT("MoonBrightness"), FMath::Max(0.0f, MoonBrightness));
+        SkyMID->SetScalarParameterValue(TEXT("MoonSurfaceContrast"), FMath::Max(0.0f, MoonSurfaceContrast));
+        SkyMID->SetScalarParameterValue(TEXT("MoonEarthshine"), FMath::Clamp(MoonEarthshine, 0.0f, 0.2f));
+        SkyMID->SetVectorParameterValue(TEXT("MoonGlowColor"), MoonGlowColor.GetClamped(0.0f, 1.0f));
+        SkyMID->SetScalarParameterValue(TEXT("MoonGlowIntensity"), FMath::Max(0.0f, MoonGlowIntensity));
+        SkyMID->SetScalarParameterValue(TEXT("MoonGlowWidth"), FMath::Clamp(MoonGlowWidth, 0.1f, 8.0f));
+        SkyMID->SetScalarParameterValue(TEXT("MoonGlowSoftness"), FMath::Clamp(MoonGlowSoftness, 0.25f, 4.0f));
+        SkyMID->SetScalarParameterValue(TEXT("AuroraVisibility"), bShowAurora ? 1.0f : 0.0f);
+        SkyMID->SetVectorParameterValue(TEXT("AuroraLowerColor"), AuroraLowerColor.GetClamped(0.0f, 1.0f));
+        SkyMID->SetVectorParameterValue(TEXT("AuroraUpperColor"), AuroraUpperColor.GetClamped(0.0f, 1.0f));
+        SkyMID->SetVectorParameterValue(TEXT("AuroraAccentColor"), AuroraAccentColor.GetClamped(0.0f, 1.0f));
+        SkyMID->SetScalarParameterValue(TEXT("AuroraIntensity"), FMath::Max(0.0f, AuroraIntensity));
+        SkyMID->SetScalarParameterValue(TEXT("AuroraDensity"), FMath::Clamp(AuroraDensity, 0.0f, 2.0f));
+        SkyMID->SetScalarParameterValue(TEXT("AuroraWidth"), FMath::DegreesToRadians(FMath::Clamp(AuroraWidth, 1.0f, 40.0f)));
+        SkyMID->SetScalarParameterValue(TEXT("AuroraElevation"), FMath::DegreesToRadians(FMath::Clamp(AuroraElevation, 5.0f, 75.0f)));
+        SkyMID->SetScalarParameterValue(TEXT("AuroraAzimuth"), FMath::DegreesToRadians(AuroraAzimuth));
+        SkyMID->SetScalarParameterValue(TEXT("AuroraCoverage"), FMath::DegreesToRadians(FMath::Clamp(AuroraCoverage, 20.0f, 360.0f)));
+        SkyMID->SetScalarParameterValue(TEXT("AuroraFlowSpeed"), AuroraFlowSpeed);
+        SkyMID->SetScalarParameterValue(TEXT("AuroraTurbulence"), FMath::Clamp(AuroraTurbulence, 0.0f, 2.0f));
+        SkyMID->SetScalarParameterValue(TEXT("AuroraDetailScale"), FMath::Clamp(AuroraDetailScale, 0.25f, 4.0f));
+        SkyMID->SetScalarParameterValue(TEXT("AuroraSeed"), FMath::Clamp(AuroraSeed, 0.0f, 1000.0f));
         SkyMID->SetScalarParameterValue(TEXT("StarBrightness"), FMath::Max(0.0f, StarBrightness));
     }
 }
