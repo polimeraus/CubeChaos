@@ -76,6 +76,18 @@ public:
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="BFG")
     int32 BFGShotsFired = 0;
 
+    /** Weapon and hands recoil; does not rotate the camera or change the aim ray. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Feedback", meta=(ClampMin="0", ClampMax="3"))
+    float BFGRecoilStrength = 2.f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Feedback", meta=(ClampMin="0", Units="lm"))
+    float BFGMuzzleFlashIntensity = 18000.f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Feedback", meta=(ClampMin="1", Units="cm"))
+    float BFGMuzzleFlashRadius = 650.f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Feedback", meta=(ClampMin="0.01", ClampMax="0.3", Units="s"))
+    float BFGMuzzleFlashDuration = .12f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Feedback")
+    FLinearColor BFGMuzzleFlashColor = FLinearColor(.025f, 1.f, .005f);
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun|Visuals")
     FRailgunVisualSettings Visuals;
 

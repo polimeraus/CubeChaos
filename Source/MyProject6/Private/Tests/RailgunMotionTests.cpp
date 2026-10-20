@@ -62,6 +62,25 @@ bool FRailgunMotionTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Shot settles back into breathing"), Shot.Location.Equals(Baseline.Location, .01f));
     TestTrue(TEXT("Landing settles back into breathing"), Landing.Location.Equals(Baseline.Location, .01f));
 
+    FRailgunViewMotion PreviousBFG, HeavyBFG, HeavyIdle;
+    PreviousBFG.AddShot(1.5f);
+    HeavyBFG.AddShot(2.f, true);
+    Advance(PreviousBFG, .1f, 60);
+    Advance(HeavyBFG, .1f, 60);
+    Advance(HeavyIdle, .1f, 60);
+    TestTrue(TEXT("BFG-only heavy impulse increases translation and muzzle lift by over 30 percent"),
+        HeavyBFG.Location.X < PreviousBFG.Location.X * 1.3f && HeavyBFG.Rotation.Pitch > PreviousBFG.Rotation.Pitch * 1.3f);
+    Advance(HeavyBFG, 1.f, 60);
+    Advance(HeavyIdle, 1.f, 60);
+    TestTrue(TEXT("Heavy BFG recoil also settles"), HeavyBFG.Location.Equals(HeavyIdle.Location, .01f));
+    for (int32 I=0;I<100;++I)
+    {
+        HeavyBFG.AddShot(3.f, true);
+        Advance(HeavyBFG, .3f, 30);
+        TestTrue(TEXT("Repeated maximum BFG recoil remains bounded"),HeavyBFG.Location.Size()<=6.001f
+            && FVector(HeavyBFG.Rotation.Pitch,HeavyBFG.Rotation.Yaw,HeavyBFG.Rotation.Roll).Size()<=7.001f);
+    }
+
     FRailgunViewMotion At30, At60, At120;
     for (FRailgunViewMotion* Motion : {&At30, &At60, &At120}) Motion->AddShot(1.f);
     Advance(At30, .3f, 30, FVector(700, 150, 0), false, FVector2D(60, -20));

@@ -8,14 +8,14 @@ struct FRailgunViewMotion
     FVector Location = FVector::ZeroVector;
     FRotator Rotation = FRotator::ZeroRotator;
 
-    void AddShot(float Strength)
+    void AddShot(float Strength, bool bHeavyShot = false)
     {
-        Strength = FMath::Clamp(Strength, 0.f, 1.5f);
+        Strength = FMath::Clamp(Strength, 0.f, bHeavyShot ? 3.f : 1.5f);
         const float Side = (++ShotIndex % 2) ? 1.f : -1.f;
         KickVelocity += FVector(-105.f, Side * 4.f, 22.f) * Strength;
         AngularKickVelocity += FVector(95.f, Side * 8.f, -Side * 13.f) * Strength;
-        KickVelocity = KickVelocity.GetClampedToMaxSize(150.f);
-        AngularKickVelocity = AngularKickVelocity.GetClampedToMaxSize(140.f);
+        KickVelocity = KickVelocity.GetClampedToMaxSize(bHeavyShot ? 300.f : 150.f);
+        AngularKickVelocity = AngularKickVelocity.GetClampedToMaxSize(bHeavyShot ? 280.f : 140.f);
     }
 
     void Land(float DownwardSpeed)

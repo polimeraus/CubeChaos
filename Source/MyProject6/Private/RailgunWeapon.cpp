@@ -34,10 +34,10 @@ ARailgunWeapon::ARailgunWeapon()
     Muzzle->SetupAttachment(WeaponMesh);
     BFGMuzzleLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("BFGMuzzleLight"));
     BFGMuzzleLight->SetupAttachment(RootComponent);
-    BFGMuzzleLight->SetLightColor(FLinearColor(.15f,1.f,.06f));
+    BFGMuzzleLight->SetLightColor(BFGMuzzleFlashColor);
     BFGMuzzleLight->SetIntensityUnits(ELightUnits::Lumens);
     BFGMuzzleLight->SetIntensity(0.f);
-    BFGMuzzleLight->SetAttenuationRadius(320.f);
+    BFGMuzzleLight->SetAttenuationRadius(BFGMuzzleFlashRadius);
     BFGMuzzleLight->SetSourceRadius(8.f);
     BFGMuzzleLight->SetCastShadows(false);
     for (UPrimitiveComponent* Mesh : {static_cast<UPrimitiveComponent*>(Arms), static_cast<UPrimitiveComponent*>(WeaponMesh)})
@@ -194,10 +194,12 @@ bool ARailgunWeapon::FireBFG()
     ++BFGShotsFired;
     if (BFGFireSound) UGameplayStatics::PlaySound2D(this, BFGFireSound, .92f);
     if (ChargeMaterial) ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), 8.f);
-    BFGMuzzleFlashRemaining = .065f;
+    BFGMuzzleFlashRemaining = FMath::Clamp(BFGMuzzleFlashDuration, .01f, .3f);
     BFGMuzzleLight->SetWorldLocation(Start);
-    BFGMuzzleLight->SetIntensity(6500.f);
-    AddFireMotion(.9f);
+    BFGMuzzleLight->SetLightColor(BFGMuzzleFlashColor);
+    BFGMuzzleLight->SetAttenuationRadius(FMath::Max(1.f, BFGMuzzleFlashRadius));
+    BFGMuzzleLight->SetIntensity(FMath::Max(0.f, BFGMuzzleFlashIntensity));
+    ViewMotion.AddShot(BFGRecoilStrength, true);
     return true;
 }
 
@@ -302,19 +304,20 @@ void ARailgunWeapon::Tick(float DeltaSeconds)
     Super::Tick(DeltaSeconds);
     if (!Wielder || DeltaSeconds <= 0.f || Wielder->IsEnergyDepleted()
         || UGameplayStatics::IsGamePaused(this)) return;
+    const float FlashDuration = FMath::Clamp(BFGMuzzleFlashDuration, .01f, .3f);
     if (ChargeMaterial)
     {
         const double NextShot = Wielder->bBFGEquipped ? NextBFGFireTime : NextFireTime;
         const float Interval = Wielder->bBFGEquipped ? BFGFireInterval : FireInterval;
         const float Charge = 1.f - FMath::Clamp(float(NextShot - GetWorld()->GetTimeSeconds()) / FMath::Max(.05f, Interval), 0.f, 1.f);
         ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), Wielder->bBFGEquipped
-            ? 2.8f + Charge + 4.2f*FMath::Clamp(BFGMuzzleFlashRemaining/.065f,0.f,1.f)
+            ? 2.8f + Charge + 4.2f*FMath::Clamp(BFGMuzzleFlashRemaining/FlashDuration,0.f,1.f)
             : 2.2f + 2.6f * Charge);
         if (Wielder->bRailgunEquipped) ChargeMaterial->SetVectorParameterValue(TEXT("Tint"), Visuals.Color);
     }
     BFGMuzzleFlashRemaining = FMath::Max(0.f, BFGMuzzleFlashRemaining - DeltaSeconds);
-    BFGMuzzleLight->SetIntensity(6500.f * FMath::Square(BFGMuzzleFlashRemaining / .065f));
-    if (BFGMuzzleFlashRemaining > 0) BFGMuzzleLight->SetWorldLocation(GetVisualMuzzleLocation());
+    BFGMuzzleLight->SetIntensity(FMath::Max(0.f, BFGMuzzleFlashIntensity)
+        * FMath::Square(FMath::Clamp(BFGMuzzleFlashRemaining / FlashDuration, 0.f, 1.f)));
     const FVector Velocity = Wielder->GetVelocity();
     const FRotator Aim = Wielder->GetBaseAimRotation();
     const FRotator AimDelta = (Aim - PreviousAim).GetNormalized();
@@ -333,6 +336,7 @@ void ARailgunWeapon::Tick(float DeltaSeconds)
     const FVector GripPivot(45, 11, -16);
     SetActorRelativeLocation(RestLocation + ViewMotion.Location * Amount + GripPivot - Rotation.RotateVector(GripPivot));
     SetActorRelativeRotation(Rotation);
+    if (BFGMuzzleFlashRemaining > 0) BFGMuzzleLight->SetWorldLocation(GetVisualMuzzleLocation());
 }
 
 void ARailgunWeapon::AddFireMotion(float Strength)
