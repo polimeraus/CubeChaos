@@ -8,5 +8,6 @@ enum class EPlayerWeapon : uint8
 {
     Default UMETA(DisplayName="Default Rifle"),
     Railgun,
-    BFG UMETA(DisplayName="BFG 10K")
+    BFG UMETA(DisplayName="BFG 10K"),
+    Bomb UMETA(DisplayName="Fuse Bomb")
 };

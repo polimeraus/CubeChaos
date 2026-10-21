@@ -8,6 +8,8 @@
 #include "Engine/DamageEvents.h"
 #include "Engine/World.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/Material.h"
 #include "PhysicsEngine/AggregateGeom.h"
 #include "PhysicsEngine/ConvexElem.h"
 #include "TimerManager.h"
@@ -21,7 +23,7 @@ namespace
     {
         FDynamicMesh3 Mesh;
         Mesh.EnableAttributes();
-        Mesh.Attributes()->SetNumUVLayers(1);
+        Mesh.Attributes()->SetNumUVLayers(2);
         Mesh.Attributes()->EnableMaterialID();
         return Mesh;
     }
@@ -120,6 +122,52 @@ void ADestructibleRadialSculpture::RebuildSculpture()
     if (!IsTemplate() && GetWorld()) { SetLifeSpan(0); GenerateFloor(false); }
 }
 
+void ADestructibleRadialSculpture::SetSculptureMaterial(UMaterialInterface* Material)
+{
+    SculptureMaterial = Material;
+    UpdateSculptureMaterials();
+    if (!IsTemplate()) RefreshFloorMaterials();
+}
+
+void ADestructibleRadialSculpture::SetGlowAnimationType(ERadialSculptureGlowAnimation Animation)
+{
+    GlowAnimation = Animation;
+    RefreshSculptureGlow();
+}
+
+void ADestructibleRadialSculpture::RefreshSculptureGlow()
+{
+    UpdateSculptureMaterials();
+    if (!IsTemplate()) RefreshFloorMaterials();
+}
+
+void ADestructibleRadialSculpture::UpdateSculptureMaterials()
+{
+    if (!IsTemplate() && GlowAnimation != ERadialSculptureGlowAnimation::None)
+    {
+        UMaterialInterface* Parent = SculptureGlowMaterial.LoadSynchronous();
+        if (Parent && (!SculptureGlowInstance || SculptureGlowInstance->Parent != Parent))
+            SculptureGlowInstance = UMaterialInstanceDynamic::Create(Parent, this);
+        if (!Parent) SculptureGlowInstance = nullptr;
+    }
+    else SculptureGlowInstance = nullptr;
+    if (SculptureGlowInstance)
+    {
+        SculptureGlowInstance->SetScalarParameterValue(TEXT("Mode"), float(GlowAnimation));
+        SculptureGlowInstance->SetScalarParameterValue(TEXT("Duration"), FMath::Max(GlowDuration,.1f));
+        SculptureGlowInstance->SetScalarParameterValue(TEXT("Pause"), FMath::Max(GlowLoopDelay,0.f));
+        SculptureGlowInstance->SetScalarParameterValue(TEXT("FinCount"), GeneratedFinCount);
+        SculptureGlowInstance->SetScalarParameterValue(TEXT("LegWidth"), FMath::Clamp(GlowLegWidth,1.f,8.f));
+        SculptureGlowInstance->SetScalarParameterValue(TEXT("BandHeight"), FMath::Max(GlowBandHeight,1.f));
+        SculptureGlowInstance->SetScalarParameterValue(TEXT("Height"), GeneratedGlowHeight);
+        SculptureGlowInstance->SetScalarParameterValue(TEXT("Intensity"), FMath::Max(SculptureGlowIntensity,0.f));
+        SculptureGlowInstance->SetScalarParameterValue(TEXT("PreviewTime"), GlowPreviewTime);
+        SculptureGlowInstance->SetVectorParameterValue(TEXT("Tint"), SculptureGlowColor);
+    }
+    FloorMaterials = {SculptureMaterial ? SculptureMaterial.Get() : UMaterial::GetDefaultMaterial(MD_Surface)};
+    if (SculptureGlowInstance) FloorMaterials.Add(SculptureGlowInstance);
+}
+
 FVector ADestructibleRadialSculpture::GetSphereWorldCenter() const
 { return SphereInterior->GetComponentLocation(); }
 
@@ -155,6 +203,17 @@ void ADestructibleRadialSculpture::AddPiece(FPiece&& Piece)
     if (bBudgetExceeded || Piece.Mesh.TriangleCount() == 0) return;
     if (Pieces.Num() >= FMath::Clamp(MaxGeneratedCells, 1, 16000)) { bBudgetExceeded = true; return; }
     for (int32 V : Piece.Mesh.VertexIndicesItr()) Piece.Bounds += FVector(Piece.Mesh.GetVertex(V));
+    // UV0 remains available to arbitrary surface materials. UV1 carries exact leg
+    // identity (not angle near the center) and continuous local height for the glow.
+    auto* GlowUV = Piece.Mesh.Attributes()->GetUVLayer(1);
+    for (int32 T : Piece.Mesh.TriangleIndicesItr())
+    {
+        const auto V = Piece.Mesh.GetTriangle(T);
+        FIndex3i UV;
+        for (int32 I=0; I<3; ++I)
+            UV[I] = GlowUV->AppendElement(FVector2f(float(Piece.FinIndex), float(Piece.Mesh.GetVertex(V[I]).Z)));
+        GlowUV->SetTriangle(T, UV);
+    }
     if (Piece.Part != EPart::Sphere)
     {
         constexpr int32 Faces[6][4] = {{0,3,2,1},{4,5,6,7},{0,1,5,4},{1,2,6,5},{2,3,7,6},{3,0,4,7}};
@@ -230,7 +289,7 @@ bool ADestructibleRadialSculpture::CalculateLayout()
                 const double Cut=X0>Neck ? 1.-FMath::Pow((X0-Neck)/(Radius-Neck),1./Exponent) : 1.;
                 const double End=FMath::Min(T1,Cut);
                 if (End-T0<1.e-6) continue;
-                FPiece Piece; Piece.Mesh=NewMesh();
+                FPiece Piece; Piece.Mesh=NewMesh(); Piece.FinIndex=Fin;
                 for (int32 S=0; S<Cuts.Num()-1; ++S)
                 {
                     const double A=Cuts[S],B=Cuts[S+1];
@@ -340,7 +399,10 @@ bool ADestructibleRadialSculpture::CalculateLayout()
     InteriorClearanceRadius=FMath::Max(0.,ClearanceRadius-.5);
     SphereInterior->SetRelativeLocation(SphereCenter);
     GeneratedPieceCount=RemainingPieceCount=Pieces.Num();
-    FloorMaterials={SculptureMaterial};DefaultCellHealth=FMath::Max(PieceHealth,1.f);
+    GeneratedFinCount=Fins;
+    GeneratedGlowHeight=SphereCenter.Z+R;
+    UpdateSculptureMaterials();
+    DefaultCellHealth=FMath::Max(PieceHealth,1.f);
     CellCount=FIntPoint(Pieces.Num(),1);
     ChunkCount=FIntPoint(FMath::DivideAndRoundUp(Pieces.Num(),FMath::Clamp(ChunkSideLength,4,128)),1);
     EffectiveCellDimensions=CellDimensions=FVector(Size);
@@ -384,7 +446,24 @@ void ADestructibleRadialSculpture::BuildChunkMesh(int32 ChunkIndex,FDynamicMesh3
     Mesh=NewMesh();FDynamicMeshEditor Editor(&Mesh);
     const int32 First=ChunkIndex*FMath::Clamp(ChunkSideLength,4,128),End=FMath::Min(First+FMath::Clamp(ChunkSideLength,4,128),Pieces.Num());
     for (int32 I=First;I<End;++I) if (Cells.IsValidIndex(I) && Cells[I].bExists)
-    { FMeshIndexMappings Map;Editor.AppendMesh(&Pieces[I].Mesh,Map); }
+    {
+        FMeshIndexMappings Map;Editor.AppendMesh(&Pieces[I].Mesh,Map);
+        if (SculptureGlowInstance)
+        {
+            // A separate additive skin retains the chosen surface material and
+            // disappears with each destroyed cell. It adds no collision bodies.
+            FDynamicMesh3 Glow(Pieces[I].Mesh);
+            const auto* Normals=Glow.Attributes()->PrimaryNormals();
+            for (int32 T:Glow.TriangleIndicesItr())
+            {
+                const auto V=Glow.GetTriangle(T), N=Normals->GetTriangle(T);
+                for (int32 K=0;K<3;++K)
+                    Glow.SetVertex(V[K],Glow.GetVertex(V[K])+FVector3d(Normals->GetElement(N[K]))*.05);
+                Glow.Attributes()->GetMaterialID()->SetValue(T,1);
+            }
+            FMeshIndexMappings GlowMap;Editor.AppendMesh(&Glow,GlowMap);
+        }
+    }
 }
 void ADestructibleRadialSculpture::BuildChunkSimpleCollision(int32 ChunkIndex,FKAggregateGeom& Collision) const
 {

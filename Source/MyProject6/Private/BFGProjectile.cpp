@@ -2,6 +2,10 @@
 #include "ChunkedDestructibleConeStructure.h"
 #include "QuadPanelConeStructure.h"
 #include "ChunkedDestructibleFloor.h"
+#include "DestructibleRadialSculpture.h"
+#include "ChasingNPC.h"
+#include "WhisperFollower.h"
+#include "ShooterNPC.h"
 #include "RoundedBoxActor.h"
 #include "SimpleHouseActor.h"
 #include "Camera/PlayerCameraManager.h"
@@ -9,6 +13,7 @@
 #include "Components/PointLightComponent.h"
 #include "DynamicMesh/DynamicMesh3.h"
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
+#include "UDynamicMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "Kismet/GameplayStatics.h"
@@ -38,6 +43,9 @@ ABFGProjectile::ABFGProjectile()
     PlasmaLight->SetAttenuationRadius(FlightLightRadius);
     PlasmaLight->SetSourceRadius(14.f);
     PlasmaLight->SetCastShadows(false);
+    PlasmaLight->SetVolumetricScatteringIntensity(0.f);
+    PlasmaLight->SetAffectGlobalIllumination(false);
+    PlasmaLight->SetAffectTranslucentLighting(false);
     static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Surface(TEXT("/Game/Weapons/BFG/Materials/M_BFGPlasma.M_BFGPlasma"));
     PlasmaMaterial = Surface.Get();
     static ConstructorHelpers::FObjectFinderOptional<USoundBase> Sound(TEXT("/Game/Weapons/BFG/Fusion/Audio/S_BFGFusionImpact.S_BFGFusionImpact"));
@@ -75,8 +83,32 @@ void ABFGProjectile::Tick(float DeltaSeconds)
     }
     if (bExploded) ImpactAge += DeltaSeconds;
     FVector View = GetActorLocation() - GetActorForwardVector() * 100 + FVector(0, 0, 20);
-    if (APlayerCameraManager* Camera = UGameplayStatics::GetPlayerCameraManager(this, 0)) View = Camera->GetCameraLocation();
-    DrawEffect(bExploded ? ImpactAge : Age, bExploded, View);
+    if (APlayerCameraManager* Camera = UGameplayStatics::GetPlayerCameraManager(this, 0))
+    {
+        View = Camera->GetCameraLocation();
+        const FVector Offset = GetActorLocation()-View;
+        // A missed shot lives for ten seconds, but after a fraction of that it
+        // is sub-pixel or behind the viewer. Keep its swept collision running;
+        // do not upload animated mesh buffers for those invisible projectiles.
+        const bool bVisible = Offset.SizeSquared()<FMath::Square(10000.f)
+            && (Offset.SizeSquared()<FMath::Square(250.f)
+                || FVector::DotProduct(Offset.GetSafeNormal(),Camera->GetCameraRotation().Vector())>0.f);
+        Plasma->SetVisibility(bVisible);
+        if (!bVisible)
+        {
+            PlasmaLight->SetIntensity(0.f);
+            return;
+        }
+    }
+    // Collision and movement still run every frame. Small surface animation can
+    // update at 30 Hz (15 Hz at distance) without quantizing the projectile path.
+    VisualAccumulator += DeltaSeconds;
+    const float VisualStep = FVector::DistSquared(View, GetActorLocation()) > FMath::Square(4000.f) ? 1.f/15.f : 1.f/30.f;
+    if (VisualAccumulator >= VisualStep || bVisualImpact != bExploded)
+    {
+        VisualAccumulator = FMath::Fmod(VisualAccumulator, VisualStep);
+        DrawEffect(bExploded ? ImpactAge : Age, bExploded, View);
+    }
 }
 
 void ABFGProjectile::Explode(const FHitResult& Hit)
@@ -88,8 +120,20 @@ void ABFGProjectile::Explode(const FHitResult& Hit)
     const FVector Origin = Hit.bBlockingHit ? Hit.ImpactPoint + Hit.ImpactNormal * 4.f : GetActorLocation();
     SetActorLocation(Origin);
     AActor* DirectTarget = Hit.GetActor();
-    const float Damage = FMath::Max(0.f, DirectDamage);
-    if (AQuadPanelConeStructure* Quad = Cast<AQuadPanelConeStructure>(DirectTarget))
+    float Damage = FMath::Max(0.f, DirectDamage);
+    // Use the target's live health, including placed-instance overrides and
+    // spawned variants. Their regular damage path still owns death presentation.
+    if (const AChasingNPC* NPC = Cast<AChasingNPC>(DirectTarget))
+        Damage = FMath::Max(Damage, NPC->GetCurrentHealth());
+    else if (const AWhisperFollower* Follower = Cast<AWhisperFollower>(DirectTarget))
+        Damage = FMath::Max(Damage, Follower->GetCurrentHealth());
+    else if (const AShooterNPC* Shooter = Cast<AShooterNPC>(DirectTarget))
+        Damage = FMath::Max(Damage, Shooter->CurrentHP);
+
+    if (ADestructibleRadialSculpture* Sculpture = Cast<ADestructibleRadialSculpture>(DirectTarget))
+        Sculpture->ApplyExplosionFromHit(Hit, FMath::Max(1.f, SplashRadius) * FMath::Max(1.f, SculptureRadiusMultiplier),
+            Damage * FMath::Max(1.f, SculptureDamageMultiplier));
+    else if (AQuadPanelConeStructure* Quad = Cast<AQuadPanelConeStructure>(DirectTarget))
         Quad->ApplyExplosionFromHit(Hit, SplashRadius, Damage);
     else if (AChunkedDestructibleConeStructure* Cone = Cast<AChunkedDestructibleConeStructure>(DirectTarget))
         Cone->ApplyExplosionFromHit(Hit, SplashRadius, Damage);
@@ -130,22 +174,46 @@ void ABFGProjectile::DrawEffect(float Seconds, bool bImpact, FVector ViewLocatio
     const FVector Normal = View.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
     FVector Right, Up;
     Normal.FindBestAxisVectors(Right, Up);
-    FDynamicMesh3 Mesh;
-    Mesh.EnableAttributes();
-    Mesh.Attributes()->EnablePrimaryColors();
+    constexpr int32 Rings=6, Segments=12;
+    FDynamicMesh3& Mesh = Plasma->GetDynamicMesh()->GetMeshRef();
+    const bool bBuild = Mesh.VertexCount() != (bImpact ? 44 : (Rings+1)*(Segments+1)+24);
+    if (bBuild)
+    {
+        Mesh.Clear();
+        Mesh.EnableAttributes();
+        Mesh.Attributes()->EnablePrimaryColors();
+        ++VisualTopologyBuildCount;
+    }
+    bVisualImpact = bImpact;
+    ++VisualUpdateCount;
+    int32 VertexIndex = 0;
+    auto Vertex = [&](FVector P, FVector N, FVector2f UV, FVector4f Color)
+    {
+        const int32 ID = VertexIndex++;
+        if (bBuild)
+        {
+            Mesh.AppendVertex(FVector3d(P));
+            Mesh.Attributes()->PrimaryNormals()->AppendElement(FVector3f(N));
+            Mesh.Attributes()->PrimaryUV()->AppendElement(UV);
+            Mesh.Attributes()->PrimaryColors()->AppendElement(Color);
+        }
+        else
+        {
+            Mesh.SetVertex(ID, FVector3d(P));
+            Mesh.Attributes()->PrimaryNormals()->SetElement(ID, FVector3f(N));
+            Mesh.Attributes()->PrimaryColors()->SetElement(ID, Color);
+        }
+    };
     auto Quad = [&](FVector Centre, FVector X, FVector Y, float Alpha, float Mode)
     {
         const FVector P[] = {Centre-X-Y, Centre+X-Y, Centre-X+Y, Centre+X+Y};
         const FVector2f UV[] = {{0,0},{1,0},{0,1},{1,1}};
-        const int32 Base = Mesh.VertexCount();
+        const int32 Base = VertexIndex;
         for (int32 I=0; I<4; ++I)
         {
-            Mesh.AppendVertex(FVector3d(P[I]));
-            Mesh.Attributes()->PrimaryNormals()->AppendElement(FVector3f(Normal));
-            Mesh.Attributes()->PrimaryUV()->AppendElement(UV[I]);
-            Mesh.Attributes()->PrimaryColors()->AppendElement(FVector4f(Mode,1,1,Alpha));
+            Vertex(P[I], Normal, UV[I], FVector4f(Mode,1,1,Alpha));
         }
-        for (FIndex3i T : {FIndex3i(Base,Base+1,Base+2),FIndex3i(Base+1,Base+3,Base+2)})
+        if (bBuild) for (FIndex3i T : {FIndex3i(Base,Base+1,Base+2),FIndex3i(Base+1,Base+3,Base+2)})
         {
             const int32 ID=Mesh.AppendTriangle(T);
             Mesh.Attributes()->PrimaryNormals()->SetTriangle(ID,T);
@@ -153,13 +221,14 @@ void ABFGProjectile::DrawEffect(float Seconds, bool bImpact, FVector ViewLocatio
             Mesh.Attributes()->PrimaryColors()->SetTriangle(ID,T);
         }
     };
+    float VisualLightIntensity = 0.f;
     if (bImpact)
     {
         const float Fade = FMath::Square(FMath::Clamp(1.f-Seconds/.5f,0.f,1.f));
         const float Radius = 26.f+FMath::Sqrt(Seconds)*165.f;
         Quad(FVector::ZeroVector,Right*Radius,Up*Radius,Fade,1);
         Quad(Normal*2,Right*Radius*.5f,Up*Radius*.5f,Fade*.8f,0);
-        PlasmaLight->SetIntensity(ImpactLightIntensity*Fade);
+        VisualLightIntensity = ImpactLightIntensity*Fade;
         PlasmaLight->SetAttenuationRadius(FlightLightRadius*1.65f);
         for (int32 I=0; I<9; ++I)
         {
@@ -173,22 +242,18 @@ void ABFGProjectile::DrawEffect(float Seconds, bool bImpact, FVector ViewLocatio
     else
     {
         const float Pulse = 1.f+.055f*FMath::Sin(Seconds*39.f)+.035f*FMath::Sin(Seconds*71.f);
-        PlasmaLight->SetIntensity(FlightLightIntensity*Pulse);
+        VisualLightIntensity = FlightLightIntensity*Pulse;
         PlasmaLight->SetAttenuationRadius(FlightLightRadius);
         // Rotating uneven volume gives the core parallax from every viewing angle.
-        const int32 Rings=10, Segments=20;
         for(int32 R=0; R<=Rings; ++R) for(int32 S=0; S<=Segments; ++S)
         {
             const float V=float(R)/Rings,U=float(S)/Segments;
             const float Phi=V*UE_PI,Theta=U*UE_TWO_PI+Seconds*3.5f;
             const FVector N(FMath::Cos(Phi),FMath::Sin(Phi)*FMath::Cos(Theta),FMath::Sin(Phi)*FMath::Sin(Theta));
             const float Radius=11.f*Pulse*(1+.14f*FMath::Sin(Theta*5+Seconds*19)*FMath::Sin(Phi*4-Seconds*11));
-            Mesh.AppendVertex(FVector3d(N*Radius));
-            Mesh.Attributes()->PrimaryNormals()->AppendElement(FVector3f(N));
-            Mesh.Attributes()->PrimaryUV()->AppendElement(FVector2f(U,V));
-            Mesh.Attributes()->PrimaryColors()->AppendElement(FVector4f(.2f,1,1,.46f));
+            Vertex(N*Radius, N, FVector2f(U,V), FVector4f(.2f,1,1,.46f));
         }
-        for(int32 R=0; R<Rings; ++R) for(int32 S=0; S<Segments; ++S)
+        if (bBuild) for(int32 R=0; R<Rings; ++R) for(int32 S=0; S<Segments; ++S)
         {
             const int32 A=R*(Segments+1)+S,B=A+Segments+1;
             for(FIndex3i T : {FIndex3i(A,B,A+1),FIndex3i(A+1,B,B+1)})
@@ -211,5 +276,12 @@ void ABFGProjectile::DrawEffect(float Seconds, bool bImpact, FVector ViewLocatio
             Quad(Centre,Right*Size,Up*Size,.35f*(1-Phase),0);
         }
     }
-    Plasma->SetMesh(MoveTemp(Mesh));
+    // A topology/UV upload and new render proxy are needed only at spawn/impact.
+    // Preserve the buffers for subsequent animated positions/normals/colors.
+    if (bBuild) Plasma->NotifyMeshUpdated();
+    else Plasma->FastNotifyPositionsUpdated(true, true, false);
+    const float LightFade = 1.f-FMath::SmoothStep(2000.f,3500.f,float(FVector::Distance(ViewLocation,GetActorLocation())));
+    // Set once: a culled light should stay at zero instead of being invalidated
+    // by a full-intensity write followed by a second write back to zero.
+    PlasmaLight->SetIntensity(VisualLightIntensity*LightFade);
 }

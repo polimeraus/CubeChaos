@@ -37,6 +37,13 @@ public:
     UFUNCTION(BlueprintCallable, Category="BFG")
     bool FireBFG();
 
+    UFUNCTION(BlueprintCallable, Category="Bomb") void ActivateBomb();
+    UFUNCTION(BlueprintCallable, Category="Bomb") bool FireBomb();
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Bomb", meta=(ClampMin="0.1", Units="s")) float BombFuseSeconds = 3.f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Bomb", meta=(ClampMin="0.8", Units="s")) float BombThrowInterval = .9f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Bomb", meta=(ClampMin="100", Units="cm/s")) float BombThrowSpeed = 1250.f;
+    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Bomb") int32 BombsThrown = 0;
+
     /** Each press requests one instantaneous shot; both keys share the same cooldown. */
     UFUNCTION(BlueprintCallable, Category="Railgun")
     bool Fire();
@@ -66,19 +73,26 @@ public:
     float TrailDuration = .65f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG", meta=(ClampMin="0.05", Units="s"))
-    float BFGFireInterval = .3f;
+    float BFGFireInterval = .22f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG", meta=(ClampMin="0"))
     float BFGDamage = 100.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG", meta=(ClampMin="0"))
     float BFGSplashDamage = 100.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG", meta=(ClampMin="1", Units="cm"))
     float BFGSplashRadius = 300.f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Destruction", meta=(ClampMin="1"))
+    float BFGSculptureRadiusMultiplier = 1.5f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Destruction", meta=(ClampMin="1"))
+    float BFGSculptureDamageMultiplier = 1.5f;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="BFG")
     int32 BFGShotsFired = 0;
 
     /** Weapon and hands recoil; does not rotate the camera or change the aim ray. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Feedback", meta=(ClampMin="0", ClampMax="3"))
-    float BFGRecoilStrength = 2.f;
+    float BFGRecoilStrength = 3.f;
+    /** Short firing shake. Zero disables camera movement. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Feedback", meta=(ClampMin="0", ClampMax="3"))
+    float BFGCameraShakeScale = 1.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Feedback", meta=(ClampMin="0", Units="lm"))
     float BFGMuzzleFlashIntensity = 18000.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Feedback", meta=(ClampMin="1", Units="cm"))
@@ -104,6 +118,9 @@ private:
     UPROPERTY() TObjectPtr<AMyProject6Character> Wielder;
     UPROPERTY() TObjectPtr<UAnimSequence> HoldAnimation;
     UPROPERTY() TObjectPtr<UAnimSequence> BFGHoldAnimation;
+    UPROPERTY() TObjectPtr<UAnimSequence> BombHoldAnimation;
+    UPROPERTY() TObjectPtr<UStaticMesh> BombModel;
+    UPROPERTY() TObjectPtr<USoundBase> BombThrowSound;
     UPROPERTY() TObjectPtr<USoundBase> FireSound;
     UPROPERTY() TObjectPtr<UMaterialInterface> ArmsMaterial;
     UPROPERTY() TObjectPtr<UStaticMesh> RailgunModel;
@@ -112,10 +129,14 @@ private:
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> ChargeMaterial;
     double NextFireTime = 0;
     double NextBFGFireTime = 0;
+    double NextBombFireTime = 0;
+    double LastBombThrowTime = -10;
     float BFGMuzzleFlashRemaining = 0;
     FVector RestLocation = FVector::ZeroVector;
     FVector PreviousVelocity = FVector::ZeroVector;
     FRotator PreviousAim = FRotator::ZeroRotator;
     FRailgunViewMotion ViewMotion;
     void ApplyHit(const FHitResult& Hit, const FVector& Direction);
+    void RestoreWeaponAttachment();
+    void ApplyHoldPose(UAnimSequence* Animation);
 };

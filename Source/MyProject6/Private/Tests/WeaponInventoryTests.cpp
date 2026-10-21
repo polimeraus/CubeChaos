@@ -7,6 +7,9 @@
 #include "EnergyHUDWidget.h"
 #include "Components/InputComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Animation/AnimSingleNodeInstance.h"
+#include "Animation/AnimationAsset.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -57,9 +60,24 @@ bool FWeaponInventoryTest::RunTest(const FString&)
         TestTrue(TEXT("Physical overlap collects the configured weapon"),P->IsCollected());
         Player->SetActorLocation(FVector(0,0,500));P->Destroy();Tick();
     };
-    auto Active=[&](EPlayerWeapon W){TestEqual(TEXT("Active weapon"),Player->GetActiveWeapon(),W);};
+    auto Active=[&](EPlayerWeapon W)
+    {
+        TestEqual(TEXT("Active weapon"),Player->GetActiveWeapon(),W);
+        // Check the running instance, not AnimationData: SingleNode switches used
+        // to leave the rifle animation playing even though saved data said bomb.
+        if (Player->Railgun)
+        {
+            const FString Expected = W == EPlayerWeapon::Bomb ? TEXT("A_BombHold")
+                : W == EPlayerWeapon::BFG ? TEXT("A_BFGFusionHold") : TEXT("A_RailgunHold");
+            auto* Instance = Player->Railgun->Arms->GetSingleNodeInstance();
+            if (TestNotNull(TEXT("Live hold animation instance"), Instance))
+                TestEqual(TEXT("Selected weapon changes the running hold pose"), Instance->GetCurrentAsset()->GetName(), Expected);
+        }
+    };
     Active(EPlayerWeapon::Default);
     TestFalse(TEXT("Cannot select uncollected BFG"),Player->SelectWeapon(EPlayerWeapon::BFG));
+    Key(EKeys::Four);Active(EPlayerWeapon::Default);
+    TestFalse(TEXT("Bomb starts locked"),Player->HasWeapon(EPlayerWeapon::Bomb));
     Key(EKeys::MouseScrollUp);Active(EPlayerWeapon::Default);
     Collect(EPickupWeapon::BFG);Active(EPlayerWeapon::BFG);
     Key(EKeys::MouseScrollDown);Active(EPlayerWeapon::Default);
@@ -80,11 +98,42 @@ bool FWeaponInventoryTest::RunTest(const FString&)
     TestTrue(TEXT("Railgun can fire after switching"),Player->Railgun->Fire());
     Key(EKeys::Three);Key(EKeys::Two);
     TestFalse(TEXT("Weapon switching cannot reset railgun cooldown"),Player->Railgun->Fire());
+    Collect(EPickupWeapon::Bomb);Active(EPlayerWeapon::Bomb);
+    for (int32 Frame = 0; Frame < 12; ++Frame)
+    {
+        Tick();
+        const FTransform Rig = Player->Railgun->GetActorTransform();
+        for (int32 Side : {-1, 1})
+        {
+            const FVector Wrist = Rig.InverseTransformPosition(Player->Railgun->Arms->GetSocketLocation(Side < 0 ? TEXT("hand_l") : TEXT("hand_r")));
+            TestTrue(TEXT("Both live wrists keep supporting the sphere through animation ticks"),
+                Wrist.Equals(FVector(48.f, Side * 13.5f, -27.f), .3f));
+            const FVector Knuckle = Rig.InverseTransformPosition(Player->Railgun->Arms->GetSocketLocation(Side < 0 ? TEXT("middle_01_l") : TEXT("middle_01_r")));
+            const float PalmRadius = FVector::Distance((Wrist+Knuckle)*.5f,FVector(54,0,-23));
+            TestTrue(TEXT("Palm surface cradles the sphere instead of a fingertip-only grip"),PalmRadius>12.f && PalmRadius<15.f);
+            for (const TCHAR* Finger : {TEXT("index"), TEXT("middle"), TEXT("ring"), TEXT("pinky"), TEXT("thumb")})
+            {
+                const FName Bone(*FString::Printf(TEXT("%s_03_%s"), Finger, Side < 0 ? TEXT("l") : TEXT("r")));
+                const FVector Tip = Player->Railgun->WeaponMesh->GetComponentTransform().InverseTransformPosition(
+                    Player->Railgun->Arms->GetSocketLocation(Bone));
+                TestTrue(TEXT("Finger ends remain outside the 11.5 cm bomb shell"), Tip.Size() > 11.6);
+            }
+        }
+    }
+    TestEqual(TEXT("Bomb model is displayed"),Player->Railgun->WeaponMesh->GetStaticMesh()->GetName(),FString(TEXT("SM_FuseBomb")));
+    Key(EKeys::MouseScrollUp);Active(EPlayerWeapon::Default);
+    TestEqual(TEXT("Returning from bomb restores the rifle socket"),Player->Railgun->WeaponMesh->GetAttachSocketName(),FName(TEXT("HandGrip_R")));
+    Key(EKeys::MouseScrollDown);Active(EPlayerWeapon::Bomb);
+    Key(EKeys::Two);Key(EKeys::Four);Active(EPlayerWeapon::Bomb);
+    Key(EKeys::LeftMouseButton);Tick();Key(EKeys::LeftMouseButton,IE_Released);
+    TestEqual(TEXT("Primary fire throws one bomb"),Player->Railgun->BombsThrown,1);
+    Key(EKeys::One);Key(EKeys::Four);
+    TestFalse(TEXT("Switching cannot bypass bomb cooldown"),Player->Railgun->FireBomb());
     if(!GUsingNullRHI)
     {
         const FString Dir=FPaths::ProjectSavedDir()/TEXT("WeaponUpgrade/Preview");IFileManager::Get().MakeDirectory(*Dir,true);
         FWidgetRenderer Renderer(true);
-        for(EPlayerWeapon W:{EPlayerWeapon::Default,EPlayerWeapon::Railgun,EPlayerWeapon::BFG})
+        for(EPlayerWeapon W:{EPlayerWeapon::Default,EPlayerWeapon::Railgun,EPlayerWeapon::BFG,EPlayerWeapon::Bomb})
         {
             Player->SelectWeapon(W);
             Tick();

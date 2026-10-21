@@ -26,7 +26,7 @@ public:
     {
         const AMyProject6Character* Pawn = Player.Get().Get();
         const EPlayerWeapon Active = Pawn ? Pawn->GetActiveWeapon() : EPlayerWeapon::Default;
-        const FLinearColor Colors[] = {FLinearColor(1,.62f,.18f), FLinearColor(.15f,.83f,1), FLinearColor(.36f,1,.2f)};
+        const FLinearColor Colors[] = {FLinearColor(1,.62f,.18f), FLinearColor(.15f,.83f,1), FLinearColor(.36f,1,.2f), FLinearColor(1,.34f,.09f)};
         const FLinearColor Accent = Colors[int32(Active)];
         auto Box = [&](float X, float Y, float W, float H, FLinearColor C)
         {
@@ -47,8 +47,24 @@ public:
         Box(0,0,3,142,Accent);
         Box(16,32,298,1,FLinearColor(.15f,.24f,.29f,.45f));
         Text(16,10,TEXT("AKTİF SİLAH"),10,FLinearColor(.65f,.74f,.78f),true);
-        Text(213,10,TEXT("TEKERLEK  /  1 2 3"),9,FLinearColor(.48f,.59f,.65f));
-        if (Active == EPlayerWeapon::BFG)
+        Text(197,10,TEXT("TEKERLEK / 1 2 3 4"),9,FLinearColor(.48f,.59f,.65f));
+        if (Active == EPlayerWeapon::Bomb)
+        {
+            TArray<FVector2f> Circle;
+            for (int32 I=0; I<=40; ++I)
+            {
+                const float Angle = I*UE_TWO_PI/40.f;
+                Circle.Add(FVector2f(63+23*FMath::Cos(Angle),74+23*FMath::Sin(Angle)));
+            }
+            FSlateDrawElement::MakeLines(Out,Layer+1,G.ToPaintGeometry(),Circle,ESlateDrawEffect::None,Accent,true,3.f);
+            Line({{64,51},{67,46},{76,49},{74,55}},3,Accent);
+            Line({{73,47},{79,39},{87,38},{91,42},{97,40}},2,FLinearColor(1,.78f,.35f));
+            Line({{97,36},{100,30}},2,Accent);
+            Line({{101,40},{109,39}},2,Accent);
+            Line({{98,44},{103,50}},2,Accent);
+            Line({{48,68},{50,62},{57,59}},3,FLinearColor(1,.7f,.4f));
+        }
+        else if (Active == EPlayerWeapon::BFG)
         {
             Line({{23,58},{37,48},{75,48},{86,55},{112,55},{112,75},{83,75},{72,83},{36,83},{23,73},{23,58}},2,Accent);
             Line({{35,83},{32,94},{44,94},{50,83}},3,Accent);
@@ -71,18 +87,18 @@ public:
             Line({{65,73},{62,87},{76,87},{77,73}},3,Accent);
             Line({{54,50},{69,50}},3,Accent);
         }
-        const TCHAR* Names[] = {TEXT("BAŞLANGIÇ"),TEXT("RAILGUN"),TEXT("BFG 10K")};
-        const TCHAR* Descriptions[] = {TEXT("Seri atış"),TEXT("Hassas enerji atışı"),TEXT("Patlayıcı plazma")};
+        const TCHAR* Names[] = {TEXT("BAŞLANGIÇ"),TEXT("RAILGUN"),TEXT("BFG 10K"),TEXT("BOMBA")};
+        const TCHAR* Descriptions[] = {TEXT("Seri atış"),TEXT("Hassas enerji atışı"),TEXT("Patlayıcı plazma"),TEXT("3 sn fitil · 2× BFG")};
         Text(137,47,Names[int32(Active)],19,Accent,true);
         Text(138,76,Descriptions[int32(Active)],10,FLinearColor(.72f,.8f,.83f));
-        const TCHAR* Slots[] = {TEXT("1  TÜFEK"),TEXT("2  RAIL"),TEXT("3  BFG")};
-        for (int32 I=0;I<3;++I)
+        const TCHAR* Slots[] = {TEXT("1 TÜFEK"),TEXT("2 RAIL"),TEXT("3 BFG"),TEXT("4 BOMBA")};
+        for (int32 I=0;I<4;++I)
         {
             const bool Owned = Pawn ? Pawn->HasWeapon(static_cast<EPlayerWeapon>(I)) : I==0;
             const bool Selected = int32(Active)==I;
-            Box(16+I*101,108,96,24,Selected ? FLinearColor(Accent.R*.16f,Accent.G*.16f,Accent.B*.16f,.95f) : FLinearColor(.04f,.065f,.08f,.8f));
-            Text(24+I*101,112,Slots[I],10,Owned ? Colors[I] : FLinearColor(.25f,.3f,.33f),Selected);
-            if(Selected) Box(16+I*101,132,96,2,Accent);
+            Box(16+I*76,108,70,24,Selected ? FLinearColor(Accent.R*.16f,Accent.G*.16f,Accent.B*.16f,.95f) : FLinearColor(.04f,.065f,.08f,.8f));
+            Text(21+I*76,112,Slots[I],9,Owned ? Colors[I] : FLinearColor(.25f,.3f,.33f),Selected);
+            if(Selected) Box(16+I*76,132,70,2,Accent);
         }
         return Layer+3;
     }

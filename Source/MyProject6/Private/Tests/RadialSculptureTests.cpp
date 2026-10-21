@@ -125,6 +125,34 @@ bool FRadialSculptureTest::RunTest(const FString& Parameters)
     A->RebuildSculpture();World->LineTraceSingleByChannel(Hit,Start,End,ECC_Visibility);
     auto* BFG=World->SpawnActor<ABFGProjectile>(FVector(2000,0,2000),FRotator::ZeroRotator);BFG->Explode(Hit);
     TestTrue(TEXT("BFG uses common floor explosion path"),A->RemainingPieceCount<Count-5);
+    // Match the saved level's 5.75x sculpture scale, testing both supporting fins
+    // and the hollow sphere through the real projectile/shared ripple path.
+    A->SetActorScale3D(FVector(5.75));
+    A->bUseDestructionRipple=true;
+    for (bool bSphere : {false,true})
+    {
+        int32 Removed[3]={};
+        for (int32 VariantIndex=0;VariantIndex<3;++VariantIndex)
+        {
+            A->RebuildSculpture();
+            const FVector LocalStart=bSphere?Sphere+FVector(300,40,40):Start;
+            const FVector LocalEnd=bSphere?Sphere+FVector(0,40,40):End;
+            if (!TestTrue(TEXT("Scaled sculpture has a hittable surface"),World->LineTraceSingleByChannel(Hit,
+                A->GetActorTransform().TransformPosition(LocalStart),A->GetActorTransform().TransformPosition(LocalEnd),ECC_GameTraceChannel1)))return false;
+            auto* ComparisonShot=World->SpawnActor<ABFGProjectile>(FVector(10000,0,10000),FRotator::ZeroRotator);
+            if (VariantIndex==0) { ComparisonShot->SculptureRadiusMultiplier=1;ComparisonShot->SculptureDamageMultiplier=1; }
+            if (VariantIndex==2) { ComparisonShot->SculptureRadiusMultiplier=3;ComparisonShot->SculptureDamageMultiplier=2; }
+            ComparisonShot->Explode(Hit);
+            A->ProcessQueuedDestructions(World->GetTimeSeconds()+10.);
+            Removed[VariantIndex]=Count-A->RemainingPieceCount;
+            ComparisonShot->Destroy();
+        }
+        AddInfo(FString::Printf(TEXT("BFG %s at level scale: original %d cells, balanced %d cells, previous strong setting %d cells"),bSphere?TEXT("sphere"):TEXT("fin"),Removed[0],Removed[1],Removed[2]));
+        TestTrue(TEXT("Balanced BFG destroys more cells than the original and fewer than the previous strong setting"),
+            Removed[0]>0 && Removed[1]>Removed[0] && Removed[1]<Removed[2]);
+        TestTrue(TEXT("A single BFG hit leaves some of the large sculpture intact"),Removed[1]<Count);
+    }
+    A->bUseDestructionRipple=false;
     A->RebuildSculpture();
     A->SetActorTransform(FTransform(FRotator(0,37,0),FVector(1600,-900,75),FVector(1.3,.8,1.6)));
     TestTrue(TEXT("Interior anchor follows transformed and scaled sculpture"),A->GetSphereWorldCenter().Equals(A->GetActorTransform().TransformPosition(Sphere),.001));

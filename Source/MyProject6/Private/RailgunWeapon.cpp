@@ -1,6 +1,10 @@
 #include "RailgunWeapon.h"
 #include "RailgunBeam.h"
 #include "BFGProjectile.h"
+#include "BombProjectile.h"
+#include "BFGCameraShake.h"
+#include "Camera/PlayerCameraManager.h"
+#include "GameFramework/PlayerController.h"
 #include "MyProject6Character.h"
 #include "ChunkedDestructibleConeStructure.h"
 #include "QuadPanelConeStructure.h"
@@ -40,6 +44,9 @@ ARailgunWeapon::ARailgunWeapon()
     BFGMuzzleLight->SetAttenuationRadius(BFGMuzzleFlashRadius);
     BFGMuzzleLight->SetSourceRadius(8.f);
     BFGMuzzleLight->SetCastShadows(false);
+    BFGMuzzleLight->SetVolumetricScatteringIntensity(0.f);
+    BFGMuzzleLight->SetAffectGlobalIllumination(false);
+    BFGMuzzleLight->SetAffectTranslucentLighting(false);
     for (UPrimitiveComponent* Mesh : {static_cast<UPrimitiveComponent*>(Arms), static_cast<UPrimitiveComponent*>(WeaponMesh)})
     {
         Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -63,6 +70,12 @@ ARailgunWeapon::ARailgunWeapon()
     HoldAnimation = Hold.Object;
     static ConstructorHelpers::FObjectFinder<UAnimSequence> BFGHold(TEXT("/Game/Weapons/BFG/Fusion/Animations/A_BFGFusionHold.A_BFGFusionHold"));
     BFGHoldAnimation = BFGHold.Object;
+    static ConstructorHelpers::FObjectFinderOptional<UAnimSequence> BombHold(TEXT("/Game/Weapons/FuseBomb/Animations/A_BombHold.A_BombHold"));
+    BombHoldAnimation = BombHold.Get();
+    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> Bomb(TEXT("/Game/Weapons/FuseBomb/Meshes/SM_FuseBomb.SM_FuseBomb"));
+    BombModel = Bomb.Get();
+    static ConstructorHelpers::FObjectFinderOptional<USoundBase> Toss(TEXT("/Game/Weapons/FuseBomb/Audio/S_BombThrow.S_BombThrow"));
+    BombThrowSound = Toss.Get();
     static ConstructorHelpers::FObjectFinder<USoundBase> Sound(TEXT("/Game/Weapons/Railgun/Audio/S_RailFire.S_RailFire"));
     FireSound = Sound.Object;
     static ConstructorHelpers::FObjectFinder<UMaterialInterface> ArmSurface(TEXT("/Game/Weapons/Railgun/Materials/M_RailArms.M_RailArms"));
@@ -80,9 +93,7 @@ void ARailgunWeapon::Equip(AMyProject6Character* Character)
     Arms->SetSkeletalMeshAsset(Original->GetSkeletalMeshAsset());
     for (int32 Slot = 0; Slot < Original->GetNumMaterials(); ++Slot)
         Arms->SetMaterial(Slot, ArmsMaterial ? ArmsMaterial.Get() : Original->GetMaterial(Slot));
-    Arms->OverrideAnimationData(HoldAnimation, true, true, 0.f, 1.f);
-    Arms->TickAnimation(0.f, false);
-    Arms->RefreshBoneTransforms();
+    ApplyHoldPose(HoldAnimation);
     // Place the authored two-handed pose by its grip, so both hands stay in the
     // first-person frame, and align the rifle's +Y barrel with camera forward.
     const FTransform GripPose = Arms->GetSocketTransform(TEXT("HandGrip_R"), RTS_Component);
@@ -105,10 +116,9 @@ void ARailgunWeapon::Equip(AMyProject6Character* Character)
 
 void ARailgunWeapon::ActivateDefaultWeapon()
 {
+    RestoreWeaponAttachment();
     BFGMuzzleFlashRemaining = 0; BFGMuzzleLight->SetIntensity(0);
-    Arms->OverrideAnimationData(HoldAnimation, true, true, 0.f, 1.f);
-    Arms->TickAnimation(0.f, false);
-    Arms->RefreshBoneTransforms();
+    ApplyHoldPose(HoldAnimation);
     WeaponMesh->EmptyOverrideMaterials();
     ChargeMaterial = nullptr;
     WeaponMesh->SetStaticMesh(DefaultModel);
@@ -120,10 +130,9 @@ void ARailgunWeapon::ActivateDefaultWeapon()
 
 void ARailgunWeapon::ActivateRailgun()
 {
+    RestoreWeaponAttachment();
     BFGMuzzleFlashRemaining = 0; BFGMuzzleLight->SetIntensity(0);
-    Arms->OverrideAnimationData(HoldAnimation, true, true, 0.f, 1.f);
-    Arms->TickAnimation(0.f, false);
-    Arms->RefreshBoneTransforms();
+    ApplyHoldPose(HoldAnimation);
     WeaponMesh->EmptyOverrideMaterials();
     ChargeMaterial = nullptr;
     if (RailgunModel) WeaponMesh->SetStaticMesh(RailgunModel);
@@ -147,9 +156,8 @@ void ARailgunWeapon::ActivateRailgun()
 
 void ARailgunWeapon::ActivateBFG()
 {
-    Arms->OverrideAnimationData(BFGHoldAnimation, true, true, 0.f, 1.f);
-    Arms->TickAnimation(0.f, false);
-    Arms->RefreshBoneTransforms();
+    RestoreWeaponAttachment();
+    ApplyHoldPose(BFGHoldAnimation);
     WeaponMesh->EmptyOverrideMaterials();
     ChargeMaterial = nullptr;
     if (BFGModel) WeaponMesh->SetStaticMesh(BFGModel);
@@ -161,6 +169,74 @@ void ARailgunWeapon::ActivateBFG()
     GetRootComponent()->SetRelativeLocation(RestLocation);
     const int32 EnergySlot = WeaponMesh->GetMaterialIndex(TEXT("FusionEnergy"));
     if (EnergySlot != INDEX_NONE) ChargeMaterial = WeaponMesh->CreateDynamicMaterialInstance(EnergySlot);
+}
+
+void ARailgunWeapon::RestoreWeaponAttachment()
+{
+    WeaponMesh->AttachToComponent(Arms, FAttachmentTransformRules::SnapToTargetNotIncludingScale, TEXT("HandGrip_R"));
+    WeaponMesh->SetVisibility(true);
+}
+
+void ARailgunWeapon::ApplyHoldPose(UAnimSequence* Animation)
+{
+    // OverrideAnimationData stores editor/reinitialization data, but does not
+    // update an existing SingleNode instance when the animation mode is unchanged.
+    Arms->OverrideAnimationData(Animation, true, true, 0.f, 1.f);
+    Arms->PlayAnimation(Animation, true);
+    Arms->TickAnimation(0.f, false);
+    Arms->RefreshBoneTransforms();
+}
+
+void ARailgunWeapon::ActivateBomb()
+{
+    BFGMuzzleFlashRemaining = 0;
+    BFGMuzzleLight->SetIntensity(0);
+    ChargeMaterial = nullptr;
+    ApplyHoldPose(BombHoldAnimation ? BombHoldAnimation.Get() : HoldAnimation.Get());
+    WeaponMesh->AttachToComponent(RootComponent, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+    WeaponMesh->EmptyOverrideMaterials();
+    WeaponMesh->SetStaticMesh(BombModel);
+    WeaponMesh->SetRelativeTransform(FTransform(FVector(54, 0, -23)));
+    WeaponMesh->SetVisibility(true);
+    Muzzle->SetRelativeLocation(FVector(13, 0, 0));
+    // Keep the complete sphere and both supporting wrists inside a 16:9
+    // first-person frame, below the crosshair.
+    RestLocation = FVector(20, 0, 10);
+    GetRootComponent()->SetRelativeLocation(RestLocation);
+}
+
+bool ARailgunWeapon::FireBomb()
+{
+    UWorld* World = GetWorld();
+    if (!World || !Wielder || Wielder->GetActiveWeapon() != EPlayerWeapon::Bomb || !HasAuthority()
+        || Wielder->IsEnergyDepleted() || UGameplayStatics::IsGamePaused(this)
+        || World->GetTimeSeconds() + .0001 < NextBombFireTime) return false;
+    const UCameraComponent* Camera = Wielder->GetFirstPersonCameraComponent();
+    const FVector Eye = Camera->GetComponentLocation();
+    FVector Start = GetVisualMuzzleLocation();
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(BombThrow), false, Wielder);
+    Query.AddIgnoredActor(this);
+    FHitResult Cover;
+    if (World->SweepSingleByChannel(Cover, Eye, Start, FQuat::Identity, ECC_GameTraceChannel1,
+        FCollisionShape::MakeSphere(11.5f), Query)) Start = Eye;
+    const FTransform Transform(Start);
+    auto* Bomb = World->SpawnActorDeferred<ABombProjectile>(ABombProjectile::StaticClass(), Transform,
+        Wielder, Wielder, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+    if (!Bomb) return false;
+    Bomb->BlastDamage = FMath::Max(0.f, BFGSplashDamage) * 2.f;
+    Bomb->BlastRadius = FMath::Max(1.f, BFGSplashRadius);
+    Bomb->SculptureRadiusMultiplier = BFGSculptureRadiusMultiplier;
+    Bomb->SculptureDamageMultiplier = BFGSculptureDamageMultiplier;
+    Bomb->FuseSeconds = FMath::Max(.1f, BombFuseSeconds);
+    Bomb->LaunchVelocity = Camera->GetForwardVector()*FMath::Max(100.f, BombThrowSpeed)
+        + FVector(0,0,220) + Wielder->GetVelocity()*.35f;
+    Bomb->FinishSpawning(Transform);
+    LastBombThrowTime = World->GetTimeSeconds();
+    NextBombFireTime = LastBombThrowTime + FMath::Max(.8f, BombThrowInterval);
+    ++BombsThrown;
+    WeaponMesh->SetVisibility(false);
+    if (BombThrowSound) UGameplayStatics::PlaySound2D(this, BombThrowSound, .7f);
+    return true;
 }
 
 bool ARailgunWeapon::FireBFG()
@@ -187,6 +263,8 @@ bool ARailgunWeapon::FireBFG()
     Projectile->DirectDamage = FMath::Max(0.f, BFGDamage);
     Projectile->SplashDamage = FMath::Max(0.f, BFGSplashDamage);
     Projectile->SplashRadius = FMath::Max(1.f, BFGSplashRadius);
+    Projectile->SculptureRadiusMultiplier = FMath::Max(1.f, BFGSculptureRadiusMultiplier);
+    Projectile->SculptureDamageMultiplier = FMath::Max(1.f, BFGSculptureDamageMultiplier);
     Projectile->FinishSpawning(Transform);
     // A protruding first-person barrel must not spawn a projectile beyond cover.
     if (bMuzzleBlocked) Projectile->Explode(CoverHit);
@@ -200,6 +278,11 @@ bool ARailgunWeapon::FireBFG()
     BFGMuzzleLight->SetAttenuationRadius(FMath::Max(1.f, BFGMuzzleFlashRadius));
     BFGMuzzleLight->SetIntensity(FMath::Max(0.f, BFGMuzzleFlashIntensity));
     ViewMotion.AddShot(BFGRecoilStrength, true);
+    if (APlayerController* Controller = Cast<APlayerController>(Wielder->GetController());
+        Controller && Controller->IsLocalController() && Controller->PlayerCameraManager && BFGCameraShakeScale > 0.f)
+    {
+        Controller->PlayerCameraManager->StartCameraShake(UBFGCameraShake::StaticClass(), FMath::Clamp(BFGCameraShakeScale, 0.f, 3.f));
+    }
     return true;
 }
 
@@ -336,6 +419,17 @@ void ARailgunWeapon::Tick(float DeltaSeconds)
     const FVector GripPivot(45, 11, -16);
     SetActorRelativeLocation(RestLocation + ViewMotion.Location * Amount + GripPivot - Rotation.RotateVector(GripPivot));
     SetActorRelativeRotation(Rotation);
+    if (Wielder->GetActiveWeapon() == EPlayerWeapon::Bomb)
+    {
+        const float ThrowAge = float(GetWorld()->GetTimeSeconds() - LastBombThrowTime);
+        WeaponMesh->SetVisibility(ThrowAge >= .65f);
+        if (ThrowAge >= 0 && ThrowAge < .85f)
+        {
+            const float Reach = FMath::Sin(FMath::Clamp(ThrowAge/.25f,0.f,1.f)*UE_PI);
+            const float Lower = FMath::Sin(FMath::Clamp((ThrowAge-.16f)/.69f,0.f,1.f)*UE_PI);
+            AddActorLocalOffset(FVector(Reach*12.f,0,Reach*5.f-Lower*20.f));
+        }
+    }
     if (BFGMuzzleFlashRemaining > 0) BFGMuzzleLight->SetWorldLocation(GetVisualMuzzleLocation());
 }
 

@@ -18,7 +18,8 @@ enum class EPickupWeapon : uint8
 {
     Railgun,
     BFG UMETA(DisplayName="BFG 10K"),
-    DefaultWeapon UMETA(DisplayName="Default Rifle")
+    DefaultWeapon UMETA(DisplayName="Default Rifle"),
+    Bomb UMETA(DisplayName="Fuse Bomb")
 };
 
 UENUM(BlueprintType)

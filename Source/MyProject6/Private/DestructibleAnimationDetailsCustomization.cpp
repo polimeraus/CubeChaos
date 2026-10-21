@@ -5,6 +5,7 @@
 #if WITH_EDITOR
 
 #include "ChunkedDestructibleFloor.h"
+#include "DestructibleRadialSculpture.h"
 #include "DetailCategoryBuilder.h"
 #include "DetailLayoutBuilder.h"
 #include "DetailWidgetRow.h"
@@ -195,6 +196,19 @@ void FDestructibleAnimationDetailsCustomization::CustomizeDetails(IDetailLayoutB
 	UClass* ObjectClass = GetCustomizedObjectClass(DetailBuilder, DestructibleCategoryName);
 	if (!ObjectClass || !ObjectClass->IsChildOf(AChunkedDestructibleFloor::StaticClass()))
 	{
+		return;
+	}
+	if (ObjectClass->IsChildOf(ADestructibleRadialSculpture::StaticClass()))
+	{
+		// The sculpture owns its material and shader-driven glow settings. Inherited
+		// floor palettes are regenerated caches; showing them suggests edits persist.
+		for (TFieldIterator<FProperty> It(ObjectClass); It; ++It)
+		{
+			const FString Category=It->GetMetaData(TEXT("Category"));
+			if (Category.StartsWith(TEXT("Chunked Floor|Materials")) ||
+				Category.StartsWith(TEXT("Animation|Fixed")) || Category.StartsWith(TEXT("Animation|Flow")))
+				DetailBuilder.HideProperty(DetailBuilder.GetProperty(It->GetFName(), It->GetOwnerClass()));
+		}
 		return;
 	}
 

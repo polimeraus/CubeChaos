@@ -1,5 +1,8 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 #include "BFGProjectile.h"
+#include "BFGCameraShake.h"
+#include "Camera/CameraModifier_CameraShake.h"
+#include "Camera/PlayerCameraManager.h"
 #include "RailgunWeapon.h"
 #include "ParametricPickup.h"
 #include "BallProjectile.h"
@@ -52,12 +55,15 @@ bool FBFGTest::RunTest(const FString&)
     auto* Player=World->SpawnActor<AMyProject6Character>(PlayerClass,FVector(0,0,500),FRotator::ZeroRotator);
     Player->GetCharacterMovement()->DisableMovement();
     auto* Controller=World->SpawnActor<APlayerController>();Controller->SetAsLocalPlayerController();Controller->Possess(Player);Player->PawnClientRestart();
+    // No ULocalPlayer exists in this headless world; let its world tick update the camera locally.
+    Controller->PlayerCameraManager->bUseClientSideCameraUpdates=false;
+    Controller->SetViewTarget(Player);
     Advance(.05f);
     auto* Gun=Player->Railgun.Get();
     if(!TestNotNull(TEXT("Shared hands/weapon rig"),Gun))return false;
     TestFalse(TEXT("BFG starts locked"),Player->bBFGEquipped);
     TestFalse(TEXT("Cannot bypass BFG pickup"),Gun->FireBFG());
-    TestEqual(TEXT("BFG arena firing interval"),Gun->BFGFireInterval,.3f);
+    TestEqual(TEXT("BFG arena firing interval"),Gun->BFGFireInterval,.22f);
     TestEqual(TEXT("BFG Q3 direct damage"),Gun->BFGDamage,100.f);
     TestEqual(TEXT("BFG Q3 splash damage"),Gun->BFGSplashDamage,100.f);
     TestEqual(TEXT("BFG Q3 radius scaled to centimetres"),Gun->BFGSplashRadius,300.f);
@@ -79,11 +85,13 @@ bool FBFGTest::RunTest(const FString&)
     Camera->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
     Camera->bUsePawnControlRotation=false;
     Camera->SetWorldLocationAndRotation(FVector(0,0,600),FRotator::ZeroRotator);
+    Controller->PlayerCameraManager->UpdateCamera(0.f);
     auto SpawnTarget=[&](FVector Location)
     {
         const FTransform Transform(Location);
         auto* NPC=World->SpawnActorDeferred<AChasingNPC>(AChasingNPC::StaticClass(),Transform,nullptr,nullptr,ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
         FindFProperty<FFloatProperty>(AChasingNPC::StaticClass(),TEXT("MaxHealth"))->SetPropertyValue_InContainer(NPC,500.f);
+        FindFProperty<FBoolProperty>(AChasingNPC::StaticClass(),TEXT("bSpawnReplacementsOnDeath"))->SetPropertyValue_InContainer(NPC,false);
         NPC->FinishSpawning(Transform);NPC->GetCharacterMovement()->DisableMovement();NPC->SetActorTickEnabled(false);return NPC;
     };
     auto Wall=[&](FVector Location,FVector Extent)
@@ -96,13 +104,16 @@ bool FBFGTest::RunTest(const FString&)
     auto* Protected=SpawnTarget(FVector(1000,-180,600));
     auto* SplashCover=Wall(FVector(1000,-90,600),FVector(200,8,160));
     const FTransform AimBefore=Camera->GetComponentTransform();
-    FString Samples(TEXT("time,x,y,z,pitch,yaw,roll,light\n"));
+    FString Samples(TEXT("time,x,y,z,pitch,yaw,roll,light,camera_x,camera_y,camera_z,camera_pitch,camera_yaw,camera_roll\n"));
     auto Sample=[&](float Time)
     {
         const FVector P=Gun->GetRootComponent()->GetRelativeLocation();
         const FRotator R=Gun->GetRootComponent()->GetRelativeRotation();
-        Samples+=FString::Printf(TEXT("%.3f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.1f\n"),
-            Time,P.X,P.Y,P.Z,R.Pitch,R.Yaw,R.Roll,Gun->BFGMuzzleLight->Intensity);
+        const FMinimalViewInfo& View=Controller->PlayerCameraManager->GetCameraCacheView();
+        const FVector CameraOffset=View.Location-AimBefore.GetLocation();
+        Samples+=FString::Printf(TEXT("%.3f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.1f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n"),
+            Time,P.X,P.Y,P.Z,R.Pitch,R.Yaw,R.Roll,Gun->BFGMuzzleLight->Intensity,
+            CameraOffset.X,CameraOffset.Y,CameraOffset.Z,View.Rotation.Pitch,View.Rotation.Yaw,View.Rotation.Roll);
     };
     Sample(-1.f);
     TestTrue(TEXT("First BFG shot fires"),Gun->FireBFG());
@@ -111,39 +122,61 @@ bool FBFGTest::RunTest(const FString&)
     const FLinearColor FlashColor=Gun->BFGMuzzleLight->GetLightColor();
     TestTrue(TEXT("Discharge is saturated neon green"),FlashColor.G>.99f && FlashColor.R<.04f && FlashColor.B<.01f);
     TestFalse(TEXT("Repeated request respects cooldown"),Gun->FireBFG());
+    auto* ShakeModifier=Cast<UCameraModifier_CameraShake>(Controller->PlayerCameraManager->FindCameraModifierByClass(UCameraModifier_CameraShake::StaticClass()));
+    TArray<FActiveCameraShakeInfo> Shakes;
+    if (TestNotNull(TEXT("Player has a camera shake modifier"),ShakeModifier))
+    {
+        ShakeModifier->GetActiveCameraShakes(Shakes);
+        TestTrue(TEXT("Successful fire starts exactly one BFG shake; cooldown does not add one"),
+            Shakes.Num()==1 && Shakes[0].ShakeInstance->IsA<UBFGCameraShake>());
+    }
     TestEqual(TEXT("BFG is a travelling projectile, not instant damage"),Direct->GetCurrentHealth(),500.f);
     TWeakObjectPtr<ABFGProjectile> Shot;
     for(TActorIterator<ABFGProjectile> It(World);It;++It)Shot=*It;
     if(!TestTrue(TEXT("BFG projectile exists"),Shot.IsValid()))return false;
     TestEqual(TEXT("Fusion projectile is 60 percent faster"),Shot->Speed,8000.f);
+    TestEqual(TEXT("Weapon forwards the balanced sculpture blast radius"),Shot->SculptureRadiusMultiplier,1.5f);
+    TestEqual(TEXT("Weapon forwards the balanced sculpture cell damage"),Shot->SculptureDamageMultiplier,1.5f);
     TestTrue(TEXT("Projectile illuminates nearby geometry"),Shot->PlasmaLight->Intensity>3000 && Shot->PlasmaLight->AttenuationRadius>=420);
     Sample(0.f);
     float PeakPitch=0.f;
+    float PeakCameraPitch=0.f;
     for(int32 Frame=1;Frame<=15;++Frame)
     {
         Advance(.016f);
         PeakPitch=FMath::Max(PeakPitch,float(Gun->GetRootComponent()->GetRelativeRotation().Pitch));
+        PeakCameraPitch=FMath::Max(PeakCameraPitch,float(FMath::Abs(Controller->PlayerCameraManager->GetCameraRotation().Pitch)));
         Sample(Frame*.016f);
         if(Frame==3) TestTrue(TEXT("Flash decays quickly but remains visible through recoil"),
             Gun->BFGMuzzleLight->Intensity>4000 && Gun->BFGMuzzleLight->Intensity<18000);
     }
-    TestTrue(TEXT("Heavy BFG discharge exceeds the previous 2.5 degree kick"),PeakPitch>3.3f);
-    TestTrue(TEXT("Weapon recoil leaves the camera and aim unchanged"),Camera->GetComponentTransform().Equals(AimBefore,.001f));
+    TestTrue(TEXT("Stronger BFG discharge lifts the weapon by over 4.7 degrees"),PeakPitch>4.7f);
+    TestTrue(TEXT("Real firing also shakes the player camera"),PeakCameraPitch>.5f && PeakCameraPitch<1.1f);
+    TestTrue(TEXT("Presentation shake does not permanently change the aim component"),Camera->GetComponentTransform().Equals(AimBefore,.001f));
+    if (ShakeModifier)
+    {
+        Shakes.Reset();
+        ShakeModifier->GetActiveCameraShakes(Shakes);
+        TestEqual(TEXT("Firing shake finishes before the next shot"),Shakes.Num(),0);
+    }
+    AddInfo(FString::Printf(TEXT("BFG peak weapon recoil: %.3f degrees"),PeakPitch));
     const FString PreviewDir=FPaths::ProjectSavedDir()/TEXT("BFGFeedback");
     IFileManager::Get().MakeDirectory(*PreviewDir,true);
     TestTrue(TEXT("Actual firing presentation samples saved"),FFileHelper::SaveStringToFile(Samples,*(PreviewDir/TEXT("Samples.csv"))));
     TestEqual(TEXT("Muzzle flash turns off after discharge"),Gun->BFGMuzzleLight->Intensity,0.f);
     TestTrue(TEXT("Projectile hits and explodes"),Shot->bExploded);
-    TestEqual(TEXT("Direct damage applied once without additional splash"),Direct->GetCurrentHealth(),400.f);
+    TestEqual(TEXT("One direct BFG hit consumes all 500 health"),Direct->GetCurrentHealth(),0.f);
+    TestTrue(TEXT("Direct target enters its normal death state immediately"),Direct->IsDead());
     TestTrue(TEXT("Nearby target takes radial falloff damage"),Nearby->GetCurrentHealth()<500.f&&Nearby->GetCurrentHealth()>400.f);
     TestEqual(TEXT("Wall occludes splash damage"),Protected->GetCurrentHealth(),500.f);
     const float NearbyAfter=Nearby->GetCurrentHealth();Shot->Explode(FHitResult());
     TestEqual(TEXT("Explosion cannot be applied twice"),Nearby->GetCurrentHealth(),NearbyAfter);
     Advance(.6f);TestFalse(TEXT("Explosion cleans up"),Shot.IsValid());
+    Direct->Destroy();Direct=SpawnTarget(FVector(1000,0,600));
     auto* FrontCover=Wall(FVector(400,0,600),FVector(2,150,150));
     TestTrue(TEXT("Shot into thin cover fires"),Gun->FireBFG());
     Advance(.3f);
-    TestEqual(TEXT("Fast projectile cannot tunnel through a thin wall"),Direct->GetCurrentHealth(),400.f);
+    TestEqual(TEXT("Fast projectile cannot tunnel through a thin wall"),Direct->GetCurrentHealth(),500.f);
     FrontCover->Destroy();SplashCover->Destroy();
 
     Collect(RailPickupClass);
@@ -153,7 +186,7 @@ bool FBFGTest::RunTest(const FString&)
     TestEqual(TEXT("Rail mesh restored"),Gun->WeaponMesh->GetStaticMesh()->GetName(),FString(TEXT("SM_QuakeRailgun")));
     TestEqual(TEXT("Railgun damage increased to 200"),Gun->Damage,200.f);
     TestTrue(TEXT("Powered up rail fires"),Gun->Fire());
-    TestEqual(TEXT("Actual rail hit removes 200 health"),Direct->GetCurrentHealth(),200.f);
+    TestEqual(TEXT("Actual rail hit still removes only 200 health"),Direct->GetCurrentHealth(),300.f);
     Collect(BFGPickupClass);
     Camera->SetWorldRotation(FRotator(0,90,0));
     auto Key=[&](EInputEvent Event)
@@ -163,10 +196,10 @@ bool FBFGTest::RunTest(const FString&)
         return false;
     };
     const int32 Before=Gun->BFGShotsFired;
-    TestTrue(TEXT("BFG uses primary fire binding"),Key(IE_Pressed));Advance(.45f);
-    TestEqual(TEXT("Held BFG fires every 300ms"),Gun->BFGShotsFired,Before+2);
+    TestTrue(TEXT("BFG uses primary fire binding"),Key(IE_Pressed));Advance(.55f);
+    TestEqual(TEXT("Held BFG respects the faster cooldown"),Gun->BFGShotsFired,Before+3);
     TestTrue(TEXT("BFG release binding"),Key(IE_Released));Advance(.3f);
-    TestEqual(TEXT("Release stops firing"),Gun->BFGShotsFired,Before+2);
+    TestEqual(TEXT("Release stops firing"),Gun->BFGShotsFired,Before+3);
     int32 Balls=0;for(TActorIterator<ABallProjectile> It(World);It;++It)++Balls;
     TestEqual(TEXT("BFG never also fires the old ball projectile"),Balls,0);
 

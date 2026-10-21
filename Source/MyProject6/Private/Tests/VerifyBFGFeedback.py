@@ -10,7 +10,10 @@ with (out / 'Samples.csv').open(encoding='utf-8-sig') as stream:
     samples = list(csv.DictReader(stream))
 frames = [('Idle', '-1.000'), ('Flash', '0.016'), ('Recoil', '0.048'), ('Recovered', '0.240')]
 defaults = unreal.get_default_object(unreal.RailgunWeapon)
-assert defaults.bfg_recoil_strength == 2.
+assert defaults.bfg_recoil_strength == 3.
+assert defaults.bfg_camera_shake_scale == 1.
+assert defaults.bfg_sculpture_radius_multiplier == 1.5
+assert defaults.bfg_sculpture_damage_multiplier == 1.5
 assert defaults.bfg_muzzle_flash_intensity == 18000
 assert defaults.bfg_muzzle_flash_radius == 650
 assert abs(defaults.bfg_muzzle_flash_duration - .12) < .001
@@ -77,6 +80,9 @@ def tick(delta):
                 (out / 'Verification.json').write_text(json.dumps({
                     'fresh_process_defaults_verified': True,
                     'recoil_strength': defaults.bfg_recoil_strength,
+                    'camera_shake_scale': defaults.bfg_camera_shake_scale,
+                    'sculpture_radius_multiplier': defaults.bfg_sculpture_radius_multiplier,
+                    'sculpture_damage_multiplier': defaults.bfg_sculpture_damage_multiplier,
                     'flash_lumens': defaults.bfg_muzzle_flash_intensity,
                     'flash_radius_cm': defaults.bfg_muzzle_flash_radius,
                     'flash_duration_s': defaults.bfg_muzzle_flash_duration,
@@ -94,6 +100,9 @@ def tick(delta):
         gun.bfg_muzzle_light.set_light_color(defaults.bfg_muzzle_flash_color)
         gun.bfg_muzzle_light.set_attenuation_radius(defaults.bfg_muzzle_flash_radius)
         gun.bfg_muzzle_light.set_intensity(float(sample['light']))
+        camera_offset = unreal.Vector(*[float(sample['camera_' + axis]) for axis in ('x', 'y', 'z')])
+        capture_actor.set_actor_location(camera.get_world_location() + camera_offset, False, False)
+        capture_actor.set_actor_rotation(unreal.Rotator(pitch=float(sample['camera_pitch']), yaw=float(sample['camera_yaw']), roll=float(sample['camera_roll'])), False)
         capture.capture_scene()
         state['pending'] = True
         state['next'] = time.monotonic() + .35

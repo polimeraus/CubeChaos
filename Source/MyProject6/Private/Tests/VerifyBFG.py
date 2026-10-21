@@ -32,7 +32,7 @@ for seconds in [0,unreal.AnimationLibrary.get_sequence_length(hold)*.5,unreal.An
     assert (right.translation-original.translation).length()<.01
 gun_cdo=unreal.get_default_object(unreal.RailgunWeapon)
 assert gun_cdo.damage==200
-assert abs(gun_cdo.bfg_fire_interval-.3)<.001
+assert abs(gun_cdo.bfg_fire_interval-.22)<.001
 assert gun_cdo.bfg_damage==100 and gun_cdo.bfg_splash_damage==100 and gun_cdo.bfg_splash_radius==300
 pickup_class=unreal.load_class(None,'/Game/GameplayActors/Pickups/BFG/BP_BFGPickup.BP_BFGPickup_C')
 assert unreal.get_default_object(pickup_class).weapon_reward==unreal.PickupWeapon.BFG

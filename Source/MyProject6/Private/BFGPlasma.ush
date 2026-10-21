@@ -2,7 +2,13 @@
 // Advected noise replaces the old Gaussian disc and concentric ring.
 struct PlasmaNoise
 {
-    float hash(float2 p) { return frac(sin(dot(p,float2(127.1,311.7)))*43758.5453); }
+    float hash(float2 p)
+    {
+        // Arithmetic hash avoids twenty transcendental sine evaluations per pixel.
+        float3 v=frac(float3(p.x,p.y,p.x)*.1031);
+        v+=dot(v,v.yzx+33.33);
+        return frac((v.x+v.y)*v.z);
+    }
     float noise(float2 p)
     {
         float2 i=floor(p),f=frac(p); f=f*f*(3.-2.*f);

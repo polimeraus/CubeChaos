@@ -63,13 +63,14 @@ bool FRailgunMotionTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Landing settles back into breathing"), Landing.Location.Equals(Baseline.Location, .01f));
 
     FRailgunViewMotion PreviousBFG, HeavyBFG, HeavyIdle;
-    PreviousBFG.AddShot(1.5f);
-    HeavyBFG.AddShot(2.f, true);
+    PreviousBFG.AddShot(2.f, true);
+    HeavyBFG.AddShot(3.f, true);
     Advance(PreviousBFG, .1f, 60);
     Advance(HeavyBFG, .1f, 60);
     Advance(HeavyIdle, .1f, 60);
-    TestTrue(TEXT("BFG-only heavy impulse increases translation and muzzle lift by over 30 percent"),
-        HeavyBFG.Location.X < PreviousBFG.Location.X * 1.3f && HeavyBFG.Rotation.Pitch > PreviousBFG.Rotation.Pitch * 1.3f);
+    // The heavy impulse's velocity caps limit translation to ~1.397x at strength 3.
+    TestTrue(TEXT("BFG increases translation by over 35 percent and muzzle lift by over 40 percent"),
+        HeavyBFG.Location.X < PreviousBFG.Location.X * 1.35f && HeavyBFG.Rotation.Pitch > PreviousBFG.Rotation.Pitch * 1.4f);
     Advance(HeavyBFG, 1.f, 60);
     Advance(HeavyIdle, 1.f, 60);
     TestTrue(TEXT("Heavy BFG recoil also settles"), HeavyBFG.Location.Equals(HeavyIdle.Location, .01f));

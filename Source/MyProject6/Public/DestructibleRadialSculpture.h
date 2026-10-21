@@ -11,6 +11,14 @@ class UMaterialInterface;
 namespace UE::Geometry { class FDynamicMesh3; }
 struct FKAggregateGeom;
 
+UENUM(BlueprintType)
+enum class ERadialSculptureGlowAnimation : uint8
+{
+    None,
+    SequentialFins UMETA(DisplayName="Sequential Leg Glow"),
+    BottomToTop UMETA(DisplayName="Bottom To Top Glow")
+};
+
 /** A smooth white sphere supported by curved radial fins on a square plinth.
  * Uses the same small-cell damage, flash, sound and explosion ripple as other structures.
  * Curved geometry is preserved while both horizontal and vertical cuts bound fragment size.
@@ -20,6 +28,7 @@ class MYPROJECT6_API ADestructibleRadialSculpture : public AChunkedDestructibleF
 {
     GENERATED_BODY()
     friend class FRadialSculptureTest;
+    friend class FRadialSculpturePresentationTest;
 public:
     ADestructibleRadialSculpture();
     virtual void OnConstruction(const FTransform& Transform) override;
@@ -32,10 +41,12 @@ public:
     int32 FinCount = 16;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Radial Sculpture|Shape", meta=(ClampMin="50", ClampMax="3000", Units="cm"))
     float OuterRadius = 450.f;
+    /** Leg height above the base. Increasing it extends the legs and raises the sphere without scaling its radius. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Radial Sculpture|Shape", meta=(ClampMin="50", ClampMax="3000", Units="cm"))
     float FinHeight = 480.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Radial Sculpture|Shape", meta=(ClampMin="1", ClampMax="30", Units="cm"))
     float FinThickness = 5.f;
+    /** Radius of the top sphere; diameter is twice this value. Legs remain attached as it changes. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Radial Sculpture|Shape", meta=(ClampMin="10", ClampMax="1000", Units="cm"))
     float SphereRadius = 115.f;
     /** Local-space shell thickness. Clamped to 1 cm..90% of Sphere Radius; rebuild after runtime edits. */
@@ -56,8 +67,41 @@ public:
     float BaseMargin = 65.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Radial Sculpture|Shape", meta=(ClampMin="2", ClampMax="100", Units="cm", EditCondition="bIncludeBase"))
     float BaseThickness = 8.f;
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Radial Sculpture|Appearance")
+    /** Persistent surface material for legs, sphere and base. Change this instead of generated chunk material slots. Glow is added separately. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, BlueprintSetter=SetSculptureMaterial, Category="Radial Sculpture|Appearance")
     TObjectPtr<UMaterialInterface> SculptureMaterial;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, BlueprintSetter=SetGlowAnimationType, Category="Radial Sculpture|Glow", meta=(DisplayName="Glow Animation"))
+    ERadialSculptureGlowAnimation GlowAnimation = ERadialSculptureGlowAnimation::SequentialFins;
+    /** Seconds for one complete trip around all legs, or from the base past the top of the sphere. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Radial Sculpture|Glow", meta=(ClampMin="0.1", Units="s", EditCondition="GlowAnimation != ERadialSculptureGlowAnimation::None"))
+    float GlowDuration = 4.f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Radial Sculpture|Glow", meta=(ClampMin="0", Units="s", EditCondition="GlowAnimation != ERadialSculptureGlowAnimation::None"))
+    float GlowLoopDelay = .25f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Radial Sculpture|Glow", meta=(HideAlphaChannel, EditCondition="GlowAnimation != ERadialSculptureGlowAnimation::None"))
+    FLinearColor SculptureGlowColor = FLinearColor(.025f,.55f,1.f,1.f);
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Radial Sculpture|Glow", meta=(ClampMin="0", EditCondition="GlowAnimation != ERadialSculptureGlowAnimation::None"))
+    float SculptureGlowIntensity = 6.f;
+    /** Width of the fading light in number of legs. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Radial Sculpture|Glow", meta=(ClampMin="1", ClampMax="8", EditCondition="GlowAnimation == ERadialSculptureGlowAnimation::SequentialFins", EditConditionHides))
+    float GlowLegWidth = 2.f;
+    /** Full vertical width of the traveling band in local centimetres. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Radial Sculpture|Glow", meta=(ClampMin="1", Units="cm", EditCondition="GlowAnimation == ERadialSculptureGlowAnimation::BottomToTop", EditConditionHides))
+    float GlowBandHeight = 100.f;
+    /** -1 animates normally. Nonnegative seconds freeze the effect at that time for editor previews. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="Radial Sculpture|Glow", meta=(ClampMin="-1", Units="s"))
+    float GlowPreviewTime = -1.f;
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, AdvancedDisplay, Category="Radial Sculpture|Glow")
+    TSoftObjectPtr<UMaterialInterface> SculptureGlowMaterial = TSoftObjectPtr<UMaterialInterface>(
+        FSoftObjectPath(TEXT("/Game/Structures/Destructible/RadialSculpture/Materials/M_RadialSculptureGlow.M_RadialSculptureGlow")));
+
+    UFUNCTION(BlueprintSetter, Category="Radial Sculpture|Appearance")
+    void SetSculptureMaterial(UMaterialInterface* Material);
+    UFUNCTION(BlueprintSetter, Category="Radial Sculpture|Glow")
+    void SetGlowAnimationType(ERadialSculptureGlowAnimation Animation);
+    /** Applies runtime glow parameter edits without repairing damage. Editor property edits apply automatically. */
+    UFUNCTION(BlueprintCallable, CallInEditor, Category="Radial Sculpture|Glow")
+    void RefreshSculptureGlow();
 
     /** Approximate local-space cell edge length. Smaller values generate more fragments;
      * actor scale also scales fragments in the world. Rebuild Sculpture applies runtime edits. */
@@ -122,6 +166,7 @@ private:
         FKAggregateGeom Collision;
         FBox Bounds = FBox(ForceInit);
         EPart Part = EPart::Fin;
+        int32 FinIndex = INDEX_NONE;
         // Convex strip planes for fins/base; analytic radial/cubemap bounds for sphere.
         TArray<TArray<FPlane>> HullPlanes;
         FVector SphereCenter, FaceNormal, AxisU, AxisV;
@@ -131,6 +176,11 @@ private:
     TArray<FPiece> Pieces;
     bool bBudgetExceeded = false;
     float InteriorClearanceRadius = 0.f;
+    float GeneratedGlowHeight = 1.f;
+    int32 GeneratedFinCount = 16;
+    UPROPERTY(Transient)
+    TObjectPtr<UMaterialInstanceDynamic> SculptureGlowInstance;
+    void UpdateSculptureMaterials();
     void AddPiece(FPiece&& Piece);
     bool FindPiece(FVector LocalPosition, FIntPoint& Cell, double Tolerance, int32 ChunkIndex = INDEX_NONE) const;
 };

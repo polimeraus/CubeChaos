@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ChunkedDestructibleFloor.h"
+#include "Camera/PlayerCameraManager.h"
 
 #include "Components/DynamicMeshComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -802,6 +803,24 @@ void AChunkedDestructibleFloor::UpdateFixedAnimation()
 		// Starting a fraction into the first row removes that blank frame without changing timing.
 		AnimationAlphas[0] = FMath::Max(AnimationAlphas[0], 0.01f);
 	}
+	// Fixed waves are presentation only. Clipping and rebuilding every hidden
+	// cone/pyramid at 30 Hz consumed 13-18 ms on the game thread in this level.
+	// Absolute animation time below preserves phase when the object is seen again.
+	// Keep editor previews and headless gameplay/collision tests deterministic.
+	if (GetWorld()->IsGameWorld())
+	{
+		if (const APlayerCameraManager* Camera = UGameplayStatics::GetPlayerCameraManager(this, 0))
+		{
+			const FBox Bounds = GetComponentsBoundingBox(true);
+			const FVector ToCentre = Bounds.GetCenter()-Camera->GetCameraLocation();
+			if ((Bounds.IsValid && FVector::DotProduct(ToCentre,Camera->GetCameraRotation().Vector()) < -Bounds.GetExtent().Size())
+				|| (GetWorld()->GetTimeSeconds() > .5f && !WasRecentlyRendered(.25f)))
+			{
+				return;
+			}
+		}
+	}
+
 	RenderFixedAnimation(MakeArrayView(AnimationAlphas));
 }
 

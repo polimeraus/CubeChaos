@@ -1,0 +1,22 @@
+// UV1: exact zero-based leg index (-1 for sphere/base), local-space height.
+float duration = max(Duration, 0.1);
+float elapsed = PreviewTime >= 0.0 ? PreviewTime : Clock;
+float phase = fmod(max(elapsed, 0.0), duration + max(Pause, 0.0));
+float progress = saturate(phase / duration);
+float envelope = 0.0;
+if (Mode > 0.5 && Mode < 1.5 && Path.x >= 0.0)
+{
+    // Enter before the first leg and leave after the last, so even a loop with
+    // a pause fades all the way to dark instead of jumping at the seam.
+    float halfWidth = max(LegWidth, 1.0) * 0.5;
+    float center = lerp(-halfWidth, max(FinCount - 1.0, 0.0) + halfWidth, progress);
+    envelope = saturate(1.0 - abs(Path.x - center) / halfWidth);
+}
+else if (Mode >= 1.5)
+{
+    float halfWidth = max(BandHeight, 1.0) * 0.5;
+    float center = lerp(-halfWidth, max(Height, 1.0) + halfWidth, progress);
+    envelope = saturate(1.0 - abs(Path.y - center) / halfWidth);
+}
+envelope = envelope * envelope * (3.0 - 2.0 * envelope);
+return max(Tint.rgb, 0.0) * max(Intensity, 0.0) * envelope * (phase < duration ? 1.0 : 0.0);
