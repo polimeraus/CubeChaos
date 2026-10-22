@@ -593,4 +593,34 @@ bool FGhoulFullFallTest::RunTest(const FString& Parameters)
 	}
 	return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNPCBlastRecoveryTest, "MyProject6.NPC.BlastTumbleRecovery",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FNPCBlastRecoveryTest::RunTest(const FString&)
+{
+    for (int32 FPS : {30, 120})
+    {
+        FHitReactionWorld Scene;
+        auto* NPC = Scene.Spawn(AChasingNPC::StaticClass());
+        auto* Reaction = NPC->FindComponentByClass<UNPCHitReactionComponent>();
+        const FTransform Rest = NPC->GetMesh()->GetRelativeTransform();
+        const FVector Kick(950, 160, 650);
+        NPC->LaunchCharacter(Kick, true, true);
+        Reaction->StartBlastTumble(Kick);
+        Scene.Advance(.3f, FPS);
+        TestTrue(TEXT("Blast visibly rotates the body in flight"),
+            Rest.GetRotation().AngularDistance(NPC->GetMesh()->GetRelativeRotation().Quaternion()) > .4f);
+        TestTrue(TEXT("Capsule remains upright for swept world collision"),NPC->GetActorUpVector().Equals(FVector::UpVector,.001));
+        TestTrue(TEXT("AI remains staggered during tumbling"),Reaction->IsStaggering());
+        NPC->LaunchCharacter(Kick * .5f, false, false);
+        Reaction->StartBlastTumble(Kick * .5f);
+        Scene.Advance(3.5f, FPS);
+        TestFalse(TEXT("Landing ends the blast reaction"),Reaction->IsBlastTumbling());
+        TestFalse(TEXT("Living NPC can resume chasing after landing"),Reaction->IsStaggering());
+        TestTrue(TEXT("Landing restores the exact mesh transform without accumulated drift"),
+            Rest.Equals(NPC->GetMesh()->GetRelativeTransform(),.01));
+        TestTrue(TEXT("Surviving NPC retains walking movement"),NPC->GetCharacterMovement()->IsMovingOnGround());
+    }
+    return true;
+}
 #endif

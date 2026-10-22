@@ -1,4 +1,4 @@
-// R selects core/ribbon/polygon/fuse; G blends cyan and magenta; A is lifetime.
+// R selects a compact flash, a pressure ribbon, or the electronic fuse.
 float2 p = UV * 2. - 1.;
 float3 neon = lerp(float3(.015, 2.7, 4.5), float3(4., .035, 2.2), Particle.g);
 float alpha = 0.;
@@ -6,9 +6,8 @@ float3 color = neon;
 if (Particle.r < .15)
 {
     float r = length(p);
-    float star = exp(-abs(p.x)*45.)*exp(-abs(p.y)*3.) + exp(-abs(p.y)*45.)*exp(-abs(p.x)*3.);
-    alpha = (exp(-r*r*9.) + star*.7)*(1.-smoothstep(.75,1.,r));
-    color = lerp(neon, float3(12.,14.,16.), exp(-r*r*35.));
+    alpha = exp(-r*r*7.)*(1.-smoothstep(.55,1.,r));
+    color = lerp(neon*.55, float3(8.,11.,13.), exp(-r*r*26.));
 }
 else if (Particle.r < .5)
 {
@@ -16,32 +15,9 @@ else if (Particle.r < .5)
     alpha = (ribbon + .2*pow(saturate(1.-abs(p.y)),1.5))*smoothstep(0.,.07,UV.x)*(1.-smoothstep(.93,1.,UV.x));
     color = neon + float3(.7,1.,1.2)*ribbon;
 }
-else if (Particle.r < .75)
-{
-    float diamond = abs(p.x)+abs(p.y);
-    float rim = exp(-abs(diamond-.7)*45.);
-    alpha = rim + step(diamond,.7)*.035;
-    color = neon*(1.+rim*.8);
-}
-else if (Particle.r < .9)
-{
-    // Advect a compact two-octave field through a filled energy cloud.
-    struct Field {
-        float h(float2 q) { float3 v=frac(float3(q.x,q.y,q.x)*.1031);v+=dot(v,v.yzx+33.33);return frac((v.x+v.y)*v.z); }
-        float n(float2 q) { float2 i=floor(q),f=frac(q);f=f*f*(3.-2.*f);return lerp(lerp(h(i),h(i+float2(1,0)),f.x),lerp(h(i+float2(0,1)),h(i+1),f.x),f.y); }
-    } field;
-    float2 flow=float2(Age*.8,-Age*1.2)+Particle.g*13.;
-    float turbulence=field.n(p*3.5+flow)*.7+field.n(p*7.1-flow)*.3;
-    float edge=length(p)+(turbulence-.5)*.38;
-    float body=saturate((1.-edge)*2.2);
-    float veins=pow(saturate(1.-abs(turbulence-.53)*8.),3.);
-    alpha=body*body*(.45+turbulence*.65)*(1.-smoothstep(.8,1.,length(p)));
-    color=neon*(.45+turbulence*1.5)+float3(3.,6.,8.)*veins*body;
-}
-
 else
 {
     alpha = pow(saturate(1.-length(p)),2.);
-    color = float3(18.,5.2,.45);
+    color = float3(.5,6.,10.);
 }
 return float4(color, saturate(alpha)*Particle.a);

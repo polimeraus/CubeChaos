@@ -1,4 +1,4 @@
-"""Editable original iron bomb, braided fuse and game audio. Run in Blender background mode."""
+"""Iconic spherical bomb with an enamel shell, neon inlays and a luminous cable fuse."""
 import bpy, math, json, random, struct, wave
 from pathlib import Path
 from mathutils import Vector
@@ -9,11 +9,13 @@ out.mkdir(parents=True, exist_ok=True)
 bpy.ops.object.select_all(action='SELECT')
 bpy.ops.object.delete(use_global=False)
 
-palette = {'BombIron': ((.032,.041,.055),.72,.29,0),
-           'BombSeam': ((.065,.074,.084),.8,.36,0),
-           'BombBrass': ((.40,.21,.065),.75,.35,0),
-           'BombRope': ((.49,.32,.145),.0,.92,0),
-           'BombChar': ((.018,.009,.005),.0,.95,0)}
+palette = {'BombIron': ((.042,.018,.085),.55,.25,0),
+           'BombSeam': ((.055,.075,.12),.8,.26,0),
+           'BombBrass': ((.11,.15,.22),.8,.23,0),
+           'BombRope': ((.015,.65,.95),.35,.25,3.0),
+           'BombChar': ((.045,.025,.07),.45,.32,0),
+           'BombCyan': ((.012,.75,1.),.3,.22,3.5),
+           'BombMagenta': ((.8,.018,.3),.35,.25,2.5)}
 materials = {}
 for name, (color, metal, rough, emission) in palette.items():
     m = bpy.data.materials.new(name)
@@ -23,6 +25,8 @@ for name, (color, metal, rough, emission) in palette.items():
     p.inputs['Base Color'].default_value = (*color,1)
     p.inputs['Metallic'].default_value = metal
     p.inputs['Roughness'].default_value = rough
+    p.inputs['Emission Color'].default_value = (*color,1)
+    p.inputs['Emission Strength'].default_value = emission
     materials[name] = m
 
 def finish(obj, name, mat):
@@ -35,12 +39,20 @@ bpy.ops.mesh.primitive_uv_sphere_add(segments=64, ring_count=40, radius=.115)
 finish(bpy.context.object, 'Cast iron sphere', 'BombIron')
 bpy.ops.mesh.primitive_torus_add(major_radius=.1145, minor_radius=.0012, major_segments=96, minor_segments=8)
 finish(bpy.context.object, 'Subtle cast seam', 'BombSeam')
+# Two fine recessed-looking latitude seams leave the silhouette instantly readable.
+for z, mat in [(-.024,'BombCyan'),(-.030,'BombMagenta')]:
+    bpy.ops.mesh.primitive_torus_add(major_radius=math.sqrt(.115**2-z*z),minor_radius=.00065,
+        major_segments=96,minor_segments=6,location=(0,0,z))
+    finish(bpy.context.object,'Neon equator inlay',mat)
 for radius, depth, z, mat in [(.025,.013,.114,'BombSeam'),(.021,.010,.124,'BombBrass'),(.012,.007,.132,'BombChar')]:
     bpy.ops.mesh.primitive_cylinder_add(vertices=40, radius=radius, depth=depth, location=(0,0,z))
     obj = finish(bpy.context.object,'Fuse socket',mat)
     bevel = obj.modifiers.new('Rounded socket edge','BEVEL'); bevel.width=.0015; bevel.segments=3
     bpy.context.view_layer.objects.active=obj
     bpy.ops.object.modifier_apply(modifier=bevel.name)
+for z, radius, mat in [(.119,.0252,'BombMagenta'),(.129,.0212,'BombCyan')]:
+    bpy.ops.mesh.primitive_torus_add(major_radius=radius,minor_radius=.0008,major_segments=48,minor_segments=6,location=(0,0,z))
+    finish(bpy.context.object,'Luminous fuse collar',mat)
 
 def tube(name, pts, radius, mat):
     curve=bpy.data.curves.new(name,'CURVE');curve.dimensions='3D';curve.bevel_depth=radius;curve.bevel_resolution=3
@@ -51,17 +63,20 @@ def tube(name, pts, radius, mat):
     bpy.ops.object.convert(target='MESH')
 
 def centre(t): return Vector((.06*t*t, .009*math.sin(t*math.pi), .133+.067*t))
-for strand in range(3):
-    pts=[]
-    for i in range(121):
-        t=i/120; c=centre(t)
-        tangent=(centre(min(1,t+.001))-centre(max(0,t-.001))).normalized()
-        side=tangent.cross(Vector((0,1,0))).normalized()
-        up=tangent.cross(side).normalized()
-        a=t*math.tau*8+strand*math.tau/3
-        pts.append(c+(side*math.cos(a)+up*math.sin(a))*.002)
-    tube('Twisted hemp fuse',pts,.00165,'BombRope')
+tube('Neon cable fuse',[centre(i/48) for i in range(49)],.0026,'BombRope')
+# Widely spaced dark sleeves read as an electronic fuse, retaining the classic curve.
+for i in range(9):
+    t=.08+i*.095
+    tube('Cable sleeve',[centre(t),centre(t+.025)],.00285,'BombChar')
 tube('Dark fuse tip',[centre(.96),centre(1)],.0034,'BombChar')
+# Restrained vertical status bars on the camera-facing hemisphere.
+for i in range(5):
+    y=(i-2)*.008
+    pts=[]
+    for j in range(8):
+        z=.008+j*.0022
+        pts.append((math.sqrt(.1154**2-y*y-z*z),y,z))
+    tube('Charge indicator',pts,.00065,'BombCyan' if i<4 else 'BombMagenta')
 
 bpy.ops.object.select_all(action='SELECT');bpy.context.view_layer.objects.active=bpy.context.selected_objects[0]
 bpy.ops.object.join();obj=bpy.context.object;obj.name='SM_FuseBomb'

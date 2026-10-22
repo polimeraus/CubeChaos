@@ -3,6 +3,7 @@
 #include "BallProjectile.h"
 #include "CannonballProjectile.h"
 #include "BFGProjectile.h"
+#include "SculptureMeshComponent.h"
 #include "Components/DynamicMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMeshActor.h"
@@ -72,6 +73,10 @@ bool FRadialSculptureTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Existing yellow projectile removes only one small cell"),A->RemainingPieceCount,Count-1);
     TestTrue(TEXT("Projectile consumed"),Ball->IsActorBeingDestroyed());
     TestFalse(TEXT("Destroyed cell's collision disappears immediately"),World->LineTraceSingleByChannel(Hit,Start,End,ECC_Visibility));
+    int32 CachedUpdates = 0;
+    for (const auto& Chunk : A->ChunkComponents)
+        if (const auto* Cached = Cast<USculptureMeshComponent>(Chunk)) CachedUpdates += Cached->GetCachedCollisionUpdates();
+    TestTrue(TEXT("Destruction reuses cooked convex hulls while removing collision synchronously"),CachedUpdates > 0);
     TestTrue(TEXT("Adjacent portion of the same former wide strip remains intact"),
         World->LineTraceSingleByChannel(Hit,Start-FVector(80,0,0),End-FVector(80,0,0),ECC_Visibility));
     const FVector Sphere=A->GetSphereLocalCenter();

@@ -1,4 +1,5 @@
 #include "DestructibleRadialSculpture.h"
+#include "SculptureMeshComponent.h"
 
 #include "Components/DynamicMeshComponent.h"
 #include "Components/SceneComponent.h"
@@ -17,6 +18,12 @@
 #include "UObject/ConstructorHelpers.h"
 
 using namespace UE::Geometry;
+
+UClass* ADestructibleRadialSculpture::GetChunkComponentClass() const
+{
+    return USculptureMeshComponent::StaticClass();
+}
+
 namespace
 {
     FDynamicMesh3 NewMesh()

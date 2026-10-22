@@ -26,7 +26,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Flash")
 	void PlayDamageFlash();
 	bool StartDeathFlight(const FVector& Direction);
-	bool IsStaggering() const { return bStaggering; }
+	void StartBlastTumble(const FVector& Impulse);
+	bool IsStaggering() const { return bStaggering || bBlastTumbling; }
+	bool IsBlastTumbling() const { return bBlastTumbling; }
 	bool IsDeathInFlight() const { return bDeathInFlight; }
 	UFUNCTION(BlueprintPure, Category = "Hit Reaction")
 	float GetCurrentForwardBendAngle() const { return CurrentBendAngle; }
@@ -64,6 +66,11 @@ public:
 	float DeathHorizontalSpeed = 450.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death Flight", meta = (ClampMin = "0.0", Units = "cm/s"))
 	float DeathUpwardSpeed = 360.0f;
+	/** Rotate about the hips during explosive flight, then recover the original pose on landing. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Reaction|Blast")
+	bool bEnableBlastTumble = true;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Reaction|Blast", meta = (ClampMin="0", ClampMax="720", Units="deg/s"))
+	float BlastTumbleSpeed = 285.f;
 
 private:
 	void ResetStagger();
@@ -80,4 +87,15 @@ private:
 	UPROPERTY(Transient) TObjectPtr<UMaterialInterface> PreviousOverlay;
 	bool bStaggering = false;
 	bool bDeathInFlight = false;
+	bool bBlastTumbling = false;
+	bool bBlastRecovering = false;
+	float BlastElapsed = 0.f;
+	float BlastRecovery = 0.f;
+	float ActiveBlastSpeed = 0.f;
+	FVector BlastAxis = FVector::RightVector;
+	FVector BlastPivot = FVector::ZeroVector;
+	FTransform BlastRestTransform;
+	FQuat BlastRotation = FQuat::Identity;
+	FQuat BlastLandingRotation = FQuat::Identity;
+	void TickBlastTumble(float DeltaTime, ACharacter& Character);
 };

@@ -905,6 +905,7 @@ protected:
 	void ClearRuntimeEffects();
 	void ClearChunkComponents();
 	void CreateChunkComponents();
+	virtual UClass* GetChunkComponentClass() const;
 	void RebuildAllChunks();
 	void RebuildChunk(int32 ChunkIndex);
 	void ResetSharedGeometryCaches();

@@ -1207,6 +1207,11 @@ void AChunkedDestructibleFloor::ClearChunkComponents()
 	ChunkComponents.Reset();
 }
 
+UClass* AChunkedDestructibleFloor::GetChunkComponentClass() const
+{
+	return UDynamicMeshComponent::StaticClass();
+}
+
 void AChunkedDestructibleFloor::CreateChunkComponents()
 {
 	const int32 TotalChunkCount = ChunkCount.X * ChunkCount.Y;
@@ -1218,7 +1223,7 @@ void AChunkedDestructibleFloor::CreateChunkComponents()
 		{
 			const FName DesiredName(*FString::Printf(TEXT("FloorChunk_%d_%d"), ChunkX, ChunkY));
 			const FName UniqueName = MakeUniqueObjectName(this, UDynamicMeshComponent::StaticClass(), DesiredName);
-			UDynamicMeshComponent* Component = NewObject<UDynamicMeshComponent>(this, UniqueName, RF_Transient);
+			UDynamicMeshComponent* Component = NewObject<UDynamicMeshComponent>(this, GetChunkComponentClass(), UniqueName, RF_Transient);
 			Component->ComponentTags.Add(ChunkComponentTag);
 			Component->SetupAttachment(FloorRoot);
 			Component->SetRelativeTransform(FTransform::Identity);
@@ -1319,14 +1324,8 @@ void AChunkedDestructibleFloor::RebuildChunk(int32 ChunkIndex)
 	ReplacementMesh->SetMesh(MoveTemp(NewMesh));
 	Component->SetDynamicMesh(ReplacementMesh);
 	ConfigureChunkComponent(Component);
-	if (bWasRegistered)
-	{
-		Component->RegisterComponent();
-	}
-	Component->InvalidateAutoCalculatedTangents();
-	Component->NotifyMeshUpdated();
-	Component->SetVisibility(Component->GetDynamicMesh()->GetTriangleCount() > 0, true);
-	Component->MarkRenderStateDirty();
+	// Prepare the new collision while unregistered. Registering first would cook
+	// the invalidated OLD body, then cook the replacement a second time below.
 	if (bGenerateCollision)
 	{
 		FKAggregateGeom SimpleCollision;
@@ -1338,6 +1337,14 @@ void AChunkedDestructibleFloor::RebuildChunk(int32 ChunkIndex)
 	{
 		Component->ClearSimpleCollisionShapes(false);
 	}
+	if (bWasRegistered)
+	{
+		Component->RegisterComponent();
+	}
+	Component->InvalidateAutoCalculatedTangents();
+	Component->NotifyMeshUpdated();
+	Component->SetVisibility(Component->GetDynamicMesh()->GetTriangleCount() > 0, true);
+	Component->MarkRenderStateDirty();
 	if (PlanarAnimation) { PlanarAnimation->RefreshChunk(ChunkIndex); }
 }
 

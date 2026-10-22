@@ -68,7 +68,7 @@ FVector UNPCHitReactionComponent::ResolveImpactDirection(const ACharacter& Victi
 void UNPCHitReactionComponent::Stagger(const FVector& Direction)
 {
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
-	if (!Character || bDeathInFlight || Direction.IsNearlyZero()) { return; }
+	if (!Character || bDeathInFlight || bBlastTumbling || Direction.IsNearlyZero()) { return; }
 	if (!bStaggering)
 	{
 		RestMeshLocation = Character->GetMesh()->GetRelativeLocation();
@@ -103,7 +103,7 @@ void UNPCHitReactionComponent::ResetStagger()
 
 void UNPCHitReactionComponent::RefreshTickEnabled()
 {
-	SetComponentTickEnabled(bStaggering || bDeathInFlight || FlashRemaining > 0.f);
+	SetComponentTickEnabled(bStaggering || bDeathInFlight || bBlastTumbling || FlashRemaining > 0.f);
 }
 
 void UNPCHitReactionComponent::PlayDamageFlash()
@@ -176,12 +176,80 @@ bool UNPCHitReactionComponent::StartDeathFlight(const FVector& Direction)
 	return true;
 }
 
+void UNPCHitReactionComponent::StartBlastTumble(const FVector& Impulse)
+{
+	ACharacter* Character = Cast<ACharacter>(GetOwner());
+	if (!Character || !bEnableBlastTumble || Impulse.Size() < 180.f || BlastTumbleSpeed <= 0.f) return;
+	USkeletalMeshComponent* Mesh = Character->GetMesh();
+	if (!Mesh || Mesh->IsAnySimulatingPhysics()) return;
+	ResetStagger();
+	if (!bBlastTumbling)
+	{
+		BlastRestTransform = Mesh->GetRelativeTransform();
+		// The mesh origin is at the feet. Rotate around the hips, not around that origin.
+		const FVector Hip = Mesh->GetBoneIndex(TEXT("pelvis")) != INDEX_NONE
+			? Mesh->GetBoneLocation(TEXT("pelvis")) : Mesh->Bounds.Origin;
+		BlastPivot = Mesh->GetComponentTransform().InverseTransformPosition(Hip);
+		BlastRotation = FQuat::Identity;
+	}
+	const FVector Away = Impulse.GetSafeNormal2D(UE_SMALL_NUMBER, Character->GetActorForwardVector());
+	const FVector WorldAxis = (FVector::CrossProduct(FVector::UpVector, Away) + Away * .24f).GetSafeNormal();
+	BlastAxis = Character->GetActorTransform().InverseTransformVectorNoScale(WorldAxis).GetSafeNormal();
+	ActiveBlastSpeed = FMath::DegreesToRadians(FMath::Clamp(BlastTumbleSpeed, 0.f, 720.f))
+		* FMath::Clamp(Impulse.Size() / 1800.f, .4f, 1.35f);
+	BlastElapsed = BlastRecovery = 0.f;
+	bBlastTumbling = true;
+	bBlastRecovering = false;
+	if (Character->GetController()) Character->GetController()->StopMovement();
+	Character->ConsumeMovementInputVector();
+	RefreshTickEnabled();
+}
+
+void UNPCHitReactionComponent::TickBlastTumble(float DeltaTime, ACharacter& Character)
+{
+	const float Dt = FMath::Max(0.f, DeltaTime);
+	BlastElapsed += Dt;
+	auto* Movement = Character.GetCharacterMovement();
+	if (!bBlastRecovering && BlastElapsed > .08f && Movement->PendingLaunchVelocity.IsNearlyZero()
+		&& (Movement->IsMovingOnGround() || Movement->MovementMode == MOVE_None))
+	{
+		bBlastRecovering = true;
+		BlastLandingRotation = BlastRotation;
+	}
+	if (bBlastRecovering)
+	{
+		BlastRecovery = FMath::Min(1.f, BlastRecovery + Dt / .28f);
+		const float Ease = BlastRecovery * BlastRecovery * (3.f - 2.f * BlastRecovery);
+		BlastRotation = FQuat::Slerp(BlastLandingRotation, FQuat::Identity, Ease);
+	}
+	else
+	{
+		BlastRotation = (FQuat(BlastAxis, ActiveBlastSpeed * Dt) * BlastRotation).GetNormalized();
+		Character.ConsumeMovementInputVector();
+	}
+	const FQuat Rotation = BlastRotation * BlastRestTransform.GetRotation();
+	const FVector Pivot = BlastPivot * BlastRestTransform.GetScale3D();
+	const FVector Location = BlastRestTransform.GetLocation() + BlastRestTransform.GetRotation().RotateVector(Pivot)
+		- Rotation.RotateVector(Pivot);
+	Character.GetMesh()->SetRelativeLocationAndRotation(Location, Rotation);
+	// Fold at the waist in flight while the underlying animation continues to move limbs.
+	CurrentBendAngle = bBlastRecovering ? 24.f * (1.f - BlastRecovery) : 24.f;
+	if (bBlastRecovering && BlastRecovery >= 1.f)
+	{
+		Character.GetMesh()->SetRelativeTransform(BlastRestTransform);
+		bBlastTumbling = bBlastRecovering = false;
+		CurrentBendAngle = 0.f;
+		RefreshTickEnabled();
+	}
+}
+
 void UNPCHitReactionComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	FActorComponentTickFunction* TickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, TickFunction);
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
 	if (!Character) { SetComponentTickEnabled(false); return; }
+	if (bBlastTumbling) TickBlastTumble(DeltaTime, *Character);
 	if (FlashRemaining > 0.f)
 	{
 		FlashRemaining = FMath::Max(0.f, FlashRemaining - FMath::Max(0.f, DeltaTime));
@@ -205,7 +273,7 @@ void UNPCHitReactionComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 		}
 		return;
 	}
-	if (!bStaggering) { RefreshTickEnabled(); return; }
+	if (!bStaggering || bBlastTumbling) { RefreshTickEnabled(); return; }
 
 	const float Duration = FMath::Max(0.05f, StaggerDuration);
 	const float PreviousAlpha = FMath::Clamp(StaggerElapsed / Duration, 0.0f, 1.0f);

@@ -3,6 +3,7 @@
 #include "DestructibleRadialSculpture.h"
 #include "BFGCameraShake.h"
 #include "MyProject6Character.h"
+#include "NPCHitReactionComponent.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/AudioComponent.h"
 #include "Components/DynamicMeshComponent.h"
@@ -70,7 +71,7 @@ ABombProjectile::ABombProjectile()
     FuseLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("FuseLight"));
     FuseLight->SetupAttachment(BombMesh);
     FuseLight->SetRelativeLocation(FVector(6, 0, 20));
-    FuseLight->SetLightColor(FLinearColor(1, .24f, .015f));
+    FuseLight->SetLightColor(FLinearColor(.025f, .65f, 1.f));
     FuseLight->SetIntensityUnits(ELightUnits::Lumens);
     FuseLight->SetIntensity(90.f);
     FuseLight->SetAttenuationRadius(130.f);
@@ -206,11 +207,15 @@ void ABombProjectile::ApplyBlastImpulse(const FVector& Origin)
             // Accumulate simultaneous blasts and pre-existing jumps/death launches.
             const FVector Prior = Move->PendingLaunchVelocity.IsNearlyZero() ? Move->Velocity : Move->PendingLaunchVelocity;
             Character->LaunchCharacter(Prior+Kick,true,true);
+            if (auto* Reaction = Character->FindComponentByClass<UNPCHitReactionComponent>())
+                Reaction->StartBlastTumble(Kick);
         }
         else
         {
             Pushed.Add(Component);
             Component->AddRadialImpulse(Origin,Radius,FMath::Max(0.f,ImpulseSpeed),RIF_Linear,true);
+            if (bRagdoll)
+                Component->AddAngularImpulseInRadians(FVector::CrossProduct(FVector::UpVector,Away.GetSafeNormal())*Falloff*4.f,NAME_None,true);
         }
     }
 }
@@ -268,9 +273,9 @@ void ABombProjectile::DrawEffect(float Seconds, bool bImpact, FVector ViewLocati
     FVector Right = FVector::CrossProduct(Normal,WorldUp).GetSafeNormal();
     if (Right.IsNearlyZero()) Right = FVector::RightVector;
     const FVector Up = FVector::CrossProduct(Right,Normal).GetSafeNormal();
-    constexpr int32 RingSegments=48, Rays=18, Shards=24, Lobes=9;
+    constexpr int32 RingSegments=48, Rays=8;
     FDynamicMesh3& Mesh = Effect->GetDynamicMesh()->GetMeshRef();
-    const bool bBuild = Mesh.VertexCount() != (bImpact ? (RingSegments+1+Rays+Shards+Lobes)*4 : 28);
+    const bool bBuild = Mesh.VertexCount() != (bImpact ? (RingSegments+1+Rays)*4 : 28);
     if (bBuild)
     {
         Mesh.Clear(); Mesh.EnableAttributes(); Mesh.Attributes()->EnablePrimaryColors();
@@ -313,22 +318,10 @@ void ABombProjectile::DrawEffect(float Seconds, bool bImpact, FVector ViewLocati
     if (bImpact)
     {
         const float T=FMath::Max(0.f,Seconds);
-        const float CoreFade=FMath::Exp(-T*4.5f);
-        const float CoreSize=65.f+190.f*(1.f-FMath::Exp(-T*9.f));
+        // One fast, compact neon flash: no patterned cloud or confetti layers.
+        const float CoreFade=FMath::Exp(-T*8.f);
+        const float CoreSize=35.f+135.f*(1.f-FMath::Exp(-T*12.f));
         Quad(FVector::ZeroVector,Right*CoreSize,Up*CoreSize,0,0,CoreFade);
-        // Filled, turbulent plasma volumes supply the body of the explosion.
-        // Nine small layers, one pressure ring: bounded overdraw rather than
-        // dozens of smoke sprites or a stack of empty wireframe spheres.
-        for (int32 I=0;I<Lobes;++I)
-        {
-            const float Angle=I*2.39996f;
-            const FVector Direction=Right*FMath::Cos(Angle)+Up*FMath::Sin(Angle);
-            const float Spread=(35.f+125.f*(1.f-FMath::Exp(-T*4.f)))*(I==0?0.f:1.f);
-            const FVector Centre=Direction*Spread+Normal*(I%3-1)*35.f+WorldUp*(25.f*T);
-            const float Size=(75.f+120.f*(1.f-FMath::Exp(-T*7.f)))*(1.f+.15f*FMath::Sin(I*3.7f));
-            const float Fade=FMath::Pow(FMath::Clamp(1.f-T/1.4f,0.f,1.f),1.6f);
-            Quad(Centre,Right*Size,Up*Size,.82f,I%4==0?.75f:.08f,Fade*.8f);
-        }
         // A broad ground-hugging pressure front accompanies the plasma body.
         for (int32 Ring=0;Ring<1;++Ring)
         {
@@ -353,20 +346,8 @@ void ABombProjectile::DrawEffect(float Seconds, bool bImpact, FVector ViewLocati
             const float Speed=Random.FRandRange(220.f,540.f);
             const FVector Centre=Direction*(35.f+Speed*T);
             const FVector Tangent=FVector::CrossProduct(Normal,Direction).GetSafeNormal(UE_SMALL_NUMBER,Right);
-            const float Fade=FMath::Square(FMath::Clamp(1.f-T/.9f,0.f,1.f));
-            Quad(Centre,Direction*(18.f+80.f*T),Tangent*(3.f+4.f*Fade),.33f,I%4==0?1.f:0.f,Fade);
-        }
-        for (int32 I=0;I<Shards;++I)
-        {
-            const FVector Velocity=Random.VRand()*Random.FRandRange(150.f,460.f)+WorldUp*90.f;
-            const float Size=Random.FRandRange(4.f,11.f);
-            const float Spin=Random.FRandRange(-3.f,3.f);
-            const float Life=Random.FRandRange(.7f,1.55f);
-            const float Angle=I*.92f+T*Spin;
-            const FVector Centre=Velocity*T-WorldUp*65.f*T*T;
-            const FVector X=Right*FMath::Cos(Angle)+Up*FMath::Sin(Angle);
-            const FVector Y=-Right*FMath::Sin(Angle)+Up*FMath::Cos(Angle);
-            Quad(Centre,X*Size,Y*Size,.66f,I%3==0?1.f:0.f,FMath::Clamp((Life-T)*3.f,0.f,1.f));
+            const float Fade=FMath::Square(FMath::Clamp(1.f-T/.45f,0.f,1.f));
+            Quad(Centre,Direction*(8.f+40.f*T),Tangent*(1.f+1.5f*Fade),.33f,I%4==0?1.f:0.f,Fade);
         }
         FuseLight->SetWorldLocation(GetActorLocation());
         FuseLight->SetLightColor(FLinearColor(.025f,.65f,1.f));

@@ -90,9 +90,6 @@ ext=unreal.AnimPoseExtensions;world,local=unreal.AnimPoseSpaces.WORLD,unreal.Ani
 frames=unreal.AnimationLibrary.get_num_frames(source);duration=unreal.AnimationLibrary.get_sequence_length(source)
 tracks={bone+'_'+side:[[],[],[]] for side in ['l','r'] for bone in ['upperarm','lowerarm','hand']}
 tracks['root']=[[],[],[]]
-finger_bones=[str(b) for b in ext.get_bone_names(ext.get_anim_pose_at_time(source,0.,raw_options))
-              if str(b).endswith('_r') and str(b).startswith(('thumb_','index_','middle_','ring_','pinky_'))]
-for bone in finger_bones:tracks[bone]=[[],[],[]]
 report=[]
 for frame in range(frames+1):
     pose=ext.get_anim_pose_at_time(source,duration*frame/frames,options)
@@ -113,14 +110,6 @@ for frame in range(frames+1):
     tracks['root'][0].append(root_pose.translation)
     tracks['root'][1].append(root_pose.rotation)
     tracks['root'][2].append(root_pose.scale3d)
-    # Manny's right finger translations are the negative of the left. Matching
-    # local rotations gives a mirrored supporting grip instead of a trigger hand.
-    for bone in finger_bones:
-        original=ext.get_bone_pose(raw_pose,bone,local)
-        mirrored=ext.get_bone_pose(raw_pose,bone[:-1]+'l',local)
-        values=tracks[bone];values[0].append(original.translation)
-        values[1].append(mirrored.rotation);values[2].append(original.scale3d)
-    grip=ext.get_socket_pose(pose,'HandGrip_R',world)
     for side,sign in [('l',-1),('r',1)]:
         names=['clavicle','upperarm','lowerarm','hand','index_01','middle_01','pinky_01']
         bones={n:square_body(ext.get_bone_pose(pose,n+'_'+side,world)) for n in names}
@@ -156,11 +145,18 @@ controller=target.controller;controller.open_bracket('Cup the fuse bomb with bot
 try:
     for name,(positions,rotations,scales) in tracks.items():assert controller.set_bone_track_keys(name,positions,rotations,scales,False),name
 finally:controller.close_bracket(False)
-# Fit every finger chain to the outside of the sphere, preserving bone lengths.
-# Palms now cradle the sides; opening the old rifle fist prevents buried fingers.
+# Use Manny's reference anatomy, including metacarpals. The previous sphere-fit
+# independently aimed phalanges and twisted the thumbs out of their hinge planes.
+finger_names=[str(b) for b in ext.get_bone_names(raw_pose)
+              if str(b).startswith(('thumb_','index_','middle_','ring_','pinky_')) and str(b).endswith(('_l','_r'))]
+controller.open_bracket('Restore mannequin finger anatomy',False)
+try:
+    for name in finger_names:
+        ref=ext.get_ref_bone_pose(raw_pose,name,local)
+        assert controller.set_bone_track_keys(name,[ref.translation]*(frames+1),[ref.rotation]*(frames+1),[ref.scale3d]*(frames+1),False)
+finally:controller.close_bracket(False)
 finger_tracks={f'{finger}_{joint:02d}_{side}':[[],[],[]]
                for side in ['l','r'] for finger in ['thumb','index','middle','ring','pinky'] for joint in [1,2,3]}
-centre=point((54,0,-23))
 for frame in range(frames+1):
     pose=ext.get_anim_pose_at_time(target,duration*frame/frames,options)
     raw_pose=ext.get_anim_pose_at_time(target,duration*frame/frames,raw_options)
@@ -169,25 +165,25 @@ for frame in range(frames+1):
             names=[f'{finger}_{i:02d}_{side}' for i in [1,2,3]]
             bones=[ext.get_bone_pose(pose,name,world) for name in names]
             positions=[v(b.translation) for b in bones]
-            radial=sub(positions[0],centre);radius=length(radial)
-            assert radius>12.3,(side,finger,radius)
-            aim=direction((.55,0,1) if finger=='thumb' else (1,0,.08))
-            tangent=unit(sub(aim,mul(radial,dot(aim,radial)/(radius*radius))))
-            axis=unit(cross(radial,tangent))
-            desired=[positions[0]]
-            for segment in [length(sub(positions[1],positions[0])),length(sub(positions[2],positions[1])),2.2]:
-                angle=2*math.asin(segment/(2*radius))
-                rotation=(*mul(axis,math.sin(angle*.5)),math.cos(angle*.5))
-                radial=rot(rotation,radial);desired.append(add(centre,radial))
-            parent='hand_'+side if finger=='thumb' else finger+'_metacarpal_'+side
+            parent=gun.arms.get_skeletal_mesh_asset().get_bone_parent(names[0])
             parent_q=q(ext.get_bone_pose(pose,parent,world).rotation)
             for i,name in enumerate(names):
-                old_direction=sub(positions[i+1],positions[i]) if i<2 else rot(q(bones[i].rotation),v(ext.get_bone_pose(raw_pose,name,local).translation))
-                new_q=qm(arc(old_direction,sub(desired[i+1],desired[i])),q(bones[i].rotation))
+                # Manny's reference fingers already have a relaxed curl. Keep
+                # that authored articulation instead of adding another fist.
+                new_q=q(bones[i].rotation)
+                if finger=='thumb':
+                    # Oppose the thumb across the near face of the sphere,
+                    # keeping it outside the shell and giving each joint a soft arc.
+                    sign=-1 if side=='l' else 1
+                    aim=[(-.7,-sign*.7,.10),(-.8,-sign*.4,.30),(-.4,-sign*.8,.40)][i]
+                    old_direction=sub(positions[i+1],positions[i]) if i<2 else rot(new_q,v(ext.get_ref_bone_pose(raw_pose,name,local).translation))
+                    new_q=qm(arc(old_direction,direction(aim)),new_q)
                 original=ext.get_bone_pose(raw_pose,name,local);values=finger_tracks[name]
-                values[0].append(original.translation);values[1].append(unreal.Quat(*qm(inv(parent_q),new_q)));values[2].append(original.scale3d)
+                values[0].append(original.translation)
+                values[1].append(unreal.Quat(*qm(inv(parent_q),new_q)))
+                values[2].append(original.scale3d)
                 parent_q=new_q
-controller.open_bracket('Wrap open fingers around the outside of the bomb',False)
+controller.open_bracket('Relaxed anatomical mannequin cup',False)
 try:
     for name,values in finger_tracks.items():assert controller.set_bone_track_keys(name,*values,False)
 finally:controller.close_bracket(False)

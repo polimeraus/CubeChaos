@@ -3,6 +3,8 @@
 #include "BFGProjectile.h"
 #include "ChasingNPC.h"
 #include "WhisperFollower.h"
+#include "NPCHitReactionComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "MyProject6Character.h"
 #include "Components/BoxComponent.h"
 #include "Components/DynamicMeshComponent.h"
@@ -64,6 +66,7 @@ bool FBombPressureTest::RunTest(const FString&)
     Box(FVector(0,-150,0),FVector(90,8,150),false);
     auto* Prop=Box(FVector(180,220,0),FVector(20),true);
     auto* Shot=Bomb(Origin,Player,0);
+    const FQuat NearRest = Near->GetMesh()->GetRelativeRotation().Quaternion();
     const float EnergyBefore=CastChecked<AMyProject6Character>(Player)->GetCurrentEnergy();
     Shot->Explode();
     const float EnergyAfter=CastChecked<AMyProject6Character>(Player)->GetCurrentEnergy();
@@ -83,6 +86,10 @@ bool FBombPressureTest::RunTest(const FString&)
     Advance(.15f);
     TestTrue(TEXT("Thrower actually moves away"),Player->GetActorLocation().X>450);
     TestTrue(TEXT("NPC actually moves away"),Near->GetActorLocation().X< -450);
+    TestTrue(TEXT("Living NPC tumbles around its hips instead of flying upright"),
+        Near->FindComponentByClass<UNPCHitReactionComponent>()->IsBlastTumbling()
+        && NearRest.AngularDistance(Near->GetMesh()->GetRelativeRotation().Quaternion()) > .2f);
+    TestFalse(TEXT("Blast does not tumble the player's camera or mesh"),Player->GetActorRotation().Pitch != 0.f);
     TestTrue(TEXT("Physics prop actually moves in the radial direction"),Prop->GetComponentLocation().X>190 && Prop->GetComponentLocation().Y>230);
     TestTrue(TEXT("Covered target remains in place"),Covered->GetActorLocation().Equals(Origin+FVector(0,-300,0),1));
 
@@ -94,6 +101,8 @@ bool FBombPressureTest::RunTest(const FString&)
     TestTrue(TEXT("Pressure is retained after lethal hit callbacks"),Dying->GetCharacterMovement()->PendingLaunchVelocity.X>600);
     Advance(.15f);
     TestTrue(TEXT("Killed NPC continues its outward flight"),Dying->GetActorLocation().X>4250);
+    TestTrue(TEXT("Lethal blasts also retain tumbling after the death callback"),
+        Dying->FindComponentByClass<UNPCHitReactionComponent>()->IsBlastTumbling());
     TWeakObjectPtr<ABombProjectile> Cleanup=Shot;
     Advance(1.5f);TestFalse(TEXT("Neon blast cleans up after its final light fragments"),Cleanup.IsValid());
     return true;

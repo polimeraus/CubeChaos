@@ -144,6 +144,7 @@ public:
         TEnumAsByte<ECollisionChannel> CollisionChannel = ECC_Pawn) const;
 
 protected:
+    virtual UClass* GetChunkComponentClass() const override;
     virtual bool SupportsFixedAnimation() const override { return false; }
     virtual bool CalculateLayout() override;
     virtual bool ShouldCellExistInGeneratedShape(FIntPoint Cell) const override;
