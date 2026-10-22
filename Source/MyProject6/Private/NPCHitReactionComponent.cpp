@@ -1,5 +1,6 @@
 #include "NPCHitReactionComponent.h"
 #include "NPCHitBendAnimInstance.h"
+#include "NPCSleepComponent.h"
 
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -67,8 +68,10 @@ FVector UNPCHitReactionComponent::ResolveImpactDirection(const ACharacter& Victi
 
 void UNPCHitReactionComponent::Stagger(const FVector& Direction)
 {
+	const auto* Sleep = GetOwner()->FindComponentByClass<UNPCSleepComponent>();
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
-	if (!Character || bDeathInFlight || bBlastTumbling || Direction.IsNearlyZero()) { return; }
+	if (!Character || bDeathInFlight || Direction.IsNearlyZero()
+		|| (bBlastTumbling && !(Sleep && Sleep->IsIncapacitated()))) { return; }
 	if (!bStaggering)
 	{
 		RestMeshLocation = Character->GetMesh()->GetRelativeLocation();
@@ -76,20 +79,23 @@ void UNPCHitReactionComponent::Stagger(const FVector& Direction)
 	// Renew the reaction from the current fold, without snapping upright on repeated hits.
 	StartBendAngle = CurrentBendAngle;
 	bStaggering = true;
+	bSleepingStagger = Sleep && Sleep->IsIncapacitated();
 	StaggerElapsed = 0.0f;
 	StaggerDirection = Direction.GetSafeNormal2D();
 	UCharacterMovementComponent* Movement = Character->GetCharacterMovement();
-	const float FallingVelocity = Movement->IsFalling() ? Movement->Velocity.Z : 0.0f;
+	const FVector FallingVelocity = Movement->IsFalling() ? Movement->Velocity : FVector::ZeroVector;
+	const FVector PendingLaunch = Movement->PendingLaunchVelocity;
 	if (Character->GetController()) { Character->GetController()->StopMovement(); }
 	Movement->StopMovementImmediately();
-	Movement->Velocity.Z = FallingVelocity;
+	Movement->Velocity = FallingVelocity;
+	Movement->PendingLaunchVelocity = PendingLaunch;
 	Character->ConsumeMovementInputVector();
 	SetComponentTickEnabled(true);
 }
 
 void UNPCHitReactionComponent::ResetStagger()
 {
-	if (bStaggering)
+	if (bStaggering && !bSleepingStagger)
 	{
 		if (ACharacter* Character = Cast<ACharacter>(GetOwner()))
 		{
@@ -97,6 +103,7 @@ void UNPCHitReactionComponent::ResetStagger()
 		}
 	}
 	bStaggering = false;
+	bSleepingStagger = false;
 	CurrentBendAngle = StartBendAngle = 0.f;
 	RefreshTickEnabled();
 }
@@ -231,12 +238,13 @@ void UNPCHitReactionComponent::TickBlastTumble(float DeltaTime, ACharacter& Char
 	const FVector Pivot = BlastPivot * BlastRestTransform.GetScale3D();
 	const FVector Location = BlastRestTransform.GetLocation() + BlastRestTransform.GetRotation().RotateVector(Pivot)
 		- Rotation.RotateVector(Pivot);
-	Character.GetMesh()->SetRelativeLocationAndRotation(Location, Rotation);
+	const auto* Sleep = Character.FindComponentByClass<UNPCSleepComponent>();
+	if (!Sleep || !Sleep->IsIncapacitated()) Character.GetMesh()->SetRelativeLocationAndRotation(Location, Rotation);
 	// Fold at the waist in flight while the underlying animation continues to move limbs.
 	CurrentBendAngle = bBlastRecovering ? 24.f * (1.f - BlastRecovery) : 24.f;
 	if (bBlastRecovering && BlastRecovery >= 1.f)
 	{
-		Character.GetMesh()->SetRelativeTransform(BlastRestTransform);
+		if (!Sleep || !Sleep->IsIncapacitated()) Character.GetMesh()->SetRelativeTransform(BlastRestTransform);
 		bBlastTumbling = bBlastRecovering = false;
 		CurrentBendAngle = 0.f;
 		RefreshTickEnabled();
@@ -273,7 +281,7 @@ void UNPCHitReactionComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 		}
 		return;
 	}
-	if (!bStaggering || bBlastTumbling) { RefreshTickEnabled(); return; }
+	if (!bStaggering) { RefreshTickEnabled(); return; }
 
 	const float Duration = FMath::Max(0.05f, StaggerDuration);
 	const float PreviousAlpha = FMath::Clamp(StaggerElapsed / Duration, 0.0f, 1.0f);
@@ -297,6 +305,6 @@ void UNPCHitReactionComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 	}
 	const float Compression = -FMath::Clamp(StaggerCompression, 0.f, 6.f)
 		* (PeakAngle > SMALL_NUMBER ? CurrentBendAngle / PeakAngle : 0.f);
-	Character->GetMesh()->SetRelativeLocation(RestMeshLocation + FVector(0, 0, Compression));
+	if (!bSleepingStagger) Character->GetMesh()->SetRelativeLocation(RestMeshLocation + FVector(0, 0, Compression));
 	if (Alpha >= 1.0f) { ResetStagger(); }
 }

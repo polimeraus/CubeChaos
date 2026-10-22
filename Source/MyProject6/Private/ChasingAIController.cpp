@@ -83,7 +83,9 @@ void AChasingAIController::RefreshChasePath()
 	const AWhisperFollower* Follower = Cast<AWhisperFollower>(ControlledPawn);
 	if ((NPC && NPC->ShouldPauseChase()) || (Follower && Follower->ShouldPauseFollow()))
 	{
-		StopMovement();
+		// Aborting an already idle path can erase external launch velocity during sleep/knockback.
+		if (GetMoveStatus() != EPathFollowingStatus::Idle) StopMovement();
+		ClearFocus(EAIFocusPriority::Gameplay);
 		bUseDirectMovementFallback = false;
 		SetActorTickEnabled(false);
 		return;

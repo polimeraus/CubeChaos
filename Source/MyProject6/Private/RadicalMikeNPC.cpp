@@ -167,7 +167,7 @@ void ARadicalMikeNPC::FireAtPlayer()
 void ARadicalMikeNPC::FinishAttack()
 {
 	bAttackInProgress = false;
-	if (IsDead()) { return; }
+	if (IsDead() || IsStaggering()) { return; }
 	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::OnlyTickPoseWhenRendered;
 	GetMesh()->bEnableUpdateRateOptimizations = true;
 	if (ArmedIdleAnimation) { GetMesh()->PlayAnimation(ArmedIdleAnimation, true); }
@@ -197,7 +197,7 @@ void ARadicalMikeNPC::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ARadicalMikeNPC::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	if (IsDead()) { return; }
+	if (IsDead() || IsStaggering()) { return; }
 	BusterWeapon->SetWorldScale3D(GetMesh()->GetComponentScale());
 	if (bAttackInProgress) { return; }
 	UAnimSequence* Desired = GetVelocity().SizeSquared2D() > 100.0f ? RunAnimation.Get() : ArmedIdleAnimation.Get();

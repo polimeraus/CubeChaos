@@ -222,12 +222,26 @@ else if (Motif < 8.5)
     }
     distance = min(distance, trefoil);
 }
-else
+else if (Motif < 9.5)
 {
     // Three clearly separated falling silhouettes, staggered like the reference formation.
     distance = symbols.FallingBomb((p - float2(-.47, .26)) / .53) * .53;
     distance = min(distance, symbols.FallingBomb((p - float2(.45, .16)) / .56) * .56);
     distance = min(distance, symbols.FallingBomb((p - float2(0, -.28)) / .72) * .72);
+}
+else
+{
+    // A broad signal puck, antenna and three expanding arcs.
+    distance = symbols.Box(p-float2(0,-.4),float2(.48,.14));
+    distance = min(distance,symbols.Segment(p,float2(0,-.26),float2(0,.15))-.04);
+    distance = min(distance,length(p-float2(0,.16))-.09);
+    for (int i=0;i<3;++i)
+    {
+        float2 q=p-float2(0,.12);
+        float arc=abs(length(q)-(.25+i*.19))-.028;
+        arc=max(arc,.12-q.y);
+        distance=min(distance,arc);
+    }
 }
 float aa = max(length(fwidth(p)) * .65, .001);
 float mask = 1 - smoothstep(-aa, aa, distance);

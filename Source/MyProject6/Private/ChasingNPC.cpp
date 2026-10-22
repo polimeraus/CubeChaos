@@ -4,6 +4,7 @@
 #include "NPCSpawnPoint.h"
 #include "NPCHealthBarComponent.h"
 #include "NPCHitReactionComponent.h"
+#include "NPCSleepComponent.h"
 
 #include "ChasingAIController.h"
 #include "Animation/AnimInstance.h"
@@ -30,6 +31,7 @@ AChasingNPC::AChasingNPC()
 	PrimaryActorTick.bStartWithTickEnabled = false;
 	SetCanBeDamaged(true);
 	HitReaction = CreateDefaultSubobject<UNPCHitReactionComponent>(TEXT("HitReaction"));
+	Sleep = CreateDefaultSubobject<UNPCSleepComponent>(TEXT("Sleep"));
 	// Ghoul's placed actor and future spawns share the same authored hit response.
 	HitReaction->ForwardBendAngle = 65.f;
 	HitReaction->StaggerDuration = .40f;
@@ -157,7 +159,7 @@ void AChasingNPC::BeginPlay()
 
 bool AChasingNPC::IsStaggering() const
 {
-	return HitReaction && HitReaction->IsStaggering();
+	return (Sleep && Sleep->IsIncapacitated()) || (HitReaction && HitReaction->IsStaggering());
 }
 
 bool AChasingNPC::ShouldPauseChase() const
@@ -299,6 +301,7 @@ void AChasingNPC::OnContactEnd(
 
 void AChasingNPC::ApplyContactEnergyDrain()
 {
+	if (Sleep->IsIncapacitated()) { StopContactAttack(); SetContactGlowActive(false); return; }
 	const float SafeInterval = FMath::Clamp(ContactDrainInterval, 0.02f, 0.5f);
 	ContactSoundCooldown -= SafeInterval;
 	bool bDrainedAnyEnergy = false;
@@ -453,6 +456,11 @@ void AChasingNPC::Die(const bool bShouldSpawnReplacements, const FVector& Impact
 	{
 		return;
 	}
+	const auto* MovementBeforeDeath = GetCharacterMovement();
+	const FVector SleepFlightVelocity = !Sleep->IsIncapacitated() ? FVector::ZeroVector
+		: !MovementBeforeDeath->PendingLaunchVelocity.IsNearlyZero() ? MovementBeforeDeath->PendingLaunchVelocity
+		: MovementBeforeDeath->IsFalling() ? MovementBeforeDeath->Velocity : FVector::ZeroVector;
+	const bool bDiedSleeping = Sleep->FinishForDeath();
 
 	bIsDead = true;
 	CurrentHealth = 0.0f;
@@ -498,7 +506,7 @@ void AChasingNPC::Die(const bool bShouldSpawnReplacements, const FVector& Impact
 
 	float AnimationDuration = 0.0f;
 	USkeletalMeshComponent* CharacterMesh = GetMesh();
-	if (DeathAnimation && CharacterMesh && CharacterMesh->GetSkeletalMeshAsset())
+	if (!bDiedSleeping && DeathAnimation && CharacterMesh && CharacterMesh->GetSkeletalMeshAsset())
 	{
 		// Corpses must finish the death pose even if they briefly leave the camera view.
 		CharacterMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
@@ -512,6 +520,7 @@ void AChasingNPC::Die(const bool bShouldSpawnReplacements, const FVector& Impact
 		AnimationDuration = DeathAnimation->GetPlayLength() / PlayRate;
 	}
 	HitReaction->StartDeathFlight(ImpactDirection);
+	if (!SleepFlightVelocity.IsNearlyZero()) LaunchCharacter(SleepFlightVelocity + GetCharacterMovement()->PendingLaunchVelocity, true, true);
 
 	const float FadeDelay = AnimationDuration + FMath::Max(0.0f, DeathHoldDuration);
 	if (FadeDelay > 0.0f)

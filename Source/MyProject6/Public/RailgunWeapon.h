@@ -15,6 +15,7 @@ class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class UStaticMesh;
 class UPointLightComponent;
+class ASleepSignalDevice;
 
 UCLASS()
 class MYPROJECT6_API ARailgunWeapon : public AActor
@@ -43,6 +44,14 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Bomb", meta=(ClampMin="0.8", Units="s")) float BombThrowInterval = .9f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Bomb", meta=(ClampMin="100", Units="cm/s")) float BombThrowSpeed = 1250.f;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Bomb") int32 BombsThrown = 0;
+
+    UFUNCTION(BlueprintCallable, Category="Sleep Signal") void ActivateSleepSignal();
+    UFUNCTION(BlueprintCallable, Category="Sleep Signal") bool FireSleepSignal();
+    /** Tune the saved device Blueprint for signal diameter, broadcast duration and wake delay. */
+    UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="Sleep Signal") TSubclassOf<ASleepSignalDevice> SleepDeviceClass;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Sleep Signal", meta=(ClampMin="100", ClampMax="450", Units="cm/s")) float SleepThrowSpeed = 260.f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Sleep Signal", meta=(ClampMin="1.1", Units="s")) float SleepThrowInterval = 1.4f;
+    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Sleep Signal") int32 SleepDevicesThrown = 0;
 
     /** Each press requests one instantaneous shot; both keys share the same cooldown. */
     UFUNCTION(BlueprintCallable, Category="Railgun")
@@ -120,6 +129,9 @@ private:
     UPROPERTY() TObjectPtr<UAnimSequence> BFGHoldAnimation;
     UPROPERTY() TObjectPtr<UAnimSequence> BombHoldAnimation;
     UPROPERTY() TObjectPtr<UStaticMesh> BombModel;
+    UPROPERTY() TObjectPtr<UStaticMesh> SleepModel;
+    UPROPERTY() TObjectPtr<UAnimSequence> SleepHoldAnimation;
+    UPROPERTY() TObjectPtr<UAnimSequence> SleepThrowAnimation;
     UPROPERTY() TObjectPtr<USoundBase> BombThrowSound;
     UPROPERTY() TObjectPtr<USoundBase> FireSound;
     UPROPERTY() TObjectPtr<UMaterialInterface> ArmsMaterial;
@@ -131,6 +143,12 @@ private:
     double NextBFGFireTime = 0;
     double NextBombFireTime = 0;
     double LastBombThrowTime = -10;
+    double LastSleepThrowTime = -10;
+    double NextSleepFireTime = 0;
+    bool bSleepThrowPending = false;
+    bool bSleepThrowAnimating = false;
+    FVector SleepGripRest = FVector::ZeroVector;
+    void ReleaseSleepDevice();
     float BFGMuzzleFlashRemaining = 0;
     FVector RestLocation = FVector::ZeroVector;
     FVector PreviousVelocity = FVector::ZeroVector;

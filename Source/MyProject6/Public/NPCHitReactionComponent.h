@@ -29,6 +29,7 @@ public:
 	void StartBlastTumble(const FVector& Impulse);
 	bool IsStaggering() const { return bStaggering || bBlastTumbling; }
 	bool IsBlastTumbling() const { return bBlastTumbling; }
+	FQuat GetBlastRotation() const { return BlastRotation; }
 	bool IsDeathInFlight() const { return bDeathInFlight; }
 	UFUNCTION(BlueprintPure, Category = "Hit Reaction")
 	float GetCurrentForwardBendAngle() const { return CurrentBendAngle; }
@@ -86,6 +87,7 @@ private:
 	UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> FlashInstance;
 	UPROPERTY(Transient) TObjectPtr<UMaterialInterface> PreviousOverlay;
 	bool bStaggering = false;
+	bool bSleepingStagger = false;
 	bool bDeathInFlight = false;
 	bool bBlastTumbling = false;
 	bool bBlastRecovering = false;

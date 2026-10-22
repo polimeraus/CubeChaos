@@ -1,0 +1,8 @@
+// Sparse translucent wavefronts: the environment remains readable through the field.
+float latitude = abs(UV.y - .5);
+float equator = 1 - smoothstep(.008, .022, latitude);
+float meridians = pow(abs(cos(UV.x * 6.2831853 * 12)), 90);
+float scan = pow(.5 + .5*cos((UV.y*18 - Clock*.6)*6.2831853), 28);
+float edge = pow(saturate(Facing), 1.7);
+float opacity = saturate((edge*.55 + equator*.65 + meridians*.055 + scan*.05) * Alpha);
+return float4(Tint.rgb * (2.0 + equator*.6), opacity);

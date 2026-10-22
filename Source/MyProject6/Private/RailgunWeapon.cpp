@@ -2,6 +2,7 @@
 #include "RailgunBeam.h"
 #include "BFGProjectile.h"
 #include "BombProjectile.h"
+#include "SleepSignalDevice.h"
 #include "BFGCameraShake.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/PlayerController.h"
@@ -74,6 +75,14 @@ ARailgunWeapon::ARailgunWeapon()
     BombHoldAnimation = BombHold.Get();
     static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> Bomb(TEXT("/Game/Weapons/FuseBomb/Meshes/SM_FuseBomb.SM_FuseBomb"));
     BombModel = Bomb.Get();
+    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> SleepMesh(TEXT("/Game/Weapons/SleepSignal/Meshes/SM_SleepSignalDevice.SM_SleepSignalDevice"));
+    SleepModel = SleepMesh.Get();
+    static ConstructorHelpers::FObjectFinderOptional<UAnimSequence> SleepHold(TEXT("/Game/Weapons/SleepSignal/Animations/A_SleepSignalHold.A_SleepSignalHold"));
+    SleepHoldAnimation = SleepHold.Get();
+    static ConstructorHelpers::FObjectFinderOptional<UAnimSequence> SleepThrow(TEXT("/Game/Weapons/SleepSignal/Animations/A_SleepSignalThrow.A_SleepSignalThrow"));
+    SleepThrowAnimation = SleepThrow.Get();
+    static ConstructorHelpers::FClassFinder<ASleepSignalDevice> SleepDevice(TEXT("/Game/Weapons/SleepSignal/BP_SleepSignalDevice"));
+    SleepDeviceClass = SleepDevice.Class ? SleepDevice.Class.Get() : ASleepSignalDevice::StaticClass();
     static ConstructorHelpers::FObjectFinderOptional<USoundBase> Toss(TEXT("/Game/Weapons/FuseBomb/Audio/S_BombThrow.S_BombThrow"));
     BombThrowSound = Toss.Get();
     static ConstructorHelpers::FObjectFinder<USoundBase> Sound(TEXT("/Game/Weapons/Railgun/Audio/S_RailFire.S_RailFire"));
@@ -173,6 +182,7 @@ void ARailgunWeapon::ActivateBFG()
 
 void ARailgunWeapon::RestoreWeaponAttachment()
 {
+    bSleepThrowPending = bSleepThrowAnimating = false;
     WeaponMesh->AttachToComponent(Arms, FAttachmentTransformRules::SnapToTargetNotIncludingScale, TEXT("HandGrip_R"));
     WeaponMesh->SetVisibility(true);
 }
@@ -189,6 +199,7 @@ void ARailgunWeapon::ApplyHoldPose(UAnimSequence* Animation)
 
 void ARailgunWeapon::ActivateBomb()
 {
+    bSleepThrowPending = bSleepThrowAnimating = false;
     BFGMuzzleFlashRemaining = 0;
     BFGMuzzleLight->SetIntensity(0);
     ChargeMaterial = nullptr;
@@ -203,6 +214,56 @@ void ARailgunWeapon::ActivateBomb()
     // first-person frame, below the crosshair.
     RestLocation = FVector(20, 0, 10);
     GetRootComponent()->SetRelativeLocation(RestLocation);
+}
+
+void ARailgunWeapon::ActivateSleepSignal()
+{
+    bSleepThrowPending = bSleepThrowAnimating = false;
+    BFGMuzzleFlashRemaining = 0; BFGMuzzleLight->SetIntensity(0); ChargeMaterial = nullptr;
+    ApplyHoldPose(SleepHoldAnimation ? SleepHoldAnimation.Get() : BombHoldAnimation.Get());
+    WeaponMesh->AttachToComponent(RootComponent, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+    WeaponMesh->EmptyOverrideMaterials(); WeaponMesh->SetStaticMesh(SleepModel);
+    WeaponMesh->SetRelativeTransform(FTransform(FVector(54,0,-23)));
+    WeaponMesh->SetVisibility(true);
+    RestLocation = FVector(16,0,8);
+    GetRootComponent()->SetRelativeLocation(RestLocation);
+    SleepGripRest = Arms->GetSocketTransform(TEXT("hand_r"),RTS_Actor).GetLocation();
+}
+
+bool ARailgunWeapon::FireSleepSignal()
+{
+    if (!GetWorld() || !Wielder || !HasAuthority() || Wielder->IsEnergyDepleted()
+        || Wielder->GetActiveWeapon() != EPlayerWeapon::SleepSignal || UGameplayStatics::IsGamePaused(this)
+        || bSleepThrowAnimating || GetWorld()->GetTimeSeconds() < NextSleepFireTime) return false;
+    LastSleepThrowTime = GetWorld()->GetTimeSeconds();
+    NextSleepFireTime = LastSleepThrowTime + FMath::Max(1.1f,SleepThrowInterval);
+    bSleepThrowPending = bSleepThrowAnimating = true;
+    if (SleepThrowAnimation) Arms->PlayAnimation(SleepThrowAnimation,false);
+    return true;
+}
+
+void ARailgunWeapon::ReleaseSleepDevice()
+{
+    bSleepThrowPending = false;
+    const auto* Camera = Wielder->GetFirstPersonCameraComponent();
+    FVector Forward = Camera->GetForwardVector().GetSafeNormal2D();
+    if (Forward.IsNearlyZero()) Forward = Wielder->GetActorForwardVector().GetSafeNormal2D();
+    const FVector Eye = Camera->GetComponentLocation();
+    FVector Start = Eye + Forward*50.f + FVector(0,0,-50.f);
+    FHitResult Cover;
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(SleepSignalThrow),false,Wielder);
+    Query.AddIgnoredActor(this);
+    if (GetWorld()->SweepSingleByChannel(Cover,Eye,Start,FQuat::Identity,ECC_Visibility,FCollisionShape::MakeSphere(12.f),Query))
+        Start = Eye + (Start-Eye).GetSafeNormal()*FMath::Max(0.f,Cover.Distance-3.f);
+    const FTransform Transform(Start);
+    UClass* Class = SleepDeviceClass ? SleepDeviceClass.Get() : ASleepSignalDevice::StaticClass();
+    auto* Device = GetWorld()->SpawnActorDeferred<ASleepSignalDevice>(Class,Transform,Wielder,Wielder,ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+    if (!Device) return;
+    Device->LaunchVelocity = Forward*FMath::Clamp(SleepThrowSpeed,100.f,450.f)+FVector(0,0,70.f);
+    Device->FinishSpawning(Transform);
+    ++SleepDevicesThrown;
+    WeaponMesh->SetVisibility(false);
+    if (BombThrowSound) UGameplayStatics::PlaySound2D(this,BombThrowSound,.45f,1.25f);
 }
 
 bool ARailgunWeapon::FireBomb()
@@ -385,6 +446,7 @@ void ARailgunWeapon::ApplyHit(const FHitResult& Hit, const FVector& Direction)
 void ARailgunWeapon::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    if (Wielder && Wielder->IsEnergyDepleted()) bSleepThrowPending = bSleepThrowAnimating = false;
     if (!Wielder || DeltaSeconds <= 0.f || Wielder->IsEnergyDepleted()
         || UGameplayStatics::IsGamePaused(this)) return;
     const float FlashDuration = FMath::Clamp(BFGMuzzleFlashDuration, .01f, .3f);
@@ -419,6 +481,22 @@ void ARailgunWeapon::Tick(float DeltaSeconds)
     const FVector GripPivot(45, 11, -16);
     SetActorRelativeLocation(RestLocation + ViewMotion.Location * Amount + GripPivot - Rotation.RotateVector(GripPivot));
     SetActorRelativeRotation(Rotation);
+    if (Wielder->GetActiveWeapon() == EPlayerWeapon::SleepSignal && bSleepThrowAnimating)
+    {
+        const float Age = float(GetWorld()->GetTimeSeconds()-LastSleepThrowTime);
+        if (bSleepThrowPending)
+        {
+            const FVector Grip = Arms->GetSocketTransform(TEXT("hand_r"),RTS_Actor).GetLocation();
+            WeaponMesh->SetRelativeLocation(FVector(54,0,-23)+Grip-SleepGripRest);
+            if (Age >= .30f) ReleaseSleepDevice();
+        }
+        if (Age >= 1.05f)
+        {
+            bSleepThrowAnimating = false;
+            ApplyHoldPose(SleepHoldAnimation ? SleepHoldAnimation.Get() : BombHoldAnimation.Get());
+            WeaponMesh->SetRelativeLocation(FVector(54,0,-23)); WeaponMesh->SetVisibility(true);
+        }
+    }
     if (Wielder->GetActiveWeapon() == EPlayerWeapon::Bomb)
     {
         const float ThrowAge = float(GetWorld()->GetTimeSeconds() - LastBombThrowTime);

@@ -28,7 +28,7 @@ bool FChasingNPCDeathTest::RunTest(const FString& Parameters)
 	World->SetGameInstance(NewObject<UGameInstance>(GEngine));
 	World->SetGameMode(FURL(nullptr, TEXT("/Engine/Maps/Entry?game=/Script/Engine.GameModeBase"), TRAVEL_Absolute));
 	World->InitializeActorsForPlay(FURL());
-	ON_SCOPE_EXIT { World->DestroyWorld(false); GEngine->DestroyWorldContext(World); };
+	ON_SCOPE_EXIT { World->EndPlay(EEndPlayReason::Quit); World->DestroyWorld(false); GEngine->DestroyWorldContext(World); };
 	World->BeginPlay();
 	auto SetBool = [](AChasingNPC* NPC, const FName Name, bool Value)
 	{
@@ -76,6 +76,7 @@ bool FChasingNPCDeathTest::RunTest(const FString& Parameters)
 	{
 		auto* Material = Cast<UMaterialInstanceDynamic>(NPC->GetMesh()->GetMaterial(Index));
 		if (!TestNotNull(TEXT("Every slot receives a dynamic fade material"), Material)) { return false; }
+		AddInfo(FString::Printf(TEXT("Fade material %s: blend=%d, base=%s, dither=%d"), *Material->GetPathName(), int32(Material->GetBlendMode()), *Material->GetMaterial()->GetPathName(), int32(Material->GetMaterial()->DitherOpacityMask)));
 		TestTrue(TEXT("Fade shader uses a dithered opacity mask"), Material->GetBlendMode() == BLEND_Masked && Material->GetMaterial()->DitherOpacityMask);
 		const float Opacity = Material->K2_GetScalarParameterValue(TEXT("NPCDeathOpacity"));
 		TestTrue(TEXT("Fade starts near full visibility"), Opacity > 0.95f && Opacity < 1.0f);

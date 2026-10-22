@@ -10,6 +10,7 @@ class UNPCHealthBarComponent;
 class USphereComponent;
 class UMaterialInterface;
 class UNPCHitReactionComponent;
+class UNPCSleepComponent;
 
 /** Placeable companion using the project's player-following AI and Whisper locomotion. */
 UCLASS(Blueprintable)
@@ -84,6 +85,8 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Whisper|Hit Reaction")
 	TObjectPtr<UNPCHitReactionComponent> HitReaction;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="NPC|Sleep")
+	TObjectPtr<UNPCSleepComponent> Sleep;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Whisper|Health")
 	TObjectPtr<UAnimSequence> DeathAnimation;

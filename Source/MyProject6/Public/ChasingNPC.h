@@ -17,6 +17,7 @@ class ACharacter;
 class UDamageType;
 class UNPCHealthBarComponent;
 class UNPCHitReactionComponent;
+class UNPCSleepComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FChasingNPCDeathSignature);
 
@@ -119,6 +120,8 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Chasing NPC|Hit Reaction")
 	TObjectPtr<UNPCHitReactionComponent> HitReaction;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="NPC|Sleep")
+	TObjectPtr<UNPCSleepComponent> Sleep;
 
 	/** Used only until a valid player is found. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Movement", meta = (ClampMin = "0.0", Units = "cm/s"))
