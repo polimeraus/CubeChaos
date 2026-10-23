@@ -1,4 +1,5 @@
 #include "NPCSleepComponent.h"
+#include "NPCElectricTetherComponent.h"
 #include "ChasingNPC.h"
 #include "WhisperFollower.h"
 #include "NPCHitReactionComponent.h"
@@ -99,6 +100,7 @@ bool UNPCSleepComponent::IsLivingNPC() const
 void UNPCSleepComponent::ReceiveSignal(AActor* Source,float HoldSeconds)
 {
     if(!IsValid(Source)||!GetOwner()->HasAuthority()||!IsLivingNPC())return;
+    if(auto* T=GetOwner()->FindComponentByClass<UNPCElectricTetherComponent>();T&&T->IsControlled())return;
     Sources.FindOrAdd(Source)=GetWorld()->GetTimeSeconds()+FMath::Clamp(HoldSeconds,.2f,60.f);SetComponentTickEnabled(true);
 }
 

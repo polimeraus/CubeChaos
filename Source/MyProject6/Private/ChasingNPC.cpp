@@ -5,6 +5,7 @@
 #include "NPCHealthBarComponent.h"
 #include "NPCHitReactionComponent.h"
 #include "NPCSleepComponent.h"
+#include "NPCElectricTetherComponent.h"
 
 #include "ChasingAIController.h"
 #include "Animation/AnimInstance.h"
@@ -32,6 +33,7 @@ AChasingNPC::AChasingNPC()
 	SetCanBeDamaged(true);
 	HitReaction = CreateDefaultSubobject<UNPCHitReactionComponent>(TEXT("HitReaction"));
 	Sleep = CreateDefaultSubobject<UNPCSleepComponent>(TEXT("Sleep"));
+	ElectricTether = CreateDefaultSubobject<UNPCElectricTetherComponent>(TEXT("ElectricTether"));
 	// Ghoul's placed actor and future spawns share the same authored hit response.
 	HitReaction->ForwardBendAngle = 65.f;
 	HitReaction->StaggerDuration = .40f;
@@ -159,7 +161,7 @@ void AChasingNPC::BeginPlay()
 
 bool AChasingNPC::IsStaggering() const
 {
-	return (Sleep && Sleep->IsIncapacitated()) || (HitReaction && HitReaction->IsStaggering());
+	return (ElectricTether && ElectricTether->IsControlled()) || (Sleep && Sleep->IsIncapacitated()) || (HitReaction && HitReaction->IsStaggering());
 }
 
 bool AChasingNPC::ShouldPauseChase() const
@@ -301,7 +303,7 @@ void AChasingNPC::OnContactEnd(
 
 void AChasingNPC::ApplyContactEnergyDrain()
 {
-	if (Sleep->IsIncapacitated()) { StopContactAttack(); SetContactGlowActive(false); return; }
+	if (Sleep->IsIncapacitated() || ElectricTether->IsControlled()) { StopContactAttack(); SetContactGlowActive(false); return; }
 	const float SafeInterval = FMath::Clamp(ContactDrainInterval, 0.02f, 0.5f);
 	ContactSoundCooldown -= SafeInterval;
 	bool bDrainedAnyEnergy = false;
@@ -461,6 +463,7 @@ void AChasingNPC::Die(const bool bShouldSpawnReplacements, const FVector& Impact
 		: !MovementBeforeDeath->PendingLaunchVelocity.IsNearlyZero() ? MovementBeforeDeath->PendingLaunchVelocity
 		: MovementBeforeDeath->IsFalling() ? MovementBeforeDeath->Velocity : FVector::ZeroVector;
 	const bool bDiedSleeping = Sleep->FinishForDeath();
+	const FVector ElectricFlightVelocity = ElectricTether->FinishForDeath();
 
 	bIsDead = true;
 	CurrentHealth = 0.0f;
@@ -521,6 +524,7 @@ void AChasingNPC::Die(const bool bShouldSpawnReplacements, const FVector& Impact
 	}
 	HitReaction->StartDeathFlight(ImpactDirection);
 	if (!SleepFlightVelocity.IsNearlyZero()) LaunchCharacter(SleepFlightVelocity + GetCharacterMovement()->PendingLaunchVelocity, true, true);
+	if (!ElectricFlightVelocity.IsNearlyZero()) LaunchCharacter(ElectricFlightVelocity, true, true);
 
 	const float FadeDelay = AnimationDuration + FMath::Max(0.0f, DeathHoldDuration);
 	if (FadeDelay > 0.0f)

@@ -29,6 +29,7 @@ public:
 
     UFUNCTION(BlueprintCallable, Category="Railgun")
     void ActivateRailgun();
+    UFUNCTION(BlueprintCallable, Category="Electric Tether") void ActivateElectricTether();
 
     UFUNCTION(BlueprintCallable, Category="Weapons")
     void ActivateDefaultWeapon();
@@ -124,6 +125,8 @@ public:
 
 private:
     UPROPERTY() TObjectPtr<UStaticMesh> DefaultModel;
+    UPROPERTY() TObjectPtr<UStaticMesh> ArcModel;
+    UPROPERTY() TObjectPtr<UAnimSequence> ArcHoldAnimation;
     UPROPERTY() TObjectPtr<AMyProject6Character> Wielder;
     UPROPERTY() TObjectPtr<UAnimSequence> HoldAnimation;
     UPROPERTY() TObjectPtr<UAnimSequence> BFGHoldAnimation;

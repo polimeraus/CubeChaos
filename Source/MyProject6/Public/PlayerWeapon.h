@@ -10,5 +10,6 @@ enum class EPlayerWeapon : uint8
     Railgun,
     BFG UMETA(DisplayName="BFG 10K"),
     Bomb UMETA(DisplayName="Fuse Bomb"),
-    SleepSignal UMETA(DisplayName="Sleep Signal")
+    SleepSignal UMETA(DisplayName="Sleep Signal"),
+    ElectricTether UMETA(DisplayName="Arc Cage")
 };

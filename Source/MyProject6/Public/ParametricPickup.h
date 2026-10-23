@@ -20,7 +20,8 @@ enum class EPickupWeapon : uint8
     BFG UMETA(DisplayName="BFG 10K"),
     DefaultWeapon UMETA(DisplayName="Default Rifle"),
     Bomb UMETA(DisplayName="Fuse Bomb"),
-    SleepSignal UMETA(DisplayName="Sleep Signal")
+    SleepSignal UMETA(DisplayName="Sleep Signal"),
+    ElectricTether UMETA(DisplayName="Arc Cage")
 };
 
 UENUM(BlueprintType)
@@ -60,7 +61,8 @@ enum class EPickupMotif : uint8
     RetroRocket UMETA(DisplayName="Retro Rocket"),
     RadiationBomb UMETA(DisplayName="Radiation Bomb"),
     BombCluster UMETA(DisplayName="Bomb Cluster"),
-    SleepSignal UMETA(DisplayName="Sleep Signal")
+    SleepSignal UMETA(DisplayName="Sleep Signal"),
+    ElectricTether UMETA(DisplayName="Arc Cage")
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FParametricPickupCollected, AParametricPickup*, Pickup, APawn*, Collector);

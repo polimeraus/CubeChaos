@@ -229,7 +229,7 @@ else if (Motif < 9.5)
     distance = min(distance, symbols.FallingBomb((p - float2(.45, .16)) / .56) * .56);
     distance = min(distance, symbols.FallingBomb((p - float2(0, -.28)) / .72) * .72);
 }
-else
+else if (Motif < 10.5)
 {
     // A broad signal puck, antenna and three expanding arcs.
     distance = symbols.Box(p-float2(0,-.4),float2(.48,.14));
@@ -242,6 +242,18 @@ else
         arc=max(arc,.12-q.y);
         distance=min(distance,arc);
     }
+}
+else
+{
+    // Containment cage and central lightning bolt; identical language to the HUD.
+    distance=abs(length(p/float2(.66,.84))-1)*.66-.035;
+    distance=min(distance,abs(length(p/float2(.28,.84))-1)*.28-.026);
+    distance=min(distance,max(abs(p.y-.35)-.028,abs(p.x)-.60));
+    distance=min(distance,max(abs(p.y+.35)-.028,abs(p.x)-.60));
+    float bolt=symbols.Segment(p,float2(.16,.65),float2(-.18,.05))-.06;
+    bolt=min(bolt,symbols.Segment(p,float2(-.18,.05),float2(.19,.05))-.06);
+    bolt=min(bolt,symbols.Segment(p,float2(.19,.05),float2(-.16,-.65))-.06);
+    distance=min(distance,bolt);
 }
 float aa = max(length(fwidth(p)) * .65, .001);
 float mask = 1 - smoothstep(-aa, aa, distance);

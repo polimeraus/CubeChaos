@@ -22,6 +22,7 @@ public:
 	static FVector ResolveImpactDirection(const ACharacter& Victim, const FDamageEvent& Event,
 		const AController* Instigator, const AActor* Causer);
 	void Stagger(const FVector& Direction);
+	void CancelForTether();
 	/** Accepted damage only; works with every original skin without replacing its material slots. */
 	UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Flash")
 	void PlayDamageFlash();

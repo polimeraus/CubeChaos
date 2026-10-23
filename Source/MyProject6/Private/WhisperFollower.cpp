@@ -4,6 +4,7 @@
 #include "NPCHealthBarComponent.h"
 #include "NPCHitReactionComponent.h"
 #include "NPCSleepComponent.h"
+#include "NPCElectricTetherComponent.h"
 #include "MyProject6Character.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimSingleNodeInstance.h"
@@ -22,6 +23,7 @@ AWhisperFollower::AWhisperFollower()
 	SetCanBeDamaged(true);
 	HitReaction = CreateDefaultSubobject<UNPCHitReactionComponent>(TEXT("HitReaction"));
 	Sleep = CreateDefaultSubobject<UNPCSleepComponent>(TEXT("Sleep"));
+	ElectricTether = CreateDefaultSubobject<UNPCElectricTetherComponent>(TEXT("ElectricTether"));
 	AIControllerClass = AChasingAIController::StaticClass();
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 	GetCapsuleComponent()->InitCapsuleSize(42.0f, 100.0f);
@@ -80,7 +82,7 @@ void AWhisperFollower::BeginPlay()
 
 bool AWhisperFollower::ShouldPauseFollow() const
 {
-	return bIsDead || Sleep->IsIncapacitated() || bContactAttackActive || HitReaction->IsStaggering();
+	return bIsDead || ElectricTether->IsControlled() || Sleep->IsIncapacitated() || bContactAttackActive || HitReaction->IsStaggering();
 }
 
 float AWhisperFollower::TakeDamage(float DamageAmount, const FDamageEvent& DamageEvent,
@@ -98,6 +100,7 @@ float AWhisperFollower::TakeDamage(float DamageAmount, const FDamageEvent& Damag
 			: !MovementBeforeDeath->PendingLaunchVelocity.IsNearlyZero() ? MovementBeforeDeath->PendingLaunchVelocity
 			: MovementBeforeDeath->IsFalling() ? MovementBeforeDeath->Velocity : FVector::ZeroVector;
 		const bool bDiedSleeping = Sleep->FinishForDeath();
+	const FVector ElectricFlightVelocity = ElectricTether->FinishForDeath();
 		bIsDead = true;
 		bHitReactionAnimationActive = false;
 		StopContactInteraction();
@@ -122,6 +125,7 @@ float AWhisperFollower::TakeDamage(float DamageAmount, const FDamageEvent& Damag
 		SetLifeSpan(AnimationDuration + 3.0f);
 		HitReaction->StartDeathFlight(UNPCHitReactionComponent::ResolveImpactDirection(*this, DamageEvent, EventInstigator, DamageCauser));
 		if (!SleepFlightVelocity.IsNearlyZero()) LaunchCharacter(SleepFlightVelocity + GetCharacterMovement()->PendingLaunchVelocity, true, true);
+	if (!ElectricFlightVelocity.IsNearlyZero()) LaunchCharacter(ElectricFlightVelocity, true, true);
 	}
 	else
 	{
@@ -161,7 +165,7 @@ void AWhisperFollower::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	if (bIsDead) { return; }
-	if (Sleep->IsIncapacitated()) { StopContactInteraction(); return; }
+	if (Sleep->IsIncapacitated() || ElectricTether->IsControlled()) { StopContactInteraction(); return; }
 	if (bHitReactionAnimationActive && !HitReaction->IsStaggering())
 	{
 		bHitReactionAnimationActive = false;

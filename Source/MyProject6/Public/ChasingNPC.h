@@ -18,6 +18,7 @@ class UDamageType;
 class UNPCHealthBarComponent;
 class UNPCHitReactionComponent;
 class UNPCSleepComponent;
+class UNPCElectricTetherComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FChasingNPCDeathSignature);
 
@@ -122,6 +123,8 @@ protected:
 	TObjectPtr<UNPCHitReactionComponent> HitReaction;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="NPC|Sleep")
 	TObjectPtr<UNPCSleepComponent> Sleep;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="NPC|Electric Tether")
+	TObjectPtr<UNPCElectricTetherComponent> ElectricTether;
 
 	/** Used only until a valid player is found. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chasing NPC|Movement", meta = (ClampMin = "0.0", Units = "cm/s"))

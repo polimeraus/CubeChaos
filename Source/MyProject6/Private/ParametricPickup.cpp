@@ -309,7 +309,8 @@ bool AParametricPickup::TryCollect(APawn* Collector)
     // Native collection path covers every placed instance and future spawn, regardless of motif.
     if (AMyProject6Character* Player = Cast<AMyProject6Character>(Collector))
     {
-        if (WeaponReward == EPickupWeapon::SleepSignal) Player->EquipSleepSignal();
+        if (WeaponReward == EPickupWeapon::ElectricTether) Player->EquipElectricTether();
+        else if (WeaponReward == EPickupWeapon::SleepSignal) Player->EquipSleepSignal();
         else if (WeaponReward == EPickupWeapon::Bomb) Player->EquipBomb();
         else if (WeaponReward == EPickupWeapon::BFG) Player->EquipBFG();
         else if (WeaponReward == EPickupWeapon::DefaultWeapon) Player->EquipDefaultWeapon();

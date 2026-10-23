@@ -11,6 +11,7 @@ class USphereComponent;
 class UMaterialInterface;
 class UNPCHitReactionComponent;
 class UNPCSleepComponent;
+class UNPCElectricTetherComponent;
 
 /** Placeable companion using the project's player-following AI and Whisper locomotion. */
 UCLASS(Blueprintable)
@@ -87,6 +88,8 @@ protected:
 	TObjectPtr<UNPCHitReactionComponent> HitReaction;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="NPC|Sleep")
 	TObjectPtr<UNPCSleepComponent> Sleep;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="NPC|Electric Tether")
+	TObjectPtr<UNPCElectricTetherComponent> ElectricTether;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Whisper|Health")
 	TObjectPtr<UAnimSequence> DeathAnimation;

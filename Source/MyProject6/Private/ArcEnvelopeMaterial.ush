@@ -1,0 +1,36 @@
+// A continuous plasma membrane: advected density, broken electrical veins and
+// grazing-angle glow. Local coordinates stay attached to the captive in motion.
+struct PlasmaNoise
+{
+    float hash(float3 p) { return frac(sin(dot(p,float3(127.1,311.7,74.7)))*43758.5453); }
+    float noise(float3 p)
+    {
+        float3 i=floor(p),f=frac(p);f=f*f*(3-2*f);
+        return lerp(lerp(lerp(hash(i),hash(i+float3(1,0,0)),f.x),
+                         lerp(hash(i+float3(0,1,0)),hash(i+float3(1,1,0)),f.x),f.y),
+                    lerp(lerp(hash(i+float3(0,0,1)),hash(i+float3(1,0,1)),f.x),
+                         lerp(hash(i+float3(0,1,1)),hash(i+float3(1,1,1)),f.x),f.y),f.z);
+    }
+    float fbm(float3 p) { return noise(p)*.57 + noise(p*2.07+8.3)*.28 + noise(p*4.19-5.7)*.15; }
+};
+PlasmaNoise n;
+float3 p=(Color.rgb*2-1)*float3(1,1,1.45);
+float t=Time;
+float3 drift=float3(t*.17,-t*.24,t*.11);
+float warp=n.fbm(p*2.4+drift);
+float density=n.fbm(p*4.1+drift+warp*1.8);
+float filaments=n.fbm(p*8.0-drift*1.6+warp*2.5);
+float channel=abs(density-.52);
+float aa=max(fwidth(channel),.0015);
+float vein=(1-smoothstep(.004,.012+aa,channel));
+vein*=smoothstep(.37,.66,filaments);
+float wisps=pow(saturate(filaments*1.45-.25),3);
+float rim=pow(1-saturate(abs(dot(normalize(Normal),normalize(View)))),2.6);
+float pulse=.9+.1*sin(t*3.2+p.z*3+warp*5);
+float flash=max(Alpha-1,0);
+float3 blue=float3(.025,.19,.44),cyan=float3(.12,.7,1.0),violet=float3(.3,.1,.62);
+float3 plasma=lerp(blue,violet,smoothstep(.47,.72,density));
+float3 emission=plasma*(.5+wisps*1.1)+cyan*(rim*(.65+density)+vein*1.8);
+emission*=pulse*(1+flash*1.7);
+float opacity=.035 + wisps*.11 + rim*(.14+density*.13) + vein*.2;
+return float4(emission,saturate(opacity+flash*.12)*DepthFade);

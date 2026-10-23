@@ -1,0 +1,6 @@
+// Soft ionized halo and a narrow, bright discharge core. UV.y crosses the ribbon.
+float x = abs(UV.y * 2 - 1);
+float halo = exp2(-x*x*6);
+float core = exp2(-x*x*100);
+float taper = saturate(1-x);
+return float4(Color.rgb * (halo*1.1 + core*3.0), Alpha*taper*DepthFade);

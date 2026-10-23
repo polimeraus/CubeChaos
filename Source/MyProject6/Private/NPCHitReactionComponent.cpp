@@ -1,6 +1,7 @@
 #include "NPCHitReactionComponent.h"
 #include "NPCHitBendAnimInstance.h"
 #include "NPCSleepComponent.h"
+#include "NPCElectricTetherComponent.h"
 
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -66,8 +67,16 @@ FVector UNPCHitReactionComponent::ResolveImpactDirection(const ACharacter& Victi
 	return Direction.GetSafeNormal();
 }
 
+void UNPCHitReactionComponent::CancelForTether()
+{
+    ResetStagger();
+    if(bBlastTumbling)if(auto* N=Cast<ACharacter>(GetOwner()))N->GetMesh()->SetRelativeTransform(BlastRestTransform);
+    bBlastTumbling=false;RefreshTickEnabled();
+}
+
 void UNPCHitReactionComponent::Stagger(const FVector& Direction)
 {
+    if(auto* T=GetOwner()->FindComponentByClass<UNPCElectricTetherComponent>();T&&T->IsControlled())return;
 	const auto* Sleep = GetOwner()->FindComponentByClass<UNPCSleepComponent>();
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
 	if (!Character || bDeathInFlight || Direction.IsNearlyZero()
@@ -185,6 +194,7 @@ bool UNPCHitReactionComponent::StartDeathFlight(const FVector& Direction)
 
 void UNPCHitReactionComponent::StartBlastTumble(const FVector& Impulse)
 {
+    if(auto* T=GetOwner()->FindComponentByClass<UNPCElectricTetherComponent>();T&&T->IsControlled())return;
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
 	if (!Character || !bEnableBlastTumble || Impulse.Size() < 180.f || BlastTumbleSpeed <= 0.f) return;
 	USkeletalMeshComponent* Mesh = Character->GetMesh();

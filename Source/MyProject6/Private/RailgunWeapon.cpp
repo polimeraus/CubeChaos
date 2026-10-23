@@ -3,6 +3,7 @@
 #include "BFGProjectile.h"
 #include "BombProjectile.h"
 #include "SleepSignalDevice.h"
+#include "ElectricTetherWeapon.h"
 #include "BFGCameraShake.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/PlayerController.h"
@@ -89,6 +90,8 @@ ARailgunWeapon::ARailgunWeapon()
     FireSound = Sound.Object;
     static ConstructorHelpers::FObjectFinder<UMaterialInterface> ArmSurface(TEXT("/Game/Weapons/Railgun/Materials/M_RailArms.M_RailArms"));
     ArmsMaterial = ArmSurface.Object;
+    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> ArcMesh(TEXT("/Game/Weapons/ElectricTether/Meshes/SM_ArcCage.SM_ArcCage"));ArcModel=ArcMesh.Get();
+    static ConstructorHelpers::FObjectFinderOptional<UAnimSequence> ArcHold(TEXT("/Game/Weapons/ElectricTether/Animations/A_ArcHold.A_ArcHold"));ArcHoldAnimation=ArcHold.Get();
 }
 
 void ARailgunWeapon::Equip(AMyProject6Character* Character)
@@ -121,6 +124,17 @@ void ARailgunWeapon::Equip(AMyProject6Character* Character)
     PreviousVelocity = Character->GetVelocity();
     PreviousAim = Character->GetBaseAimRotation();
     AddTickPrerequisiteComponent(Character->GetCharacterMovement());
+}
+
+void ARailgunWeapon::ActivateElectricTether()
+{
+    RestoreWeaponAttachment();BFGMuzzleFlashRemaining=0;BFGMuzzleLight->SetIntensity(0);
+    ApplyHoldPose(ArcHoldAnimation?ArcHoldAnimation.Get():HoldAnimation.Get());
+    WeaponMesh->EmptyOverrideMaterials();WeaponMesh->SetStaticMesh(ArcModel);WeaponMesh->SetRelativeTransform(FTransform::Identity);
+    WeaponMesh->SetRelativeScale3D(FVector(.8f));
+    Muzzle->SetRelativeLocation(FVector(0,69,12));RestLocation=FVector(14,6,-14);GetRootComponent()->SetRelativeLocation(RestLocation);
+    ChargeMaterial=nullptr;const int32 Slot=WeaponMesh->GetMaterialIndex(TEXT("ArcCyan"));
+    if(Slot!=INDEX_NONE)ChargeMaterial=WeaponMesh->CreateDynamicMaterialInstance(Slot);
 }
 
 void ARailgunWeapon::ActivateDefaultWeapon()
@@ -496,6 +510,13 @@ void ARailgunWeapon::Tick(float DeltaSeconds)
             ApplyHoldPose(SleepHoldAnimation ? SleepHoldAnimation.Get() : BombHoldAnimation.Get());
             WeaponMesh->SetRelativeLocation(FVector(54,0,-23)); WeaponMesh->SetVisibility(true);
         }
+    }
+    if(Wielder->GetActiveWeapon()==EPlayerWeapon::ElectricTether && Wielder->ElectricWeapon)
+    {
+        const bool Active=Wielder->ElectricWeapon->bFiring;const float Power=Wielder->ElectricWeapon->GetSwingPower();
+        const float Time=GetWorld()->GetTimeSeconds();
+        if(ChargeMaterial)ChargeMaterial->SetScalarParameterValue(TEXT("Emission"),Active?5.f+Power*6.f+FMath::Sin(Time*35.f):2.3f);
+        if(Active)AddActorLocalOffset(FVector(FMath::Sin(Time*37.f)*(.16f+Power*.3f)-Power*2.f,0,FMath::Sin(Time*29.f)*.1f));
     }
     if (Wielder->GetActiveWeapon() == EPlayerWeapon::Bomb)
     {

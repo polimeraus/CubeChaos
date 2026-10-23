@@ -2,6 +2,7 @@
 
 #include "NPCHitReactionComponent.h"
 #include "NPCSleepComponent.h"
+#include "NPCElectricTetherComponent.h"
 #include "Animation/AnimInstanceProxy.h"
 #include "Animation/AnimNode_LinkedInputPose.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -28,6 +29,8 @@ namespace
 		FVector BendAxis = FVector::RightVector;
 		float BendRadians = 0.f;
 		float SleepAlpha = 0.f, Curl = 0.f, Nod = 0.f, Breath = 0.f;
+        float ElectricAlpha=0.f,ElectricTime=0.f;
+        FVector ElectricRight=FVector::RightVector,ElectricUp=FVector::UpVector,ElectricForward=FVector::ForwardVector;
 		FVector SleepAxis = FVector::RightVector;
 		FVector SleepForward = FVector::ForwardVector;
 		TArray<FVector2f> SleepWeights;
@@ -43,9 +46,14 @@ namespace
 			FAnimInstanceProxy::PreUpdate(Instance, DeltaSeconds);
 			InputPose = Instance->GetLinkedInputPoseNode();
 			BendRadians = 0.f;
-			SleepAlpha = Curl = Nod = Breath = 0.f;
+			SleepAlpha = Curl = Nod = Breath = 0.f;ElectricAlpha=0;
 			if (AActor* Actor = Instance->GetOwningActor())
 			{
+				if(const auto* T=Actor->FindComponentByClass<UNPCElectricTetherComponent>())
+                {
+                    ElectricAlpha=T->PoseAlpha;ElectricTime=T->StruggleTime;
+                    const FQuat Q=T->GetPoseBasis();ElectricRight=Q.RotateVector(FVector::RightVector);ElectricUp=Q.RotateVector(FVector::UpVector);ElectricForward=Q.RotateVector(FVector::ForwardVector);
+                }
 				if (const auto* Sleep = Actor->FindComponentByClass<UNPCSleepComponent>())
 				{
 					SleepAlpha = Sleep->PoseAlpha; Curl = Sleep->Curl; Nod = Sleep->Nod; Breath = Sleep->Breath;
@@ -155,7 +163,7 @@ namespace
 		{
 			if (!InputPose) return false;
 			InputPose->Evaluate_AnyThread(Output);
-			if ((FMath::IsNearlyZero(BendRadians) && SleepAlpha <= 0.f) || SpineWeights.Num() != Output.Pose.GetNumBones()) return true;
+			if ((FMath::IsNearlyZero(BendRadians) && SleepAlpha <= 0.f && ElectricAlpha <= 0.f) || SpineWeights.Num() != Output.Pose.GetNumBones()) return true;
 			// Only local spine rotations change; hips/legs and the incoming animation stay intact.
 			// All UObject reads were copied in PreUpdate on the game thread.
 			for (const FCompactPoseBoneIndex Bone : Output.Pose.ForEachBoneIndex())
@@ -173,6 +181,17 @@ namespace
 					const FQuat Flex(ParentRotation.UnrotateVector(SleepAxis), FMath::DegreesToRadians(Fold));
 					Local.SetRotation((Flex*Local.GetRotation()).GetNormalized());
 				}
+				if(ElectricAlpha>0.f)
+                {
+                    const FVector2f W=SleepWeights[Bone.GetInt()];
+                    Local.Blend(Local,Output.Pose.GetRefPose(Bone),ElectricAlpha);
+                    const float T=ElectricTime;
+                    float Flex=SpineWeights[Bone.GetInt()]*(14.f+13.f*FMath::Sin(T*8.1f));
+                    if(W.X>0)Flex+=11.f*FMath::Sin(T*11.3f);
+                    const FQuat Bend(ParentRotation.UnrotateVector(ElectricRight),FMath::DegreesToRadians(Flex*ElectricAlpha));
+                    const FQuat Twist(ParentRotation.UnrotateVector(ElectricUp),FMath::DegreesToRadians(SpineWeights[Bone.GetInt()]*18.f*FMath::Sin(T*6.7f)*ElectricAlpha));
+                    Local.SetRotation((Twist*Bend*Local.GetRotation()).GetNormalized());
+                }
 				const float Weight = SpineWeights[Bone.GetInt()];
 				if (Weight > 0.f)
 				{
@@ -181,7 +200,7 @@ namespace
 				}
 				ComponentRotations[Bone.GetInt()] = ParentRotation * Local.GetRotation();
 			}
-			if (SleepAlpha>0.f)
+			if (SleepAlpha>0.f || ElectricAlpha>0.f)
 			{
 				auto Rebuild=[&]()
 				{
@@ -199,17 +218,28 @@ namespace
 					const FTransform A=ComponentPose[Upper.GetInt()], B=ComponentPose[Lower.GetInt()], C=ComponentPose[End.GetInt()];
 					const FVector Root=A.GetLocation(),Joint=B.GetLocation(),Tip=C.GetLocation();
 					FVector Goal=FMath::Lerp(Tip,Targets[L],SleepAlpha);
+                    FVector PoleTarget=Poles[L];
+                    if(ElectricAlpha>0.f)
+                    {
+                        const double Span=FVector::Dist(Root,Joint)+FVector::Dist(Joint,Tip);
+                        const float Sign=L%2==0?-1.f:1.f,T=ElectricTime*7.f+(L%2)*UE_PI;
+                        const FVector Offset=L<2
+                            ? ElectricRight*(Sign*.24f)+ElectricUp*(.24f+.15f*FMath::Sin(T))+ElectricForward*(.48f+.12f*FMath::Cos(T*1.3f))
+                            : ElectricRight*(Sign*.16f)-ElectricUp*(.55f+.16f*FMath::Sin(T))+ElectricForward*(.14f+.25f*FMath::Cos(T));
+                        Goal=FMath::Lerp(Tip,Root+Offset*Span,ElectricAlpha);
+                        PoleTarget=Root+(L<2?ElectricRight*Sign-ElectricUp*.25f:ElectricForward+ElectricRight*Sign*.2f)*Span;
+                    }
 					const double LenA=FVector::Dist(Root,Joint),LenB=FVector::Dist(Joint,Tip);
 					const double Distance=FMath::Clamp(FVector::Dist(Root,Goal),FMath::Abs(LenA-LenB)+.01,(LenA+LenB)*.995);
 					const FVector Axis=(Goal-Root).GetSafeNormal();Goal=Root+Axis*Distance;
-					const FVector Pole=Poles[L]-Root;
+					const FVector Pole=PoleTarget-Root;
 					FVector Plane=(Pole-Axis*FVector::DotProduct(Pole,Axis)).GetSafeNormal();
 					const double Along=(LenA*LenA-LenB*LenB+Distance*Distance)/(2*Distance);
 					const double Height=FMath::Sqrt(FMath::Max(0.,LenA*LenA-Along*Along));
 					const FVector Center=Root+Axis*Along;
 					const FVector ProjectedUp=GroundUp-Axis*FVector::DotProduct(GroundUp,Axis);
 					const double ReachUp=ProjectedUp.Size()*Height;
-					if (ReachUp>UE_SMALL_NUMBER)
+					if (ElectricAlpha<=0.f && ReachUp>UE_SMALL_NUMBER)
 					{
 						// Constrain the bend plane continuously; never flip a knee/elbow to the opposite IK solution.
 						const FVector Up=ProjectedUp.GetSafeNormal();
@@ -229,7 +259,7 @@ namespace
 					Output.Pose[Lower].SetRotation((QA.Inverse()*QB).GetNormalized());
 					// Feet stay flat against the support plane during kneeling and rising.
 					FQuat EndRotation=C.GetRotation();
-					if (L>=2)
+					if (L>=2 && ElectricAlpha<=0.f)
 					{
 						FTransform Ref=Output.Pose.GetRefPose(End);
 						for (auto P=Output.Pose.GetParentBoneIndex(End);P.IsValid();P=Output.Pose.GetParentBoneIndex(P)) Ref=Ref*Output.Pose.GetRefPose(P);
