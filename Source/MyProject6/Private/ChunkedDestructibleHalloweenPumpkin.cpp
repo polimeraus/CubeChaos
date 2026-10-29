@@ -800,7 +800,10 @@ int32 AChunkedDestructibleHalloweenPumpkin::SelectCellsInRadius(
 				{
 					continue;
 				}
-				const FVector LocalDelta = GetPhysicalCellLocalCenter(X, Y, Z) - LocalImpact;
+				const FVector Center = GetPhysicalCellLocalCenter(X, Y, Z);
+				const FVector Point = Shape == EChunkedFloorBlastShape::Sphere
+					? FBox(Center-BlockDimensions*.5, Center+BlockDimensions*.5).GetClosestPointTo(LocalImpact) : Center;
+				const FVector LocalDelta = Point - LocalImpact;
 				const FVector ScaledDelta(
 					LocalDelta.X * ActorScale.X,
 					LocalDelta.Y * ActorScale.Y,

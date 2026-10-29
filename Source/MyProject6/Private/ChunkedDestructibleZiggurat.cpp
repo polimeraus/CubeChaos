@@ -339,7 +339,9 @@ int32 AChunkedDestructibleZiggurat::SelectCellsInRadius(FVector P, float Radius,
     for (int32 I=0; I<Pieces.Num(); ++I)
         if (Cells.IsValidIndex(I) && Cells[I].bExists)
         {
-            const FVector D=((Pieces[I].Bounds.GetCenter()-Local)*Scale).GetAbs();
+            const FVector Point = Shape == EChunkedFloorBlastShape::Sphere
+                ? Pieces[I].Bounds.GetClosestPointTo(Local) : Pieces[I].Bounds.GetCenter();
+            const FVector D=((Point-Local)*Scale).GetAbs();
             const double Distance=Shape==EChunkedFloorBlastShape::Square ? D.GetMax() :
                 (Shape==EChunkedFloorBlastShape::Diamond ? D.X+D.Y+D.Z : D.Length());
             if (Distance<=Radius) { Function(I,float(Distance)); ++Count; }

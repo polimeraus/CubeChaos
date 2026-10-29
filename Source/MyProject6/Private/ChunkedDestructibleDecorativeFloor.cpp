@@ -862,7 +862,7 @@ bool AChunkedDestructibleDecorativeFloor::CalculateLayout()
 	}
 	StarPointCount = FMath::Clamp(StarPointCount, 3, 32);
 	StarInnerRadius = FMath::Clamp(StarInnerRadius, 0.1f, 0.9f);
-	CircleEdgeSegments = FMath::Clamp(CircleEdgeSegments, 16, 256);
+	CircleEdgeSegments = FMath::Clamp(CircleEdgeSegments, 16, 512);
 	BlobLobeCount = FMath::Clamp(BlobLobeCount, 3, 16);
 	BlobLobeStrength = FMath::Clamp(BlobLobeStrength, 0.0f, 0.45f);
 	BlobEdgeRoundness = FMath::Clamp(BlobEdgeRoundness, 0.0f, 1.0f);
@@ -967,9 +967,18 @@ void AChunkedDestructibleDecorativeFloor::RebuildShapeOutline()
 		break;
 	}
 
+	case EChunkedDecorativeFloorShape::Hexagon:
+		for (int32 Index = 0; Index < 6; ++Index)
+		{
+			const double Angle = UE_DOUBLE_TWO_PI * Index / 6.0;
+			CachedShapeOutline.Add(FVector2D(FMath::Cos(Angle) * HalfSize.X,
+				FMath::Sin(Angle) * HalfSize.Y / FMath::Sin(UE_DOUBLE_PI / 3.0)));
+		}
+		break;
+
 	case EChunkedDecorativeFloorShape::Circle:
 	{
-		const int32 SegmentCount = FMath::Clamp(CircleEdgeSegments, 16, 256);
+		const int32 SegmentCount = FMath::Clamp(CircleEdgeSegments, 16, 512);
 		CachedShapeOutline.Reserve(SegmentCount);
 		for (int32 Index = 0; Index < SegmentCount; ++Index)
 		{
@@ -1767,6 +1776,12 @@ void AChunkedDestructibleDecorativeFloor::BuildChunkMesh(
 		}
 	}
 
+	AppendDecorativeSurfacePatterns(ChunkIndex, OutMesh);
+}
+
+void AChunkedDestructibleDecorativeFloor::AppendDecorativeSurfacePatterns(
+	int32 ChunkIndex, FDynamicMesh3& OutMesh) const
+{
 	if (FloorPattern == EChunkedFloorPattern::HypnoticSpiral)
 	{
 		AppendHypnoticSpiralSurface2D(

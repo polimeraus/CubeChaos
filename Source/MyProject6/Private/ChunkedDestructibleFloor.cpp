@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ChunkedDestructibleFloor.h"
+#include "DestructibleAnimationSampling.h"
 #include "Camera/PlayerCameraManager.h"
 
 #include "Components/DynamicMeshComponent.h"
@@ -946,14 +947,7 @@ void AChunkedDestructibleFloor::SetMusicEqualizerBaseEdge(EMusicEqualizerBaseEdg
 
 float AChunkedDestructibleFloor::FActiveMusicEqualizerColumn::GetEqualizerHeight(double CurrentTime) const
 {
-	const float Progress = (CurrentTime - StartTime) / FMath::Max(Duration, 0.01f);
-	if (Progress < 0.0f || Progress >= 1.0f) { return 0.0f; }
-	constexpr float AttackFraction = 0.12f;
-	if (Progress < AttackFraction)
-	{
-		return FMath::Lerp(StartHeight, PeakHeight, FMath::SmoothStep(0.0f, AttackFraction, Progress));
-	}
-	return PeakHeight * (1.0f - FMath::SmoothStep(AttackFraction, 1.0f, Progress));
+	return DestructibleAnimation::EqualizerHeight(CurrentTime, StartTime, Duration, StartHeight, PeakHeight);
 }
 
 void AChunkedDestructibleFloor::SetReactToBPM(bool bEnabled)
@@ -1632,55 +1626,62 @@ void AChunkedDestructibleFloor::AppendHypnoticSpiralSurface2D(
 			}
 			CachedCellTriangles.Reset();
 
-			for (const TArray<FVector2D>& CellPolygon : CellPolygons)
-			{
-				if (CellPolygon.Num() < 3)
-				{
-					continue;
-				}
-				FVector2D CellBoundsMin(TNumericLimits<double>::Max(), TNumericLimits<double>::Max());
-				FVector2D CellBoundsMax(TNumericLimits<double>::Lowest(), TNumericLimits<double>::Lowest());
-				for (const FVector2D& Point : CellPolygon)
-				{
-					CellBoundsMin.X = FMath::Min(CellBoundsMin.X, Point.X);
-					CellBoundsMin.Y = FMath::Min(CellBoundsMin.Y, Point.Y);
-					CellBoundsMax.X = FMath::Max(CellBoundsMax.X, Point.X);
-					CellBoundsMax.Y = FMath::Max(CellBoundsMax.Y, Point.Y);
-				}
-
-				for (const FChunkedCachedSpiralTriangle& Triangle : CachedSpiralSourceTriangles)
-				{
-					if (Triangle.BoundsMax.X < CellBoundsMin.X || Triangle.BoundsMin.X > CellBoundsMax.X ||
-						Triangle.BoundsMax.Y < CellBoundsMin.Y || Triangle.BoundsMin.Y > CellBoundsMax.Y)
-					{
-						continue;
-					}
-					const TArray<FVector2D> Fragment = ClipSharedSpiralTriangle(Triangle, CellPolygon);
-					for (int32 PointIndex = 1; PointIndex + 1 < Fragment.Num(); ++PointIndex)
-					{
-						FVector2D A = Fragment[0];
-						FVector2D B = Fragment[PointIndex];
-						FVector2D C = Fragment[PointIndex + 1];
-						const double Area = SpiralCross2D(B - A, C - A);
-						if (FMath::Abs(Area) <= UE_DOUBLE_SMALL_NUMBER)
-						{
-							continue;
-						}
-						if (Area < 0.0)
-						{
-							Swap(B, C);
-						}
-						FChunkedCachedSpiralTriangle& CachedTriangle = CachedCellTriangles.Emplace_GetRef();
-						CachedTriangle.A = A;
-						CachedTriangle.B = B;
-						CachedTriangle.C = C;
-					}
-				}
-			}
+			ClipSpiralSurface(CellPolygons, CachedCellTriangles);
 			CachedSpiralCellBuilt[CellIndex] = true;
 			for (const FChunkedCachedSpiralTriangle& Triangle : CachedCellTriangles)
 			{
 				AppendSurfaceTriangle(Cell, Triangle.A, Triangle.B, Triangle.C, StripeMaterialIndex);
+			}
+		}
+	}
+}
+
+void AChunkedDestructibleFloor::ClipSpiralSurface(
+	const TArray<TArray<FVector2D>>& CellPolygons,
+	TArray<FChunkedCachedSpiralTriangle>& OutTriangles) const
+{
+	for (const TArray<FVector2D>& CellPolygon : CellPolygons)
+	{
+		if (CellPolygon.Num() < 3)
+		{
+			continue;
+		}
+		FVector2D CellBoundsMin(TNumericLimits<double>::Max(), TNumericLimits<double>::Max());
+		FVector2D CellBoundsMax(TNumericLimits<double>::Lowest(), TNumericLimits<double>::Lowest());
+		for (const FVector2D& Point : CellPolygon)
+		{
+			CellBoundsMin.X = FMath::Min(CellBoundsMin.X, Point.X);
+			CellBoundsMin.Y = FMath::Min(CellBoundsMin.Y, Point.Y);
+			CellBoundsMax.X = FMath::Max(CellBoundsMax.X, Point.X);
+			CellBoundsMax.Y = FMath::Max(CellBoundsMax.Y, Point.Y);
+		}
+
+		for (const FChunkedCachedSpiralTriangle& Triangle : CachedSpiralSourceTriangles)
+		{
+			if (Triangle.BoundsMax.X < CellBoundsMin.X || Triangle.BoundsMin.X > CellBoundsMax.X ||
+				Triangle.BoundsMax.Y < CellBoundsMin.Y || Triangle.BoundsMin.Y > CellBoundsMax.Y)
+			{
+				continue;
+			}
+			const TArray<FVector2D> Fragment = ClipSharedSpiralTriangle(Triangle, CellPolygon);
+			for (int32 PointIndex = 1; PointIndex + 1 < Fragment.Num(); ++PointIndex)
+			{
+				FVector2D A = Fragment[0];
+				FVector2D B = Fragment[PointIndex];
+				FVector2D C = Fragment[PointIndex + 1];
+				const double Area = SpiralCross2D(B - A, C - A);
+				if (FMath::Abs(Area) <= UE_DOUBLE_SMALL_NUMBER)
+				{
+					continue;
+				}
+				if (Area < 0.0)
+				{
+					Swap(B, C);
+				}
+				FChunkedCachedSpiralTriangle& CachedTriangle = OutTriangles.Emplace_GetRef();
+				CachedTriangle.A = A;
+				CachedTriangle.B = B;
+				CachedTriangle.C = C;
 			}
 		}
 	}
@@ -2061,7 +2062,7 @@ bool AChunkedDestructibleFloor::DamageCellAtWorldLocation(FVector WorldLocation,
 
 bool AChunkedDestructibleFloor::ApplyDamageToCell(FIntPoint Cell, float DamageAmount)
 {
-	if (DamageAmount <= 0.0f || !IsValidCell(Cell))
+	if (DamageAmount <= 0.0f || !IsValidCell(Cell) || !CanDestroyCell(Cell))
 	{
 		return false;
 	}
@@ -2256,7 +2257,11 @@ int32 AChunkedDestructibleFloor::SelectCellsInRadius(
 			const FVector2D ScaledDelta(
 				(LocalCenter.X - LocalImpact.X) * ScaleX,
 				(LocalCenter.Y - LocalImpact.Y) * ScaleY);
-			const float Distance = MeasureBlastDistance(ScaledDelta, Shape);
+			// Bombs use the full cell volume in 3D; planar tools retain their existing shapes.
+			const FBox CellBounds(LocalCenter-EffectiveCellDimensions*.5, LocalCenter+EffectiveCellDimensions*.5);
+			const float Distance = Shape == EChunkedFloorBlastShape::Sphere
+				? ((CellBounds.GetClosestPointTo(LocalImpact)-LocalImpact)*ActorScale).Size()
+				: MeasureBlastDistance(ScaledDelta, Shape);
 			if (Distance <= Radius)
 			{
 				CellFunction(ToCellIndex(Cell), Distance);
@@ -2366,7 +2371,7 @@ int32 AChunkedDestructibleFloor::DestroyCellsFromHit(
 
 bool AChunkedDestructibleFloor::QueueCellDestruction(int32 CellIndex, float Delay, bool bRadial)
 {
-	if (!Cells.IsValidIndex(CellIndex) || PendingCellIndices.Contains(CellIndex))
+	if (!Cells.IsValidIndex(CellIndex) || PendingCellIndices.Contains(CellIndex) || !CanDestroyCell(FromCellIndex(CellIndex)))
 	{
 		return false;
 	}
@@ -2420,7 +2425,7 @@ void AChunkedDestructibleFloor::ProcessQueuedDestructions(double CurrentTime)
 		}
 
 		FFloorCellData& CellData = Cells[Queued.CellIndex];
-		if (!CellData.bExists || !CellData.bDestructible)
+		if (!CellData.bExists || !CellData.bDestructible || !CanDestroyCell(FromCellIndex(Queued.CellIndex)))
 		{
 			continue;
 		}
@@ -2757,28 +2762,23 @@ void AChunkedDestructibleFloor::UpdateMusicEqualizer(double CurrentTime)
 
 	for (const FActiveMusicEqualizerColumn& Column : ActiveMusicEqualizerColumns)
 	{
-		const float Progress = static_cast<float>(
-			(CurrentTime - Column.StartTime) / FMath::Max(Column.Duration, 0.01f));
-		if (Progress < 0.0f || Progress >= 1.0f ||
+		const auto Sample = DestructibleAnimation::SampleMusicColumn(CurrentTime, Column.StartTime, Column.Duration,
+			Column.StartHeight, Column.PeakHeight, CachedMusicEqualizerRowCount, TailLength, bFilled);
+		if (!Sample.bActive ||
 			Column.ColumnIndex < 0 || Column.ColumnIndex >= CachedMusicEqualizerColumnCount)
 		{
 			continue;
 		}
 
 		// The transient is the brightest instant; the travel then decays smoothly.
-		const float Envelope = bFilled ? 1.0f : FMath::Square(1.0f - Progress);
+		const float Envelope = Sample.Envelope;
 		MaximumVisualStrength = FMath::Max(MaximumVisualStrength, Column.Strength * Envelope);
-		const int32 PeakRowCount = FMath::Max(
-			1,
-			FMath::RoundToInt(CachedMusicEqualizerRowCount * Column.PeakHeight));
-		const int32 HeadRow = FMath::FloorToInt(Progress * (PeakRowCount + TailLength));
-		const int32 FilledRows = FMath::Clamp(FMath::RoundToInt(
-			Column.GetEqualizerHeight(CurrentTime) * CachedMusicEqualizerRowCount), 0, CachedMusicEqualizerRowCount);
+		const int32 PeakRowCount = Sample.PeakRows;
 		for (int32 TailIndex = 0;
-			TailIndex < (bFilled ? FilledRows : TailLength) && (bFilled || VisibleInstanceCount < PoolSize);
+			TailIndex < Sample.Count && (bFilled || VisibleInstanceCount < PoolSize);
 			++TailIndex)
 		{
-			const int32 RowIndex = bFilled ? TailIndex : HeadRow - TailIndex;
+			const int32 RowIndex = Sample.Row(TailIndex);
 			if (RowIndex < 0 || RowIndex >= PeakRowCount ||
 				RowIndex >= CachedMusicEqualizerRowCount)
 			{

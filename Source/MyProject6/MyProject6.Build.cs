@@ -31,6 +31,7 @@ public class MyProject6 : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[] {
 			"GeometryAlgorithms",
+			"PhysicsCore",
 			"Slate",
 			"SlateCore",
 			"RHI"

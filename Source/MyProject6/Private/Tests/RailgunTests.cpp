@@ -143,11 +143,14 @@ bool FRailgunTest::RunTest(const FString& Parameters)
     Wall->Destroy();
     Advance(1.55f);
     Gun->Range = 300;
-    TestTrue(TEXT("Shot with short range fires"), Gun->Fire());
-    TestEqual(TEXT("Out of range target is unharmed"), Target->GetCurrentHealth(), 60.f);
-    TestTrue(TEXT("Miss ends at configured camera range"), Gun->LastShotEnd.Equals(FVector(300, 0, 600), .1));
+    Gun->Damage = 10;
+    TestTrue(TEXT("Shot with a legacy short range fires"), Gun->Fire());
+    TestEqual(TEXT("Legacy range cannot prevent damage to a distant target"), Target->GetCurrentHealth(), 50.f);
+    TestEqual(TEXT("Legacy range cannot prevent pawn penetration"), SecondTarget->GetCurrentHealth(), 50.f);
+    TestTrue(TEXT("Miss extends beyond the loaded targets"), Gun->LastShotEnd.X > 1500);
     Advance(1.55f);
     Gun->Range = 20000;
+    Gun->Damage = 40;
 
     const FTransform CameraBeforeMotion = Camera->GetComponentTransform();
     const FVector GunBeforeMotion = Gun->GetRootComponent()->GetRelativeLocation();
@@ -229,6 +232,111 @@ bool FRailgunTest::RunTest(const FString& Parameters)
     UGameplayStatics::SetGamePaused(World, false);
     Player->Destroy();
     TestTrue(TEXT("Player destruction cleans up held weapon"), Gun->IsActorBeingDestroyed());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRailgunWorldRangeTest, "MyProject6.Weapons.RailgunWorldRange",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRailgunWorldRangeTest::RunTest(const FString& Parameters)
+{
+    UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+    GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+    World->SetGameInstance(NewObject<UGameInstance>(GEngine));
+    World->SetGameMode(FURL(nullptr, TEXT("/Engine/Maps/Entry?game=/Script/Engine.GameModeBase"), TRAVEL_Absolute));
+    World->InitializeActorsForPlay(FURL());
+    ON_SCOPE_EXIT { World->EndPlay(EEndPlayReason::Quit); World->DestroyWorld(false); GEngine->DestroyWorldContext(World); };
+    World->BeginPlay();
+    auto Advance = [World]()
+    {
+        for (int32 I = 0; I < 96; ++I) { ++GFrameCounter; World->Tick(LEVELTICK_All, 1.f / 60.f); }
+    };
+    UClass* PlayerClass = LoadClass<AMyProject6Character>(nullptr,
+        TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+    if (!TestNotNull(TEXT("Saved player Blueprint loads in the range regression"), PlayerClass)) return false;
+    FActorSpawnParameters Spawn;
+    Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    auto* Player = World->SpawnActor<AMyProject6Character>(PlayerClass, FVector(0, 0, 500), FRotator::ZeroRotator, Spawn);
+    if (!TestNotNull(TEXT("Range test player spawns"), Player)) return false;
+    Player->GetCharacterMovement()->DisableMovement();
+    auto* Controller = World->SpawnActor<APlayerController>();
+    Controller->SetAsLocalPlayerController();
+    Controller->Possess(Player);
+    Player->PawnClientRestart();
+    Player->bRailgunEquipped = true;
+    auto* Gun = Player->Railgun.Get();
+    if (!TestNotNull(TEXT("Range test weapon spawns"), Gun)) return false;
+    Gun->ActivateRailgun();
+    Gun->Damage = 10;
+    Gun->Range = 300; // A saved old instance/Blueprint value must not restore the damage cutoff.
+    auto* Camera = Player->GetFirstPersonCameraComponent();
+    Camera->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+    Camera->bUsePawnControlRotation = false;
+    Camera->SetWorldLocationAndRotation(FVector(0, 0, 600), FRotator::ZeroRotator);
+    auto SpawnTarget = [&](double Distance)
+    {
+        auto* Target = World->SpawnActor<AChasingNPC>(AChasingNPC::StaticClass(), FVector(Distance, 0, 600), FRotator::ZeroRotator, Spawn);
+        Target->GetCharacterMovement()->DisableMovement();
+        Target->SetActorTickEnabled(false);
+        return Target;
+    };
+    auto* NearTarget = SpawnTarget(25000); // Beyond the old 204.8 m default.
+    auto* FarTarget = SpawnTarget(250000); // Beyond the old 1 km hard cap.
+    auto* HiddenTarget = SpawnTarget(400000);
+    AActor* Wall = World->SpawnActor<AActor>();
+    auto* Shape = NewObject<UBoxComponent>(Wall);
+    Wall->SetRootComponent(Shape);
+    Shape->SetBoxExtent(FVector(25, 500, 500));
+    Shape->SetCollisionProfileName(TEXT("BlockAll"));
+    Shape->RegisterComponent();
+    Wall->SetActorLocation(FVector(350000, 0, 600));
+    TestTrue(TEXT("World-range shot fires"), Gun->Fire());
+    TestEqual(TEXT("Target beyond the old default takes full damage instantly"), NearTarget->GetCurrentHealth(), 90.f);
+    TestEqual(TEXT("Target at 2.5 km takes the same damage instantly"), FarTarget->GetCurrentHealth(), 90.f);
+    TestEqual(TEXT("Distant solid cover still blocks damage"), HiddenTarget->GetCurrentHealth(), 100.f);
+    TestTrue(TEXT("Shot stops on the distant wall"), FMath::IsNearlyEqual(Gun->LastShotEnd.X, 349975.0, 1.0));
+    int32 BeamCount = 0;
+    for (TActorIterator<ARailgunBeam> It(World); It; ++It)
+    {
+        ++BeamCount;
+        const double Length = FVector::Distance(It->GetActorLocation(), Gun->LastShotEnd);
+        TestTrue(TEXT("Core geometry reaches the actual hit beyond 1 km"),
+            FMath::IsNearlyEqual(It->Trail->GetMesh()->GetBounds().Max.X, Length, .1));
+        TestTrue(TEXT("Long beam keeps a bounded particle budget"), It->Spiral->GetMesh()->VertexCount() <= 16400);
+    }
+    TestEqual(TEXT("One long-range beam was created"), BeamCount, 1);
+
+    Wall->Destroy();
+    NearTarget->Destroy();
+    FarTarget->Destroy();
+    Advance();
+    // Moving a target after the first shot must extend the next shot's bounds as well.
+    HiddenTarget->SetActorLocation(FVector(-600000, 0, 600));
+    Camera->SetWorldRotation(FRotator(0, 180, 0));
+    TestTrue(TEXT("Shot follows a moved target in the negative direction"), Gun->Fire());
+    TestEqual(TEXT("Moved target at 6 km takes damage"), HiddenTarget->GetCurrentHealth(), 90.f);
+    TestTrue(TEXT("Miss endpoint extends past the moved target"), Gun->LastShotEnd.X < -600000);
+    Advance();
+
+    // Newly created destructible geometry also participates, including vertical shots.
+    const FTransform FloorTransform(FRotator::ZeroRotator, FVector(10000, 500, 0));
+    auto* Floor = World->SpawnActorDeferred<AChunkedDestructibleFloor>(AChunkedDestructibleFloor::StaticClass(), FloorTransform);
+    Floor->ConfigureFloor(FVector2D(100, 100), FVector(100, 100, 50), FVector2D::ZeroVector, false);
+    Floor->FinishSpawning(FloorTransform);
+    Camera->SetWorldLocationAndRotation(FVector(10000, 500, 300000), FRotator(-90, 0, 0));
+    Gun->Damage = 40;
+    Gun->Visuals.bSmoothSpiral = true;
+    TestTrue(TEXT("Vertical shot at a newly spawned floor 3 km away fires"), Gun->Fire());
+    FChunkedFloorCellInfo Cell;
+    TestTrue(TEXT("Distant floor cell is queryable"), Floor->GetCellInfo(FIntPoint(0, 0), Cell));
+    TestFalse(TEXT("Distant floor cell is destroyed instantly"), Cell.bExists);
+    for (TActorIterator<ARailgunBeam> It(World); It; ++It)
+    {
+        if (!It->Visuals.bSmoothSpiral) continue;
+        TestTrue(TEXT("Smooth long beam reaches its endpoint"), FMath::IsNearlyEqual(
+            It->Trail->GetMesh()->GetBounds().Max.X, FVector::Distance(It->GetActorLocation(), Gun->LastShotEnd), .1));
+        TestTrue(TEXT("Smooth long beam has bounded geometry"), It->Spiral->GetMesh()->VertexCount() <= 8204);
+    }
     return true;
 }
 #endif

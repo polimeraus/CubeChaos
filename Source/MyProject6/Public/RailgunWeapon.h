@@ -77,7 +77,9 @@ public:
     float Damage = 200.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0.1", Units="s"))
     float FireInterval = 1.5f;
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="100", Units="cm"))
+    /** Minimum trail length on a miss, not a damage limit. Shots always cover the loaded world.
+     * Keep the serialized Range name so existing Blueprint/instance values remain compatible. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(DisplayName="Miss Trail Length", ClampMin="100", Units="cm"))
     float Range = 20480.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Railgun", meta=(ClampMin="0.05", ClampMax="2", Units="s"))
     float TrailDuration = .65f;

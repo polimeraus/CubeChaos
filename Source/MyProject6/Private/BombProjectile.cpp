@@ -18,10 +18,13 @@
 #include "Engine/OverlapResult.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+#include "Engine/DamageEvents.h"
 #include "EngineUtils.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/DamageType.h"
+#include "PhysicsEngine/BodyInstance.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Sound/SoundBase.h"
@@ -29,6 +32,19 @@
 #include "UObject/ConstructorHelpers.h"
 
 using namespace UE::Geometry;
+
+namespace
+{
+FVector ClosestBlastPoint(UPrimitiveComponent* Component, const FVector& Origin)
+{
+    FVector Closest = Origin;
+    const float Distance = Component->GetClosestPointOnCollision(Origin, Closest);
+    // Zero means the origin is inside the body. Some collision implementations
+    // do not write OutPoint in this case.
+    if (Distance == 0.f) return Origin;
+    return Distance > 0.f ? Closest : Component->Bounds.GetBox().GetClosestPointTo(Origin);
+}
+}
 
 ABombProjectile::ABombProjectile()
 {
@@ -138,37 +154,56 @@ void ABombProjectile::Explode()
     BombMesh->SetVisibility(false);
     FuseAudio->Stop();
     const FVector Origin = GetActorLocation();
-    TArray<AActor*> Ignore = {this};
-    // Player energy is a separate system from AActor::TakeDamage. Include the
-    // throwing player, but use a small, cover-aware energy loss rather than the
-    // much larger NPC damage. DrainEnergy also updates the actual HUD.
-    for (TActorIterator<AMyProject6Character> It(GetWorld()); It; ++It)
-    {
-        AMyProject6Character* Player = *It;
-        Ignore.Add(Player);
-        if (Player->IsEnergyDepleted() || !Player->CanBeDamaged()) continue;
-        FVector Closest;
-        if (Player->GetCapsuleComponent()->GetClosestPointOnCollision(Origin,Closest)<0)
-            Closest=Player->GetActorLocation();
-        const float Falloff=FMath::Clamp(1.f-FVector::Distance(Origin,Closest)/FMath::Max(1.f,BlastRadius),0.f,1.f);
-        if (Falloff<=0) continue;
-        FHitResult Cover;
-        FCollisionQueryParams Query(SCENE_QUERY_STAT(BombPlayerDamage),false,this);
-        if (GetWorld()->LineTraceSingleByChannel(Cover,Origin,Player->GetActorLocation(),ECC_GameTraceChannel1,Query)
-            && Cover.GetActor()!=Player) continue;
-        Player->DrainEnergy(FMath::Max(0.f,PlayerEnergyDamage)*Falloff);
-    }
-    // NPCs retain their normal radial damage, hit reactions and death path.
-    UGameplayStatics::ApplyRadialDamageWithFalloff(this, FMath::Max(0.f, BlastDamage)*FMath::Max(0.f,NPCDamageMultiplier), 0.f, Origin,
-        0.f, FMath::Max(1.f, BlastRadius), 1.f, nullptr, Ignore, this, GetInstigatorController(), ECC_GameTraceChannel1);
-    // Damage callbacks may start a corpse's death flight. Add the pressure impulse
-    // afterwards so that the hit reaction cannot overwrite it; test cover before
-    // destructible geometry is removed. The thrower is intentionally included.
-    ApplyBlastImpulse(Origin);
+    ApplyBlastDamage(Origin);
     DamageStructures(Origin);
+    // Death callbacks must finish before launch, and newly created debris must
+    // receive the same pressure as physics bodies already in the blast sphere.
+    ApplyBlastImpulse(Origin);
     if (ExplosionSound) UGameplayStatics::PlaySoundAtLocation(this, ExplosionSound, Origin, 1.f);
     UGameplayStatics::PlayWorldCameraShake(this, UBFGCameraShake::StaticClass(), Origin, 0.f, BlastRadius * 3.f, 1.5f);
     SetLifeSpan(1.65f);
+}
+
+void ABombProjectile::ApplyBlastDamage(const FVector& Origin)
+{
+    const float Radius = FMath::Max(1.f, BlastRadius);
+    TArray<FOverlapResult> Overlaps;
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(BombDamage), false, this);
+    GetWorld()->OverlapMultiByObjectType(Overlaps, Origin, FQuat::Identity, FCollisionObjectQueryParams::AllObjects,
+        FCollisionShape::MakeSphere(Radius), Query);
+    TMap<AActor*, TArray<FHitResult>> Hits;
+    for (const FOverlapResult& Overlap : Overlaps)
+    {
+        AActor* Actor = Overlap.GetActor();
+        UPrimitiveComponent* Component = Overlap.GetComponent();
+        if (!IsValid(Actor) || !Component || Actor == this || !Actor->CanBeDamaged()
+            || Actor->IsA<AChunkedDestructibleFloor>()) continue;
+        // Contact sensors, weapons and cosmetic components must not extend a
+        // character's damage radius. Their capsule is the gameplay body.
+        if (auto* Character = Cast<ACharacter>(Actor)) Component = Character->GetCapsuleComponent();
+        const FVector Closest = ClosestBlastPoint(Component, Origin);
+        if (FVector::DistSquared(Origin, Closest) >= FMath::Square(Radius)) continue;
+        Hits.FindOrAdd(Actor).Emplace(Actor, Component, Closest, (Origin-Closest).GetSafeNormal());
+    }
+    for (auto& Pair : Hits)
+    {
+        AActor* Actor = Pair.Key;
+        if (!IsValid(Actor)) continue;
+        if (auto* Player = Cast<AMyProject6Character>(Actor))
+        {
+            const float Falloff = FMath::Clamp(1.f-FVector::Distance(Origin, Pair.Value[0].ImpactPoint)/Radius, 0.f, 1.f);
+            if (!Player->IsEnergyDepleted()) Player->DrainEnergy(FMath::Max(0.f, PlayerEnergyDamage)*Falloff);
+        }
+        else
+        {
+            FRadialDamageEvent Event;
+            Event.DamageTypeClass = UDamageType::StaticClass();
+            Event.Origin = Origin;
+            Event.Params = FRadialDamageParams(FMath::Max(0.f, BlastDamage)*FMath::Max(0.f, NPCDamageMultiplier), 0.f, 0.f, Radius, 1.f);
+            Event.ComponentHits = MoveTemp(Pair.Value);
+            Actor->TakeDamage(Event.Params.BaseDamage, Event, GetInstigatorController(), this);
+        }
+    }
 }
 
 void ABombProjectile::ApplyBlastImpulse(const FVector& Origin)
@@ -179,24 +214,36 @@ void ABombProjectile::ApplyBlastImpulse(const FVector& Origin)
     FCollisionQueryParams Query(SCENE_QUERY_STAT(BombPressure), false, this);
     GetWorld()->OverlapMultiByObjectType(Overlaps, Origin, FQuat::Identity, FCollisionObjectQueryParams::AllObjects,
         FCollisionShape::MakeSphere(Radius), Query);
+    // PhysicsOnly bodies are intentionally absent from scene queries, but still
+    // need pressure. The narrow-phase distance check below bounds their effect.
+    for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+    {
+        TInlineComponentArray<UPrimitiveComponent*> Components(*It);
+        for (UPrimitiveComponent* Component : Components)
+            if (!Component->IsQueryCollisionEnabled() && Component->IsAnySimulatingPhysics())
+            {
+                FOverlapResult& Overlap = Overlaps.AddDefaulted_GetRef();
+                Overlap.Component = Component;
+            }
+    }
     TSet<ACharacter*> Launched;
     TSet<UPrimitiveComponent*> Pushed;
     for (const FOverlapResult& Overlap : Overlaps)
     {
-        AActor* Actor = Overlap.GetActor();
         UPrimitiveComponent* Component = Overlap.GetComponent();
+        AActor* Actor = Component ? Component->GetOwner() : nullptr;
         if (!IsValid(Actor) || !Component || Actor == this) continue;
         ACharacter* Character = Cast<ACharacter>(Actor);
-        const bool bRagdoll = Character && Character->GetMesh()->IsAnySimulatingPhysics();
+        const bool bRagdoll = Character && Character->GetMesh() && Character->GetMesh()->IsAnySimulatingPhysics();
         const bool bLaunch = Character && !bRagdoll;
         if (bLaunch ? Launched.Contains(Character) : (Pushed.Contains(Component) || !Component->IsAnySimulatingPhysics())) continue;
+        if (bLaunch) Component = Character->GetCapsuleComponent();
         const FVector Target = bLaunch ? Character->GetActorLocation() : Component->Bounds.Origin;
         const FVector Away = Target-Origin;
-        const float Falloff = FMath::Clamp(1.f-Away.Size()/Radius,0.f,1.f);
+        const FVector Closest = Component->IsA<USkeletalMeshComponent>()
+            ? Component->Bounds.GetBox().GetClosestPointTo(Origin) : ClosestBlastPoint(Component,Origin);
+        const float Falloff = FMath::Clamp(1.f-FVector::Distance(Origin,Closest)/Radius,0.f,1.f);
         if (Falloff <= 0.f) continue;
-        FHitResult Cover;
-        if (GetWorld()->LineTraceSingleByChannel(Cover, Origin, Target, ECC_GameTraceChannel1, Query)
-            && Cover.GetActor() != Actor) continue;
         if (bLaunch)
         {
             Launched.Add(Character);
@@ -213,7 +260,27 @@ void ABombProjectile::ApplyBlastImpulse(const FVector& Origin)
         else
         {
             Pushed.Add(Component);
-            Component->AddRadialImpulse(Origin,Radius,FMath::Max(0.f,ImpulseSpeed),RIF_Linear,true);
+            if (auto* Mesh = Cast<USkeletalMeshComponent>(Component))
+            {
+                Mesh->ForEachBodyBelow(NAME_None, true, false, [&](FBodyInstance* Body)
+                {
+                    if (!Body->IsInstanceSimulatingPhysics()) return;
+                    FVector BodyPoint = Origin;
+                    const float Distance = Body->GetDistanceToBody(Origin, BodyPoint);
+                    if (Distance < 0.f) BodyPoint = Body->GetBodyBounds().GetClosestPointTo(Origin);
+                    if (Distance == 0.f) BodyPoint = Origin;
+                    const float BodyFalloff = FMath::Clamp(1.f-FVector::Distance(Origin,BodyPoint)/Radius, 0.f, 1.f);
+                    Body->AddImpulse((Body->GetCOMPosition()-Origin).GetSafeNormal(UE_SMALL_NUMBER,FVector::UpVector)
+                        * FMath::Max(0.f,ImpulseSpeed)*BodyFalloff, true);
+                });
+            }
+            else
+            {
+                // AddRadialImpulse measures from the centre of mass and silently
+                // misses a large body whose surface alone intersects the sphere.
+                Component->AddImpulse(Away.GetSafeNormal(UE_SMALL_NUMBER,FVector::UpVector)
+                    * FMath::Max(0.f,ImpulseSpeed)*Falloff, NAME_None, true);
+            }
             if (bRagdoll)
                 Component->AddAngularImpulseInRadians(FVector::CrossProduct(FVector::UpVector,Away.GetSafeNormal())*Falloff*4.f,NAME_None,true);
         }
@@ -222,30 +289,20 @@ void ABombProjectile::ApplyBlastImpulse(const FVector& Origin)
 
 void ABombProjectile::DamageStructures(const FVector& Origin)
 {
-    TArray<FOverlapResult> Overlaps;
-    FCollisionQueryParams Query(SCENE_QUERY_STAT(BombBlast), false, this);
-    Query.AddIgnoredActor(GetOwner());
-    const float SearchRadius = FMath::Max(1.f, BlastRadius) * FMath::Max(1.f, SculptureRadiusMultiplier);
-    GetWorld()->OverlapMultiByObjectType(Overlaps, Origin, FQuat::Identity, FCollisionObjectQueryParams::AllObjects,
-        FCollisionShape::MakeSphere(SearchRadius), Query);
-    TSet<AActor*> Damaged;
-    for (const FOverlapResult& Overlap : Overlaps)
+    // Collision cooking and complex-only/query-disabled chunks must not decide
+    // whether a destructible wall is damaged. Bounds prune distant actors; each
+    // structure then tests its own cells against the world-space sphere once.
+    for (TActorIterator<AChunkedDestructibleFloor> It(GetWorld()); It; ++It)
     {
-        auto* Structure = Cast<AChunkedDestructibleFloor>(Overlap.GetActor());
-        auto* Component = Overlap.GetComponent();
-        if (!Structure || !Component || Damaged.Contains(Structure)) continue;
+        AChunkedDestructibleFloor* Structure = *It;
+        if (!IsValid(Structure) || !Structure->CanBeDamaged()) continue;
         const bool bSculpture = Structure->IsA<ADestructibleRadialSculpture>();
-        const float Radius = BlastRadius * (bSculpture ? FMath::Max(1.f, SculptureRadiusMultiplier) : 1.f);
-        FVector Closest;
-        if (Component->GetClosestPointOnCollision(Origin, Closest) < 0)
-            Closest = Component->Bounds.GetBox().GetClosestPointTo(Origin);
-        if (FVector::DistSquared(Origin, Closest) > FMath::Square(Radius)) continue;
-        FHitResult Cover;
-        if (GetWorld()->LineTraceSingleByChannel(Cover, Origin, Closest, ECC_GameTraceChannel1, Query)
-            && Cover.GetActor() != Structure) continue;
-        Structure->ApplyExplosionAtWorldLocation(Origin, Radius,
-            BlastDamage * (bSculpture ? FMath::Max(1.f, SculptureDamageMultiplier) : 1.f));
-        Damaged.Add(Structure);
+        const float Radius = FMath::Max(1.f, BlastRadius) * (bSculpture ? FMath::Max(1.f, SculptureRadiusMultiplier) : 1.f);
+        const FBox Bounds = Structure->GetComponentsBoundingBox(true);
+        if (!Bounds.IsValid || Bounds.ComputeSquaredDistanceToPoint(Origin) > FMath::Square(Radius)) continue;
+        Structure->DamageCellsInRadius(Origin, Radius,
+            FMath::Max(0.f,BlastDamage) * (bSculpture ? FMath::Max(1.f, SculptureDamageMultiplier) : 1.f),
+            EChunkedFloorBlastShape::Sphere, false);
     }
 }
 

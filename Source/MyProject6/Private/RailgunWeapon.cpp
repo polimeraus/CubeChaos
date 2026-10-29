@@ -20,6 +20,7 @@
 #include "Components/PointLightComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
@@ -369,7 +370,21 @@ bool ARailgunWeapon::Fire()
     UCameraComponent* Camera = Wielder->GetFirstPersonCameraComponent();
     const FVector Start = Camera->GetComponentLocation();
     const FVector Direction = Camera->GetForwardVector();
-    FVector End = Start + Direction * FMath::Clamp(Range, 100.f, 100000.f);
+    // Extend past every loaded collidable actor instead of imposing a weapon range.
+    // Recompute on each shot so streaming, newly spawned targets and moving actors are covered.
+    // Project the whole bounds, not just actor origins (large platforms can extend past them).
+    double TraceDistance = FMath::IsFinite(Range) ? FMath::Max(100.0, double(Range)) : 20480.0;
+    const FVector AbsDirection = Direction.GetAbs();
+    for (TActorIterator<AActor> It(World); It; ++It)
+    {
+        if (*It == this || *It == Wielder.Get()) continue;
+        const FBox Bounds = It->GetComponentsBoundingBox(false);
+        if (!Bounds.IsValid) continue;
+        const double FarDistance = FVector::DotProduct(Bounds.GetCenter() - Start, Direction)
+            + FVector::DotProduct(Bounds.GetExtent(), AbsDirection);
+        TraceDistance = FMath::Max(TraceDistance, FarDistance + 100.0);
+    }
+    FVector End = Start + Direction * TraceDistance;
     FCollisionQueryParams Query(SCENE_QUERY_STAT(RailgunShot), false, Wielder);
     Query.AddIgnoredActor(this);
     // Use the project's projectile channel: NPC capsules and destructible instance meshes block it,

@@ -14,7 +14,7 @@ class USoundBase;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 
-/** A bouncing, timed fuse bomb. Contact never detonates it or applies damage. */
+/** A bouncing fuse bomb. Detonation affects a world-space sphere without contact or visibility requirements. */
 UCLASS()
 class MYPROJECT6_API ABombProjectile : public AActor
 {
@@ -57,6 +57,7 @@ private:
     float VisualAccumulator = 0.f;
     bool bVisualImpact = false;
     void DrawEffect(float Seconds, bool bImpact, FVector ViewLocation);
+    void ApplyBlastDamage(const FVector& Origin);
     void DamageStructures(const FVector& Origin);
     void ApplyBlastImpulse(const FVector& Origin);
 };

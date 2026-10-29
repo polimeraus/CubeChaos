@@ -208,7 +208,15 @@ void AQuadPanelConeStructure::AddPanelsInRadius(FVector WorldLocation, float Rad
 			const FIntPoint Cell = PanelCell(Column, Row);
 			const int32 Index = ToCellIndex(Cell);
 			if (!Cells.IsValidIndex(Index) || !Cells[Index].bExists) { continue; }
-			const FVector Delta = GetActorTransform().TransformPosition(GetCellLocalCenter(Cell)) - WorldLocation;
+			FVector Point = GetCellLocalCenter(Cell);
+			if (Shape == EChunkedFloorBlastShape::Sphere)
+			{
+				FVector3d Corners[8]; GetPanelCorners(Cell, Corners);
+				FBox Bounds(ForceInit);
+				for (const FVector3d& Corner : Corners) { Bounds += Corner; }
+				Point = Bounds.GetClosestPointTo(Local);
+			}
+			const FVector Delta = GetActorTransform().TransformPosition(Point) - WorldLocation;
 			const float Distance = Shape == EChunkedFloorBlastShape::Square ? Delta.GetAbsMax() :
 				Shape == EChunkedFloorBlastShape::Diamond ? Delta.GetAbs().X + Delta.GetAbs().Y + Delta.GetAbs().Z : Delta.Length();
 			if (Distance <= Radius) { CellFunction(Index, Distance); ++Count; }

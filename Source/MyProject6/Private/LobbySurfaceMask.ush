@@ -1,0 +1,45 @@
+float2 p = (UV - 0.5) * Dimensions.xy;
+float4 pads[16] = {PAD_ARRAY};
+float4 segments[32] = {SEGMENT_ARRAY};
+float widths[32] = {WIDTH_ARRAY};
+float insets[32] = {INSET_ARRAY};
+float4 core[32] = {CORE_ARRAY};
+
+// Signed distance to the same rounded convex outline used to build the slab.
+// Its inner surface is a scaled Minkowski sum of a convex core and a circle.
+float boundary = 1e9;
+if (OutlineData.w > 0.5) {
+    float2 r = max(OutlineData.xy, 1);
+    float k0 = length(p/r), k1 = length(p/(r*r));
+    boundary = k1 > 0.000001 ? k0*(k0-1)/k1 : -min(r.x,r.y);
+} else {
+    float nearest2 = 1e18, maxSide = -1e18;
+    [loop] for (int c=0; c<min((int)CoreCount,32); ++c) {
+        float2 a = core[c].xy, b = core[(c+1)%(int)CoreCount].xy;
+        float2 e = b-a;
+        float t = saturate(dot(p-a,e)/max(dot(e,e),0.00001));
+        float2 d = p-a-t*e;
+        nearest2 = min(nearest2, dot(d,d));
+        maxSide = max(maxSide, dot(p-a, float2(e.y,-e.x))/max(length(e),0.001));
+    }
+    boundary = sqrt(nearest2)*(maxSide > 0 ? 1 : -1)-OutlineData.z;
+}
+float padDistance = 1e9, pathDistance = 1e9, ringHoles = -1e9;
+[loop] for (int i=0; i<min((int)PadCount,16); ++i) {
+    float d = length(p-pads[i].xy);
+    float outer = d-pads[i].z;
+    float region = pads[i].w > 0 ? max(outer, pads[i].w-d) : outer;
+    padDistance = min(padDistance, region);
+    if (pads[i].w > 0) ringHoles = max(ringHoles, pads[i].w-d);
+}
+[loop] for (int j=0; j<min((int)SegmentCount,32); ++j) {
+    float2 ab = segments[j].zw-segments[j].xy;
+    float t = saturate(dot(p-segments[j].xy, ab)/max(dot(ab,ab),0.0001));
+    float path = length(p-segments[j].xy-ab*t)-widths[j];
+    if (insets[j] >= 0) path = max(path, boundary+insets[j]);
+    pathDistance = min(pathDistance, path);
+}
+// Overlap the rim to avoid antialiasing seams; keep hollow pad centres purple.
+float distanceField = min(padDistance, max(pathDistance, ringHoles));
+float aa = max(fwidth(distanceField), 0.05);
+return (1-smoothstep(-aa, aa, distanceField))*ShowLayout;

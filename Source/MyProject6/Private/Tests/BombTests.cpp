@@ -120,7 +120,7 @@ bool FFuseBombTest::RunTest(const FString&)
     Advance(.15f);
     AddInfo(FString::Printf(TEXT("Same-distance damage: BFG %.3f, bomb %.3f"),BFGDamage,Before-Exposed->GetCurrentHealth()));
     TestTrue(TEXT("NPC blast damage includes the stronger NPC multiplier"),FMath::IsNearlyEqual(Before-Exposed->GetCurrentHealth(),2.f*Bomb->NPCDamageMultiplier*BFGDamage,.01f));
-    TestEqual(TEXT("Cover protects NPC from blast"),Covered->GetCurrentHealth(),1000.f);
+    TestTrue(TEXT("Airburst damages an NPC behind cover inside the sphere"),Covered->GetCurrentHealth()<1000.f);
     TestEqual(TEXT("Outside radius is safe"),Outside->GetCurrentHealth(),1000.f);
     const float After=Exposed->GetCurrentHealth();Bomb->Explode();
     TestEqual(TEXT("Repeated detonation cannot double apply damage"),Exposed->GetCurrentHealth(),After);
@@ -132,11 +132,12 @@ bool FFuseBombTest::RunTest(const FString&)
     const float CoveredEnergy=Player->GetCurrentEnergy();
     auto* CoveredBomb=World->SpawnActor<ABombProjectile>(Origin,FRotator::ZeroRotator);
     CoveredBomb->SetOwner(Player);CoveredBomb->Explode();
-    TestEqual(TEXT("Solid cover also protects player energy"),Player->GetCurrentEnergy(),CoveredEnergy);
+    TestTrue(TEXT("Solid cover does not cancel player energy damage inside the sphere"),Player->GetCurrentEnergy()<CoveredEnergy);
+    const float EnergyAfterCoverBlast=Player->GetCurrentEnergy();
     CoveredBomb->Destroy();Cover->Destroy();
     Player->SetActorLocation(Origin+FVector(700,0,0));
     auto* FarBomb=World->SpawnActor<ABombProjectile>(Origin,FRotator::ZeroRotator);FarBomb->Explode();
-    TestEqual(TEXT("Player outside the damage radius loses no energy"),Player->GetCurrentEnergy(),CoveredEnergy);
+    TestEqual(TEXT("Player outside the damage radius loses no energy"),Player->GetCurrentEnergy(),EnergyAfterCoverBlast);
     FarBomb->Destroy();
 
     const FTransform FloorT(FVector(8000,0,0));
@@ -144,6 +145,9 @@ bool FFuseBombTest::RunTest(const FString&)
     Floor->ConfigureFloor(FVector2D(100,100),FVector(100,100,50),FVector2D::ZeroVector,false);Floor->FinishSpawning(FloorT);
     auto* FloorBomb=World->SpawnActor<ABombProjectile>(FVector(8000,0,70),FRotator::ZeroRotator);FloorBomb->Explode();
     FChunkedFloorCellInfo Cell;TestTrue(TEXT("Destructible cell queried"),Floor->GetCellInfo(FIntPoint(0,0),Cell));
+    TestTrue(TEXT("Airburst applies lethal cell damage immediately"),Cell.Health<=0 && (!Cell.bExists || Cell.bPendingDestruction));
+    // The destruction ripple now includes the 70 cm vertical travel distance.
+    Advance(.1f);Floor->GetCellInfo(FIntPoint(0,0),Cell);
     TestFalse(TEXT("Timed area blast breaks destructible cells"),Cell.bExists);
     Player->DrainEnergy(100);TestFalse(TEXT("Dead player cannot throw"),Gun->FireBomb());
     return true;

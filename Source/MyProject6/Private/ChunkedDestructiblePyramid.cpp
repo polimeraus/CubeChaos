@@ -1346,7 +1346,9 @@ int32 AChunkedDestructiblePyramid::SelectCellsInRadius(
 		{
 			continue;
 		}
-		const FVector LocalDelta = PieceGeometry[CellIndex].Center - LocalImpact;
+		const FVector Point = ShapeType == EChunkedFloorBlastShape::Sphere
+			? PieceGeometry[CellIndex].Bounds.GetClosestPointTo(LocalImpact) : PieceGeometry[CellIndex].Center;
+		const FVector LocalDelta = Point - LocalImpact;
 		const FVector ScaledDelta = LocalDelta * ActorScale;
 		float Distance = 0.0f;
 		switch (ShapeType)

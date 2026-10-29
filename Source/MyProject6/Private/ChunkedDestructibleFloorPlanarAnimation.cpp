@@ -1,4 +1,5 @@
 #include "ChunkedDestructibleFloor.h"
+#include "DestructibleAnimationSampling.h"
 
 EConeStructureAnimationType AChunkedDestructibleFloor::GetFixedAnimationType() const
 {
@@ -118,18 +119,16 @@ void AChunkedDestructibleFloor::UpdatePlanarMusic(double CurrentTime)
 	const bool bFilled = MusicAnimationType == EMusicAnimationType::Equalizer;
 	for (const FActiveMusicEqualizerColumn& Column : ActiveMusicEqualizerColumns)
 	{
-		const float Progress = (CurrentTime - Column.StartTime) / FMath::Max(Column.Duration, 0.01f);
-		if (Progress < 0.0f || Progress >= 1.0f || Column.ColumnIndex < 0 || Column.ColumnIndex >= Columns) { continue; }
-		const int32 PeakRows = FMath::Clamp(FMath::RoundToInt(Rows * Column.PeakHeight), 1, Rows);
-		const int32 Head = FMath::FloorToInt(Progress * (PeakRows + TailLength));
+		const auto Sample = DestructibleAnimation::SampleMusicColumn(CurrentTime, Column.StartTime, Column.Duration,
+			Column.StartHeight, Column.PeakHeight, Rows, TailLength, bFilled);
+		if (!Sample.bActive || Column.ColumnIndex < 0 || Column.ColumnIndex >= Columns) { continue; }
 		const float Intensity = FMath::Lerp(FMath::Max(WeakMusicGlowIntensity, 0.0f), PeakIntensity,
-			FMath::Pow(FMath::Clamp(Column.Strength, 0.0f, 1.0f), 0.75f)) * (bFilled ? 1.0f : FMath::Square(1.0f - Progress));
-		const int32 FilledRows = FMath::Clamp(FMath::RoundToInt(Column.GetEqualizerHeight(CurrentTime) * Rows), 0, Rows);
-		for (int32 Tail = 0; Tail < (bFilled ? FilledRows : TailLength); ++Tail)
+			FMath::Pow(FMath::Clamp(Column.Strength, 0.0f, 1.0f), 0.75f)) * Sample.Envelope;
+		for (int32 Tail = 0; Tail < Sample.Count; ++Tail)
 		{
-			const int32 Row = bFilled ? Tail : Head - Tail;
-			if (Row < 0 || Row >= PeakRows) { continue; }
-			const float Fade = bFilled ? 1.0f : 1.0f - static_cast<float>(Tail) / TailLength;
+			const int32 Row = Sample.Row(Tail);
+			if (Row < 0 || Row >= Sample.PeakRows) { continue; }
+			const float Fade = Sample.Fade(Tail);
 			uint8& Value = PlanarMusicMask[Row * Columns + Column.ColumnIndex];
 			Value = FMath::Max(Value, static_cast<uint8>(FMath::Clamp(
 				FMath::RoundToInt(255.0f * Intensity * Fade / FMath::Max(PeakIntensity, 0.001f)), 0, 255)));

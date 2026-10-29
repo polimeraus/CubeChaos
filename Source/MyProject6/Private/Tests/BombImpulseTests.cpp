@@ -78,7 +78,7 @@ bool FBombPressureTest::RunTest(const FString&)
     TestTrue(TEXT("Thrower is pushed outwards and upwards"),OwnerKick.X>2200 && OwnerKick.Z>750);
     TestTrue(TEXT("NPC on opposite side flies the opposite way"),NearKick.X< -2200 && NearKick.Z>750);
     TestTrue(TEXT("Pressure weakens with distance and reaches follower NPCs"),FarKick.Y>750 && FarKick.Size()<NearKick.Size());
-    TestTrue(TEXT("Solid cover blocks the impulse"),Covered->GetCharacterMovement()->PendingLaunchVelocity.IsNearlyZero());
+    TestTrue(TEXT("Pressure reaches targets behind cover inside the sphere"),Covered->GetCharacterMovement()->PendingLaunchVelocity.Y < -1000);
     TestTrue(TEXT("Outside pressure radius receives no impulse"),Outside->GetCharacterMovement()->PendingLaunchVelocity.IsNearlyZero());
     Shot->Explode();
     TestTrue(TEXT("Detonation applies pressure once despite duplicate overlaps/calls"),Player->GetCharacterMovement()->PendingLaunchVelocity.Equals(OwnerKick,.01));
@@ -91,7 +91,7 @@ bool FBombPressureTest::RunTest(const FString&)
         && NearRest.AngularDistance(Near->GetMesh()->GetRelativeRotation().Quaternion()) > .2f);
     TestFalse(TEXT("Blast does not tumble the player's camera or mesh"),Player->GetActorRotation().Pitch != 0.f);
     TestTrue(TEXT("Physics prop actually moves in the radial direction"),Prop->GetComponentLocation().X>190 && Prop->GetComponentLocation().Y>230);
-    TestTrue(TEXT("Covered target remains in place"),Covered->GetActorLocation().Equals(Origin+FVector(0,-300,0),1));
+    TestTrue(TEXT("Covered target moves away from the blast"),Covered->GetActorLocation().Y < -400);
 
     auto* Dying=Character(AChasingNPC::StaticClass(),FVector(4180,0,0));
     if (!Dying) return false;

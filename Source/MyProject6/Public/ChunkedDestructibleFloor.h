@@ -125,7 +125,8 @@ enum class EChunkedFloorPattern : uint8
 	HypnoticSpiral UMETA(DisplayName = "Spiral"),
 	HeartMotif UMETA(DisplayName = "Heart"),
 	StarMotif UMETA(DisplayName = "Star"),
-	FlowerMotif UMETA(DisplayName = "Flower")
+	FlowerMotif UMETA(DisplayName = "Flower"),
+	CirclesAndPaths UMETA(DisplayName = "Circles & Paths (Lobby)")
 };
 
 /** Geometry and direction controls shown only while the Spiral floor pattern is selected. */
@@ -172,7 +173,9 @@ enum class EChunkedFloorBlastShape : uint8
 {
 	Circle,
 	Square,
-	Diamond
+	Diamond,
+	/** World-space sphere intersecting cell volumes, including vertical distance. */
+	Sphere
 };
 
 /** Selects the reusable material animation rendered over a supported destructible structure. */
@@ -254,11 +257,11 @@ protected:
 public:
 	/** Recreates the logical grid and every chunk. Overlapping cell state can optionally survive a resize. */
 	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Generation")
-	void GenerateFloor(bool bPreserveCellState = false);
+	virtual void GenerateFloor(bool bPreserveCellState = false);
 
 	/** Changes area, cell size and spacing in one rebuild. */
 	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Generation")
-	void ConfigureFloor(
+	virtual void ConfigureFloor(
 		FVector2D NewAreaSize,
 		FVector NewCellDimensions,
 		FVector2D NewCellSpacing,
@@ -266,7 +269,7 @@ public:
 
 	/** Runtime cell-size change. This rebuilds mesh and collision, so it should not be called every frame. */
 	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Generation")
-	void SetCellDimensions(FVector NewCellDimensions, bool bPreserveCellState = true);
+	virtual void SetCellDimensions(FVector NewCellDimensions, bool bPreserveCellState = true);
 
 	/** Runtime gap change. This rebuilds mesh and collision, so it should not be called every frame. */
 	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Generation")
@@ -287,7 +290,7 @@ public:
 
 	/** Re-evaluates the current pattern for every cell and rebuilds all chunks. */
 	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Materials")
-	void ApplyMaterialPattern();
+	virtual void ApplyMaterialPattern();
 
 	/** Pushes the current material array to every chunk. */
 	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Materials")
@@ -368,6 +371,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Animation")
 	void SetPlanarFlow(FDestructiblePlanarFlow Flow);
 
+	/** Reflected so Details-panel EditCondition expressions can query the native override. */
+	UFUNCTION(BlueprintPure, Category = "Animation")
 	virtual bool UsesPlanarAnimation() const { return true; }
 
 
@@ -919,6 +924,10 @@ protected:
 		TFunctionRef<bool(FIntPoint, TArray<TArray<FVector2D>>&)> GetCellPolygons,
 		TFunctionRef<void(FIntPoint, const FVector2D&, const FVector2D&, const FVector2D&, int32)> AppendSurfaceTriangle) const;
 	virtual void BuildChunkSimpleCollision(int32 ChunkIndex, FKAggregateGeom& OutCollision) const;
+	/** Clip sampled spiral geometry to a cell, or to a subclass's continuous solid surface. */
+	virtual void ClipSpiralSurface(
+		const TArray<TArray<FVector2D>>& CellPolygons,
+		TArray<FChunkedCachedSpiralTriangle>& OutTriangles) const;
 	void RefreshSideNeonMaterial();
 	/** A -> B must run from the bottom to the top of a vertical side. */
 	void AppendFloorSideQuad(
@@ -1002,6 +1011,8 @@ protected:
 		TFunctionRef<void(int32, float)> CellFunction);
 
 	bool QueueCellDestruction(int32 CellIndex, float Delay, bool bRadial);
+	/** Optional actor-wide gate shared by hit, explosion, direct and queued cell destruction. */
+	virtual bool CanDestroyCell(FIntPoint Cell) const { return true; }
 	void CancelQueuedDestruction(int32 CellIndex);
 	bool ApplyDamageToCell(FIntPoint Cell, float DamageAmount);
 	void ProcessQueuedDestructions(double CurrentTime);

@@ -17,7 +17,8 @@ enum class EChunkedDecorativeFloorShape : uint8
 	RoundedBlob UMETA(DisplayName = "Rounded Blob"),
 	Square,
 	Circle,
-	Star
+	Star,
+	Hexagon
 };
 
 /** Material-layer and geometry controls shown only while Heart Motif is selected. */
@@ -207,7 +208,7 @@ public:
 
 	/** Configures the silhouette, cell dimensions and spacing in one rebuild. */
 	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Generation")
-	void ConfigureDecorativeFloor(
+	virtual void ConfigureDecorativeFloor(
 		EChunkedDecorativeFloorShape NewShape,
 		FVector2D NewShapeSize,
 		FVector NewCellDimensions,
@@ -282,7 +283,7 @@ protected:
 	float StarRotationDegrees = 0.0f;
 
 	/** More segments produce a smoother circular edge while retaining exact straight segment cuts. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Shape", meta = (EditCondition = "OuterShape == EChunkedDecorativeFloorShape::Circle", EditConditionHides, ClampMin = "16", ClampMax = "256"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Shape", meta = (EditCondition = "OuterShape == EChunkedDecorativeFloorShape::Circle", EditConditionHides, ClampMin = "16", ClampMax = "512"))
 	int32 CircleEdgeSegments = 96;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunked Floor|Rounded Blob", meta = (EditCondition = "OuterShape == EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides, ClampMin = "3", ClampMax = "16"))
@@ -386,7 +387,7 @@ protected:
 	virtual void BuildChunkSimpleCollision(int32 ChunkIndex, FKAggregateGeom& OutCollision) const override;
 	virtual FTransform GetCellFlashTransform(FIntPoint Cell) const override;
 
-private:
+protected:
 	struct FShapeTriangle
 	{
 		FVector2D A = FVector2D::ZeroVector;
@@ -444,7 +445,7 @@ private:
 	TArray<FDecorativeCellGeometryCache> CellGeometryCache;
 	mutable TArray<FPatternSurfaceCache> PatternSurfaceCaches;
 
-	void RebuildBlobCache();
+	virtual void RebuildBlobCache();
 	void RebuildShapeOutline();
 	void CenterMotifsInShape();
 	bool IsPointInsideOuterShape(const FVector2D& LocalPoint, float Inset = 0.0f) const;
@@ -462,7 +463,8 @@ private:
 		int32 MaterialIndex,
 		double SurfaceZ) const;
 	void GetCellBounds(FIntPoint Cell, double& OutMinX, double& OutMinY, double& OutMaxX, double& OutMaxY) const;
-	float SampleBlobRadius(float Angle) const;
+	virtual float SampleBlobRadius(float Angle) const;
+	void AppendDecorativeSurfacePatterns(int32 ChunkIndex, UE::Geometry::FDynamicMesh3& Mesh) const;
 	int32 ClampMaterialIndex(int32 MaterialIndex) const;
 	void SyncMotifSettingsFromLegacyFields();
 	void SyncLegacyFieldsFromMotifSettings();
@@ -493,7 +495,7 @@ private:
 	void AppendFlowerPattern(
 		UE::Geometry::FDynamicMesh3& Mesh,
 		int32 ChunkIndex) const;
-	void AppendPolygonSurface(
+	virtual void AppendPolygonSurface(
 		UE::Geometry::FDynamicMesh3& Mesh,
 		int32 ChunkIndex,
 		const TArray<FVector2D>& Outline,

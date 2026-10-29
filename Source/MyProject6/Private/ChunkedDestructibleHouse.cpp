@@ -1043,7 +1043,14 @@ int32 AChunkedDestructibleHouse::SelectCellsInRadius(
 				{
 					continue;
 				}
-				const FVector LocalDelta = GetCellLocalCenter(Cell) - LocalImpact;
+				FVector Point = GetCellLocalCenter(Cell);
+				if (Shape == EChunkedFloorBlastShape::Sphere)
+				{
+					FVector Center, Size;
+					GetPieceLocalBounds(Cell, Center, Size);
+					Point = FBox(Center-Size*.5, Center+Size*.5).GetClosestPointTo(LocalImpact);
+				}
+				const FVector LocalDelta = Point - LocalImpact;
 				const FVector ScaledDelta(
 					LocalDelta.X * Scale.X, LocalDelta.Y * Scale.Y, LocalDelta.Z * Scale.Z);
 				float Distance = 0.0f;

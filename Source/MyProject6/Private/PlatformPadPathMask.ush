@@ -1,0 +1,21 @@
+// The slab supplies continuous local XY UVs. Only existing top faces use this material.
+float2 p = UV * max(UVWorldUnits, 1);
+float4 pads[16] = {PAD_ARRAY};
+float4 segments[32] = {SEGMENT_ARRAY};
+float widths[32] = {WIDTH_ARRAY};
+float padDistance = 1e9, pathDistance = 1e9, ringHoles = -1e9;
+[loop] for (int i=0; i<min((int)PadCount,16); ++i) {
+    float d = length(p-pads[i].xy);
+    float outer = d-pads[i].z;
+    padDistance = min(padDistance, pads[i].w > 0 ? max(outer, pads[i].w-d) : outer);
+    if (pads[i].w > 0) ringHoles = max(ringHoles, pads[i].w-d);
+}
+[loop] for (int j=0; j<min((int)SegmentCount,32); ++j) {
+    float2 ab = segments[j].zw-segments[j].xy;
+    float t = saturate(dot(p-segments[j].xy, ab)/max(dot(ab,ab),0.0001));
+    pathDistance = min(pathDistance, length(p-segments[j].xy-ab*t)-widths[j]);
+}
+// Path connections do not fill the hollow centers of rings.
+float distanceField = min(padDistance, max(pathDistance, ringHoles));
+float aa = max(fwidth(distanceField), 0.05);
+return (1-smoothstep(-aa, aa, distanceField))*ShowLayout;

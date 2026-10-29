@@ -4467,9 +4467,11 @@ int32 AQuadPanelConeStructure::SelectCellsInRadius(
 			{
 				continue;
 			}
-			const FVector LocalDelta = GetPhysicalCellLocalCenter(
-										   PhysicalCell.X, PhysicalCell.Y, Z) -
-									   LocalImpact;
+			const FVector Center = GetPhysicalCellLocalCenter(
+										   PhysicalCell.X, PhysicalCell.Y, Z);
+			const FVector Point = Shape == EChunkedFloorBlastShape::Sphere
+				? FBox(Center-BlockDimensions*.5, Center+BlockDimensions*.5).GetClosestPointTo(LocalImpact) : Center;
+			const FVector LocalDelta = Point - LocalImpact;
 			const FVector ScaledDelta(
 				LocalDelta.X * Scale.X, LocalDelta.Y * Scale.Y, LocalDelta.Z * Scale.Z);
 			float Distance = 0.0f;

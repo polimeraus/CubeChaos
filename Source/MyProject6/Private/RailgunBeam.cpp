@@ -62,7 +62,7 @@ void ARailgunBeam::InitializeBeam(FVector Start, FVector End, float Duration)
     Age = 0;
     bHasImpact = false;
     Lifetime = FMath::Clamp(Duration, .05f, 2.f);
-    BeamLength = FMath::Clamp(float(FVector::Distance(Start, End)), 1.f, 100000.f);
+    BeamLength = FMath::Max(float(FVector::Distance(Start, End)), 1.f);
     const float SpiralLife = Visuals.bSmoothSpiral ? FMath::Min(1.25f, .65f + BeamLength * .00003f)
         : FMath::Min(5.f, .6f + BeamLength * .0002f);
     SetLifeSpan(Visuals.bSpiral ? FMath::Max(Lifetime, SpiralLife) : Lifetime);
@@ -131,7 +131,7 @@ void ARailgunBeam::UpdateParticles(FVector ViewLocation)
         // A smooth world-space helix. Only the thin ribbon's facing changes with the
         // viewer; its centreline and phase never follow the camera or the weapon.
         const float Pitch = FMath::Clamp(Visuals.SpiralPitch, 50.f, 1000.f);
-        const int32 Steps = FMath::Clamp(FMath::CeilToInt(BeamLength / FMath::Min(8.f, Pitch / 48.f)), 2, 4096);
+        const int32 Steps = FMath::CeilToInt(FMath::Clamp(BeamLength / FMath::Min(8.f, Pitch / 48.f), 2.f, 4096.f));
         auto CentreAt = [&](float Distance)
         {
             Distance = FMath::Clamp(Distance, 0.f, BeamLength);

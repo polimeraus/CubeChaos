@@ -6,6 +6,9 @@
 
 #include "ChunkedDestructibleFloor.h"
 #include "DestructibleRadialSculpture.h"
+#include "ParametricLobbyPlatformDestructable.h"
+#include "ParametricPlatform.h"
+#include "PropertyRestriction.h"
 #include "DetailCategoryBuilder.h"
 #include "DetailLayoutBuilder.h"
 #include "DetailWidgetRow.h"
@@ -27,6 +30,7 @@ namespace
 	// These names mirror the existing top-level categories used by each native actor.
 	constexpr FDestructibleCategoryMapping DestructibleCategoryMappings[] =
 	{
+		{ TEXT("ParametricLobbyPlatformDestructable"), TEXT("Lobby") },
 		{ TEXT("SimpleHouseActorDestructable"), TEXT("Simple House Destructable") },
 		{ TEXT("ChunkedDestructibleHalloweenPumpkin5"), TEXT("Destructible Halloween Pumpkin 5") },
 		{ TEXT("ChunkedDestructibleHalloweenPumpkin4"), TEXT("Destructible Halloween Pumpkin 4") },
@@ -35,6 +39,7 @@ namespace
 		{ TEXT("ChunkedDestructibleHalloweenPumpkin"), TEXT("Destructible Halloween Pumpkin") },
 		{ TEXT("ChunkedDestructibleConeStructure"), TEXT("Destructible Cone Structure") },
 		{ TEXT("ChunkedDestructiblePyramid"), TEXT("Destructible Pyramid") },
+		{ TEXT("ParametricPlatform"), TEXT("Platform") },
 		{ TEXT("ChunkedDestructibleRoundedBlob"), TEXT("Destructible Rounded Blob") },
 		{ TEXT("ChunkedDestructibleTriangle"), TEXT("Destructible Triangle") },
 		{ TEXT("ChunkedDestructibleHouse"), TEXT("Destructible House") },
@@ -198,6 +203,13 @@ void FDestructibleAnimationDetailsCustomization::CustomizeDetails(IDetailLayoutB
 	{
 		return;
 	}
+	if (!ObjectClass->IsChildOf(AParametricPlatform::StaticClass()))
+	{
+		const auto Pattern = DetailBuilder.GetProperty(TEXT("FloorPattern"), AChunkedDestructibleFloor::StaticClass());
+		const auto Restriction = MakeShared<FPropertyRestriction>(LOCTEXT("PlatformPatternOnly", "Available on Parametric Platform."));
+		Restriction->AddHiddenValue(TEXT("CirclesAndPaths"));
+		Pattern->AddRestriction(Restriction);
+	}
 	if (ObjectClass->IsChildOf(ADestructibleRadialSculpture::StaticClass()))
 	{
 		// The sculpture owns its material and shader-driven glow settings. Inherited
@@ -210,6 +222,21 @@ void FDestructibleAnimationDetailsCustomization::CustomizeDetails(IDetailLayoutB
 				DetailBuilder.HideProperty(DetailBuilder.GetProperty(It->GetFName(), It->GetOwnerClass()));
 		}
 		return;
+	}
+	if (ObjectClass->IsChildOf(AParametricLobbyPlatformDestructable::StaticClass()))
+	{
+		// The lobby owns its shape/palette. Do not expose generated backing-grid values as settings.
+		for (TFieldIterator<FProperty> It(ObjectClass); It; ++It)
+		{
+			const FString Category=It->GetMetaData(TEXT("Category"));
+			const FName Name=It->GetFName();
+			if (Category.StartsWith(TEXT("Chunked Floor|Materials")) || Category.StartsWith(TEXT("Chunked Floor|Side Neon")) ||
+				Name==TEXT("AreaSize") || Name==TEXT("CellDimensions") || Name==TEXT("FillRule") ||
+				Name==TEXT("bGenerateCollision") || Name==TEXT("bGenerateBottomFaces") || Name==TEXT("UVWorldUnits"))
+			{
+				DetailBuilder.HideProperty(DetailBuilder.GetProperty(Name,It->GetOwnerClass()));
+			}
+		}
 	}
 
 	IDetailCategoryBuilder& DestructibleCategory = DetailBuilder.EditCategory(DestructibleCategoryName);
