@@ -142,6 +142,9 @@ void AParametricPlatform::ConfigurePlatform(EChunkedDecorativeFloorShape Shape, 
 
 bool AParametricPlatform::CalculateLayout()
 {
+    // Resolve physical dimensions before the base class allocates either the single slab
+    // or its destruction grid. The actor origin remains at the circular hub.
+    if (OuterShape == EChunkedDecorativeFloorShape::ParametricShape) PrepareParametricShape();
     if (PlatformMode == EPlatformMode::Cellular)
     {
         const bool Result = Super::CalculateLayout();
@@ -177,6 +180,7 @@ int32 AParametricPlatform::EvaluatePatternMaterial(FIntPoint Cell) const
 
 bool AParametricPlatform::UsesRegularGroundSlab() const
 {
+    if (UsesRoundedCorners()) return false;
     return OuterShape == EChunkedDecorativeFloorShape::Square || OuterShape == EChunkedDecorativeFloorShape::Circle ||
         (OuterShape == EChunkedDecorativeFloorShape::Hexagon &&
             FMath::IsNearlyEqual(ShapeSize.X, ShapeSize.Y / FMath::Cos(UE_DOUBLE_PI / 6), .01));
@@ -201,18 +205,29 @@ void AParametricPlatform::BuildSolidMesh(FDynamicMesh3& Mesh) const
     }
     else
     {
-        // Generalize Ground's perimeter/fan slab to triangle, rectangle, star and organic outlines.
-        // These outlines are star-shaped about CachedShapeFanCenter, so no grid tessellation is needed.
+        // Use the cached triangulation for both star-shaped outlines and concave block pieces.
         Mesh.EnableAttributes();
         Mesh.Attributes()->EnableMaterialID();
         TArray<int32> Top, Bottom;
-        for (const FVector2D& P : CachedShapeOutline)
+        TMap<FVector2D, int32> PointIndices;
+        ForEachShapeBoundary([&](const TArray<FVector2D>& Boundary)
         {
+        for (const FVector2D& P : Boundary)
+        {
+            PointIndices.Add(P, Top.Num());
             Top.Add(Mesh.AppendVertex(FVector3d(P.X, P.Y, 0)));
             Bottom.Add(Mesh.AppendVertex(FVector3d(P.X, P.Y, -Thickness)));
         }
-        const int32 TopCenter = Mesh.AppendVertex(FVector3d(CachedShapeFanCenter.X, CachedShapeFanCenter.Y, 0));
-        const int32 BottomCenter = Mesh.AppendVertex(FVector3d(CachedShapeFanCenter.X, CachedShapeFanCenter.Y, -Thickness));
+        });
+        auto PointIndex = [&](const FVector2D& P)
+        {
+            if (const int32* Existing = PointIndices.Find(P)) return *Existing;
+            const int32 Index = Top.Num();
+            PointIndices.Add(P, Index);
+            Top.Add(Mesh.AppendVertex(FVector3d(P.X, P.Y, 0)));
+            Bottom.Add(Mesh.AppendVertex(FVector3d(P.X, P.Y, -Thickness)));
+            return Index;
+        };
         auto Triangle = [&](int32 A, int32 B, int32 C, FVector3f Normal, bool Side)
         {
             const FIndex3i V(A, C, B);
@@ -230,16 +245,24 @@ void AParametricPlatform::BuildSolidMesh(FDynamicMesh3& Mesh) const
             Mesh.Attributes()->PrimaryNormals()->SetTriangle(ID, N);
             Mesh.Attributes()->PrimaryUV()->SetTriangle(ID, UV);
         };
-        for (int32 I = 0; I < Top.Num(); ++I)
+        for (const auto& T : CachedShapeTriangles)
         {
-            const int32 Next = (I + 1) % Top.Num();
-            Triangle(TopCenter, Top[I], Top[Next], FVector3f::UnitZ(), false);
-            Triangle(BottomCenter, Bottom[Next], Bottom[I], -FVector3f::UnitZ(), false);
-            const FVector2D Edge = CachedShapeOutline[Next] - CachedShapeOutline[I];
-            const FVector3f Normal = FVector3f(Edge.Y, -Edge.X, 0).GetSafeNormal();
-            Triangle(Top[I], Bottom[I], Bottom[Next], Normal, true);
-            Triangle(Top[I], Bottom[Next], Top[Next], Normal, true);
+            const int32 A = PointIndex(T.A), B = PointIndex(T.B), C = PointIndex(T.C);
+            Triangle(Top[A], Top[B], Top[C], FVector3f::UnitZ(), false);
+            Triangle(Bottom[A], Bottom[C], Bottom[B], -FVector3f::UnitZ(), false);
         }
+        ForEachShapeBoundary([&](const TArray<FVector2D>& Boundary)
+        {
+        for (int32 I = 0; I < Boundary.Num(); ++I)
+        {
+            const int32 A = PointIndex(Boundary[I]);
+            const int32 B = PointIndex(Boundary[(I + 1) % Boundary.Num()]);
+            const FVector2D Edge = Boundary[(I + 1) % Boundary.Num()] - Boundary[I];
+            const FVector3f Normal = FVector3f(Edge.Y, -Edge.X, 0).GetSafeNormal();
+            Triangle(Top[A], Bottom[A], Bottom[B], Normal, true);
+            Triangle(Top[A], Bottom[B], Top[B], Normal, true);
+        }
+        });
     }
     // Keep the optional bottom and side-neon controls in both generation modes.
     TArray<int32> Remove;
@@ -302,7 +325,7 @@ void AParametricPlatform::AppendInsetBorder(int32 ChunkIndex, FDynamicMesh3& Mes
     if (BorderStyle != EPlatformBorder::InsetBand || BorderWidth <= 0 || CachedShapeOutline.Num() < 3) return;
     if (PlatformMode == EPlatformMode::Solid && UsesRegularGroundSlab() &&
         (FloorPattern == EChunkedFloorPattern::Solid || FloorPattern == EChunkedFloorPattern::CirclesAndPaths)) return;
-    const TArray<FGeneralPolygon2d> Shape = {FGeneralPolygon2d(FPolygon2d(CachedShapeOutline))};
+    const TArray<FGeneralPolygon2d> Shape = {GetPlatformPolygon()};
     TArray<FGeneralPolygon2d> Outside, Inside, Band;
     if (BoundaryInset <= UE_SMALL_NUMBER) Outside = Shape;
     else PolygonsOffset(-BoundaryInset, Shape, Outside, false, 4, EPolygonOffsetJoinType::Miter);
@@ -351,7 +374,7 @@ void AParametricPlatform::AppendPolygonSurface(FDynamicMesh3& Mesh, int32 ChunkI
     {
         // Clip the complete motif once. The slab's internal fan edges have no visual meaning.
         const TArray<FGeneralPolygon2d> Motif = {FGeneralPolygon2d(FPolygon2d(Outline))};
-        const TArray<FGeneralPolygon2d> Shape = {FGeneralPolygon2d(FPolygon2d(CachedShapeOutline))};
+        const TArray<FGeneralPolygon2d> Shape = {GetPlatformPolygon()};
         TArray<FGeneralPolygon2d> Clipped;
         TArray<FChunkedCachedSpiralTriangle> Triangles;
         if (!PolygonsIntersection(Motif, Shape, Clipped) || !TriangulateSurfaces(Clipped, Triangles))
@@ -386,7 +409,7 @@ void AParametricPlatform::ClipSpiralSurface(const TArray<TArray<FVector2D>>& Cel
     Strip.Reserve(CachedSpiralSourceTriangles.Num());
     for (const auto& T : CachedSpiralSourceTriangles)
         Strip.Emplace(FPolygon2d(TArray<FVector2D>{T.A, T.B, T.C}));
-    const TArray<FGeneralPolygon2d> Shape = {FGeneralPolygon2d(FPolygon2d(CachedShapeOutline))};
+    const TArray<FGeneralPolygon2d> Shape = {GetPlatformPolygon()};
     TArray<FGeneralPolygon2d> Clipped;
     if (!PolygonsIntersection(Strip, Shape, Clipped) || !TriangulateSurfaces(Clipped, OutTriangles))
         Super::ClipSpiralSurface(CellPolygons, OutTriangles);
@@ -493,6 +516,7 @@ bool AParametricPlatform::CopyPlatformSettingsFrom(AActor* Source)
     if (const AParametricGround* Ground = Cast<AParametricGround>(Source))
     {
         PlatformMode = EPlatformMode::Solid;
+        CornerRadius = 0;
         OuterShape = Ground->Shape == EParametricGroundShape::Circle ? EChunkedDecorativeFloorShape::Circle :
             Ground->Shape == EParametricGroundShape::Square ? EChunkedDecorativeFloorShape::Square : EChunkedDecorativeFloorShape::Hexagon;
         ShapeSize = FVector2D(Ground->Size, Ground->Size);
@@ -563,7 +587,11 @@ bool AParametricPlatform::CopyPlatformSettingsFrom(AActor* Source)
             BorderStyle = Platform->BorderStyle; BoundaryInset = Platform->BoundaryInset; BlobProfile = Platform->BlobProfile;
             bTintPalette = Platform->bTintPalette; PaletteTints = Platform->PaletteTints; MaxSolidPatternTiles = Platform->MaxSolidPatternTiles;
             PadPathSettings = Platform->PadPathSettings;
+            CornerRadius = Platform->CornerRadius; CornerSegments = Platform->CornerSegments; BlockShape = Platform->BlockShape;
+            ReferenceShape = Platform->ReferenceShape;
+            ParametricShapeSettings = Platform->ParametricShapeSettings;
         }
+        else CornerRadius = 0;
     }
     else return false;
     GenerateFloor(false);
@@ -576,6 +604,7 @@ bool AParametricPlatform::CanEditChange(const FProperty* Property) const
     if (Property)
     {
         const FName Name = Property->GetFName();
+        if (Name == TEXT("ShapeSize") && OuterShape == EChunkedDecorativeFloorShape::ParametricShape) return false;
         if (Name == TEXT("AreaSize") || Name == TEXT("CellDimensions") || Name == TEXT("bUseBrightBorder")) return false;
         if (PlatformMode == EPlatformMode::Solid && (Name == TEXT("CellSpacing") || Name == TEXT("FillRule") ||
             Name == TEXT("ChunkSideLength") || Name == TEXT("MaxGeneratedCells") ||

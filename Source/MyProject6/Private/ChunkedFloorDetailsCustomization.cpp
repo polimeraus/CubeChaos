@@ -11,6 +11,7 @@
 #include "DetailWidgetRow.h"
 #include "IDetailGroup.h"
 #include "PropertyHandle.h"
+#include "PropertyRestriction.h"
 
 #define LOCTEXT_NAMESPACE "ChunkedFloorDetailsCustomization"
 
@@ -51,6 +52,15 @@ void FChunkedFloorDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& D
 	TArray<TWeakObjectPtr<UObject>> Objects;
 	DetailBuilder.GetObjectsBeingCustomized(Objects);
 	const bool bPlatform = Objects.Num() > 0 && Objects[0].IsValid() && Objects[0]->IsA<AParametricPlatform>();
+	if (!bPlatform)
+	{
+		const auto Shape = DetailBuilder.GetProperty(TEXT("OuterShape"), AChunkedDestructibleDecorativeFloor::StaticClass());
+		const auto Restriction = MakeShared<FPropertyRestriction>(LOCTEXT("PlatformShapesOnly", "Available on Parametric Platform."));
+		const UEnum* Shapes = StaticEnum<EChunkedDecorativeFloorShape>();
+		for (int32 Value = int32(EChunkedDecorativeFloorShape::LShape); Value <= int32(EChunkedDecorativeFloorShape::ParametricShape); ++Value)
+			Restriction->AddHiddenValue(Shapes->GetNameStringByValue(Value));
+		Shape->AddRestriction(Restriction);
+	}
 	if (bPlatform)
 	{
 		// Present the inherited settings once, under the unified actor's vocabulary.
@@ -59,6 +69,8 @@ void FChunkedFloorDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& D
 			const FName Name = It->GetFName();
 			const FString Category = It->GetMetaData(TEXT("Category"));
 			const auto Handle = DetailBuilder.GetProperty(Name, It->GetOwnerClass());
+			if (Name == TEXT("ShapeSize"))
+				Handle->SetInstanceMetaData(TEXT("EditCondition"), TEXT("OuterShape != EChunkedDecorativeFloorShape::ParametricShape"));
 			if (Name == TEXT("BorderWidth") || Name == TEXT("BorderMaterialIndex"))
 				Handle->SetInstanceMetaData(TEXT("EditCondition"), TEXT("BorderStyle != EPlatformBorder::None"));
 			if (Name == TEXT("AreaSize") || Name == TEXT("CellDimensions") || Name == TEXT("bUseBrightBorder"))

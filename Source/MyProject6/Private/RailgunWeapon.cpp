@@ -65,6 +65,10 @@ ARailgunWeapon::ARailgunWeapon()
     DefaultModel = Rifle.Object;
     static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> RailModel(TEXT("/Game/Weapons/Railgun/Meshes/SM_QuakeRailgun.SM_QuakeRailgun"));
     RailgunModel = RailModel.Get();
+    static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> PurpleModel(TEXT("/Game/Weapons/PurpleRailgun/Meshes/SM_PurpleRailgun.SM_PurpleRailgun"));
+    PurpleRailgunModel = PurpleModel.Get();
+    static ConstructorHelpers::FObjectFinderOptional<UAnimSequence> PurpleHold(TEXT("/Game/Weapons/PurpleRailgun/Animations/A_PurpleRailgunHold.A_PurpleRailgunHold"));
+    PurpleHoldAnimation = PurpleHold.Get();
     static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> BFGMesh(TEXT("/Game/Weapons/BFG/Fusion/Meshes/SM_BFGFusion.SM_BFGFusion"));
     BFGModel = BFGMesh.Get();
     static ConstructorHelpers::FObjectFinderOptional<USoundBase> BFGSound(TEXT("/Game/Weapons/BFG/Fusion/Audio/S_BFGFusionFire.S_BFGFusionFire"));
@@ -178,6 +182,36 @@ void ARailgunWeapon::ActivateRailgun()
     }
 }
 
+void ARailgunWeapon::ActivatePurpleRailgun()
+{
+    RestoreWeaponAttachment();
+    BFGMuzzleFlashRemaining = 0; BFGMuzzleLight->SetIntensity(0);
+    ApplyHoldPose(PurpleHoldAnimation ? PurpleHoldAnimation.Get() : HoldAnimation.Get());
+    WeaponMesh->EmptyOverrideMaterials();
+    WeaponMesh->SetStaticMesh(PurpleRailgunModel);
+    WeaponMesh->SetRelativeTransform(FTransform::Identity);
+    Muzzle->SetRelativeTransform(WeaponMesh->GetSocketTransform(TEXT("Muzzle"), RTS_Component));
+    // Keep the broad stock below the aim point while preserving both hand contacts.
+    RestLocation = FVector(22, 8, -14);
+    GetRootComponent()->SetRelativeLocation(RestLocation);
+    if (Wielder) Visuals = Wielder->PurpleRailgunVisuals;
+    ChargeMaterial = nullptr;
+    const int32 Slot = WeaponMesh->GetMaterialIndex(TEXT("PurpleEnergy"));
+    if (Slot != INDEX_NONE) ChargeMaterial = WeaponMesh->CreateDynamicMaterialInstance(Slot);
+    if (ChargeMaterial)
+    {
+        ChargeMaterial->SetVectorParameterValue(TEXT("Tint"), Visuals.Color);
+        ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), 4.8f);
+    }
+    PurpleEquipRemaining = .32f;
+}
+
+float ARailgunWeapon::GetRailgunCharge() const
+{
+    if (!GetWorld()) return 1.f;
+    return 1.f - FMath::Clamp(float(NextFireTime - GetWorld()->GetTimeSeconds()) / FMath::Max(.1f, FireInterval), 0.f, 1.f);
+}
+
 void ARailgunWeapon::ActivateBFG()
 {
     RestoreWeaponAttachment();
@@ -197,6 +231,7 @@ void ARailgunWeapon::ActivateBFG()
 
 void ARailgunWeapon::RestoreWeaponAttachment()
 {
+    PurpleEquipRemaining = 0.f;
     bSleepThrowPending = bSleepThrowAnimating = false;
     WeaponMesh->AttachToComponent(Arms, FAttachmentTransformRules::SnapToTargetNotIncludingScale, TEXT("HandGrip_R"));
     WeaponMesh->SetVisibility(true);
@@ -294,7 +329,7 @@ bool ARailgunWeapon::FireBomb()
     Query.AddIgnoredActor(this);
     FHitResult Cover;
     if (World->SweepSingleByChannel(Cover, Eye, Start, FQuat::Identity, ECC_GameTraceChannel1,
-        FCollisionShape::MakeSphere(11.5f), Query)) Start = Eye;
+        FCollisionShape::MakeSphere(ABombProjectile::FlightCollisionRadius), Query)) Start = Eye;
     const FTransform Transform(Start);
     auto* Bomb = World->SpawnActorDeferred<ABombProjectile>(ABombProjectile::StaticClass(), Transform,
         Wielder, Wielder, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
@@ -440,7 +475,8 @@ bool ARailgunWeapon::Fire()
         if (bHit) Beam->SetImpact(End);
         Beam->FaceCamera(Start);
     }
-    if (FireSound) UGameplayStatics::PlaySound2D(this, FireSound, .7f);
+    if (FireSound) UGameplayStatics::PlaySound2D(this, FireSound, .7f,
+        Wielder->GetActiveWeapon() == EPlayerWeapon::PurpleRailgun ? .88f : 1.f);
     AddFireMotion();
     return true;
 }
@@ -510,6 +546,13 @@ void ARailgunWeapon::Tick(float DeltaSeconds)
     const FVector GripPivot(45, 11, -16);
     SetActorRelativeLocation(RestLocation + ViewMotion.Location * Amount + GripPivot - Rotation.RotateVector(GripPivot));
     SetActorRelativeRotation(Rotation);
+    if (PurpleEquipRemaining > 0.f)
+    {
+        PurpleEquipRemaining = FMath::Max(0.f, PurpleEquipRemaining - DeltaSeconds);
+        const float Lower = FMath::SmoothStep(0.f, 1.f, PurpleEquipRemaining / .32f);
+        AddActorLocalOffset(FVector(-8.f * Lower, 0, -18.f * Lower));
+        AddActorLocalRotation(FRotator(-12.f * Lower, 0, 4.f * Lower));
+    }
     if (Wielder->GetActiveWeapon() == EPlayerWeapon::SleepSignal && bSleepThrowAnimating)
     {
         const float Age = float(GetWorld()->GetTimeSeconds()-LastSleepThrowTime);

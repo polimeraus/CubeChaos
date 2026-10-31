@@ -243,7 +243,7 @@ else if (Motif < 10.5)
         distance=min(distance,arc);
     }
 }
-else
+else if (Motif < 11.5)
 {
     // Containment cage and central lightning bolt; identical language to the HUD.
     distance=abs(length(p/float2(.66,.84))-1)*.66-.035;
@@ -254,6 +254,21 @@ else
     bolt=min(bolt,symbols.Segment(p,float2(-.18,.05),float2(.19,.05))-.06);
     bolt=min(bolt,symbols.Segment(p,float2(.19,.05),float2(-.16,-.65))-.06);
     distance=min(distance,bolt);
+}
+else
+{
+    // Energy rifle silhouette: open stock, lower grip and four induction rings.
+    distance = symbols.Box(p-float2(-.10,.16),float2(.55,.17));
+    distance = min(distance,symbols.Box(p-float2(.60,.16),float2(.16,.105)));
+    float stock=symbols.Box(p-float2(-.62,.07),float2(.18,.27));
+    stock=max(stock,-symbols.Box(p-float2(-.59,.07),float2(.11,.16)));
+    distance=min(distance,stock);
+    distance=min(distance,symbols.Segment(p,float2(-.25,-.01),float2(-.36,-.42))-.075);
+    distance=min(distance,symbols.Segment(p,float2(-.36,-.42),float2(-.02,-.42))-.045);
+    distance=min(distance,symbols.Segment(p,float2(-.02,-.42),float2(.09,-.02))-.045);
+    for(int i=0;i<4;++i)
+        distance=min(distance,symbols.Box(p-float2(.10+i*.16,.16),float2(.035,.29)));
+    distance=min(distance,symbols.Box(p-float2(-.23,.41),float2(.15,.035)));
 }
 float aa = max(length(fwidth(p)) * .65, .001);
 float mask = 1 - smoothstep(-aa, aa, distance);

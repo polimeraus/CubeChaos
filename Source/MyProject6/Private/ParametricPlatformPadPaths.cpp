@@ -13,18 +13,12 @@ namespace
     {
         return FMath::Clamp(FMath::IsFinite(Value) ? Value : Default, Min, Max);
     }
-    double Clearance(const TArray<FVector2D>& Outline, const FVector2D& Point)
+    double Clearance(const FGeneralPolygon2d& Shape, const FVector2D& Point)
     {
-        double DistanceSquared = TNumericLimits<double>::Max();
-        for (int32 I = 0; I < Outline.Num(); ++I)
-        {
-            const FVector2D A = Outline[I], Edge = Outline[(I + 1) % Outline.Num()] - A;
-            const double T = FMath::Clamp(FVector2D::DotProduct(Point - A, Edge) / FMath::Max(Edge.SizeSquared(), 1.e-12), 0., 1.);
-            DistanceSquared = FMath::Min(DistanceSquared, (Point - A - Edge * T).SizeSquared());
-        }
-        return FMath::Sqrt(DistanceSquared) * (FPolygon2d(Outline).Contains(Point) ? 1. : -1.);
+        int Hole, Segment; double T;
+        return FMath::Sqrt(Shape.DistanceSquared(Point,Hole,Segment,T)) * (Shape.Contains(Point) ? 1. : -1.);
     }
-    FVector2D FitCenter(const TArray<FVector2D>& Outline, FVector2D Anchor, FVector2D Desired, double Radius)
+    FVector2D FitCenter(const FGeneralPolygon2d& Outline, FVector2D Anchor, FVector2D Desired, double Radius)
     {
         if (Clearance(Outline, Desired) >= Radius) return Desired;
         double Lo = 0, Hi = 1;
@@ -36,11 +30,13 @@ namespace
         }
         return FMath::Lerp(Anchor, Desired, Lo);
     }
-    FVector2D EdgeEndpoint(const TArray<FVector2D>& Outline, FVector2D Start, FVector2D Toward, double ClearanceRequired)
+    FVector2D EdgeEndpoint(const FGeneralPolygon2d& Shape, FVector2D Start, FVector2D Toward, double ClearanceRequired)
     {
         const FVector2D Direction = (Toward - Start).GetSafeNormal();
-        if (Direction.IsNearlyZero() || Clearance(Outline, Start) < ClearanceRequired) return Toward;
+        if (Direction.IsNearlyZero() || Clearance(Shape, Start) < ClearanceRequired) return Toward;
         double FirstHit = TNumericLimits<double>::Max();
+        auto CheckBoundary = [&](const TArray<FVector2D>& Outline)
+        {
         for (int32 I = 0; I < Outline.Num(); ++I)
         {
             const FVector2D A = Outline[I], Edge = Outline[(I + 1) % Outline.Num()] - A;
@@ -50,13 +46,16 @@ namespace
             const double U = FVector2D::CrossProduct(A - Start, Direction) / Denominator;
             if (T >= 0 && U >= 0 && U <= 1) FirstHit = FMath::Min(FirstHit, T);
         }
+        };
+        CheckBoundary(Shape.GetOuter().GetVertices());
+        for (const auto& Hole : Shape.GetHoles()) CheckBoundary(Hole.GetVertices());
         if (!FMath::IsFinite(FirstHit) || FirstHit == TNumericLimits<double>::Max()) return Toward;
         // Stop the round endpoint inside the actual polygon, including concave/organic outlines.
         double Lo = 0, Hi = FirstHit;
         for (int32 I = 0; I < 40; ++I)
         {
             const double T = (Lo + Hi) * .5;
-            if (Clearance(Outline, Start + Direction * T) >= ClearanceRequired) Lo = T;
+            if (Clearance(Shape, Start + Direction * T) >= ClearanceRequired) Lo = T;
             else Hi = T;
         }
         return Start + Direction * Lo;
@@ -95,6 +94,12 @@ void AParametricPlatform::UpdatePadPathMaterial()
         if (!PadPathWarning.IsEmpty()) PadPathWarning += TEXT("\n");
         PadPathWarning += Message;
     };
+    if (CachedShapeOutline.Num() < 3)
+    {
+        PadPathMaterialInstance = nullptr;
+        Warn(TEXT("The platform needs a valid shape before painting a layout."));
+        return;
+    }
     if (!PadPathSettings.SurfaceMaterial)
     {
         PadPathMaterialInstance = nullptr;
@@ -124,7 +129,8 @@ void AParametricPlatform::UpdatePadPathMaterial()
     TMap<FName, int32> Counts;
     for (const auto& Pad : PadPathSettings.Pads) ++Counts.FindOrAdd(Pad.Id);
     if (PadPathSettings.Pads.Num() > MaxPads) Warn(TEXT("Only the first 16 pads are supported."));
-    const double AnchorClearance = FMath::Max(0., Clearance(CachedShapeOutline, CachedShapeFanCenter) - .01);
+    const FGeneralPolygon2d ShapePolygon = GetPlatformPolygon();
+    const double AnchorClearance = FMath::Max(0., Clearance(ShapePolygon, CachedShapeFanCenter) - .01);
     int32 PaintedCount = 0;
     for (int32 I = 0; I < FMath::Min(PadPathSettings.Pads.Num(), MaxPads); ++I)
     {
@@ -140,9 +146,9 @@ void AParametricPlatform::UpdatePadPathMaterial()
         if (Pad.bShowCircle && PadPathSettings.bFitPadsInsidePlatform)
         {
             Radius = FMath::Min(Radius, AnchorClearance);
-            Center = FitCenter(CachedShapeOutline, CachedShapeFanCenter, Center, Radius);
+            Center = FitCenter(ShapePolygon, CachedShapeFanCenter, Center, Radius);
         }
-        else if (Pad.bShowCircle && Clearance(CachedShapeOutline, Center) < Radius)
+        else if (Pad.bShowCircle && Clearance(ShapePolygon, Center) < Radius)
             Warn(FString::Printf(TEXT("Pad %s extends beyond the platform and will be clipped."), *Pad.Id.ToString()));
         Resolved.Add(Pad.Id, {Center, Radius, Pad.bShowCircle});
         if (!Pad.bShowCircle) continue;
@@ -168,7 +174,7 @@ void AParametricPlatform::UpdatePadPathMaterial()
         for (int32 I = 0; I < FMath::Min(Path.Waypoints.Num(), MaxSegments); ++I) Points.Add(Position(Path.Waypoints[I]));
         Points.Add(To->Center);
         if (Path.bExtendToEdge && !To->Show)
-            Points.Last() = EdgeEndpoint(CachedShapeOutline, Points[Points.Num() - 2], Points.Last(), HalfWidth + Safe(Path.EdgeInset, 0, 1.e6, 65));
+            Points.Last() = EdgeEndpoint(ShapePolygon, Points[Points.Num() - 2], Points.Last(), HalfWidth + Safe(Path.EdgeInset, 0, 1.e6, 65));
         if (SegmentCount + Points.Num() - 1 > MaxSegments || Path.Waypoints.Num() > MaxSegments)
             Warn(TEXT("Only the first 32 path segments are supported."));
         for (int32 I = 1; I < Points.Num() && SegmentCount < MaxSegments; ++I)

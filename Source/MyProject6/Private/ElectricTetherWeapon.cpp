@@ -21,6 +21,7 @@ using namespace UE::Geometry;
 UElectricTetherFieldComponent::UElectricTetherFieldComponent()
 {
     PrimaryComponentTick.bCanEverTick=true;
+    PrimaryComponentTick.bStartWithTickEnabled=false;
     PrimaryComponentTick.TickGroup=TG_PostUpdateWork;
 }
 void UElectricTetherFieldComponent::TickComponent(float Delta,ELevelTick TickType,FActorComponentTickFunction* ThisTickFunction)
@@ -32,6 +33,7 @@ void UElectricTetherFieldComponent::TickComponent(float Delta,ELevelTick TickTyp
 AElectricTetherWeapon::AElectricTetherWeapon()
 {
     PrimaryActorTick.bCanEverTick=true;PrimaryActorTick.TickGroup=TG_PrePhysics;
+    PrimaryActorTick.bStartWithTickEnabled=false;
     RootComponent=CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
     Field=CreateDefaultSubobject<UElectricTetherFieldComponent>(TEXT("ElectricField"));Field->SetupAttachment(RootComponent);
     Field->SetCollisionEnabled(ECollisionEnabled::NoCollision);Field->SetGenerateOverlapEvents(false);Field->SetCanEverAffectNavigation(false);Field->SetCastShadow(false);
@@ -51,6 +53,7 @@ void AElectricTetherWeapon::StartBeam(bool bTrackPhysicalButton)
 {
     if(!HasAuthority()||!IsValid(Wielder)||Wielder->IsEnergyDepleted()||Wielder->GetActiveWeapon()!=EPlayerWeapon::ElectricTether||UGameplayStatics::IsGamePaused(this))return;
     if(bFiring)return;bTrackButton=bTrackPhysicalButton;bFiring=true;bBrokenUntilRelease=false;ReleaseFade=0;Age=0;
+    SetActorTickEnabled(true);Field->SetComponentTickEnabled(true);
     Hum->Play();if(Wielder->Railgun)Wielder->Railgun->AddFireMotion(.25f);
 }
 void AElectricTetherWeapon::StopBeam(bool bThrow)
@@ -67,12 +70,20 @@ void AElectricTetherWeapon::StopBeam(bool bThrow)
 void AElectricTetherWeapon::Tick(float Delta)
 {
     Super::Tick(Delta);
-    if(!IsValid(Wielder))return;
-    if(Wielder->IsEnergyDepleted()||Wielder->GetActiveWeapon()!=EPlayerWeapon::ElectricTether){StopBeam(false);Field->SetVisibility(false);Light->SetIntensity(0);return;}
+    if(!IsValid(Wielder)||Wielder->IsEnergyDepleted()||Wielder->GetActiveWeapon()!=EPlayerWeapon::ElectricTether)
+    {
+        StopBeam(false);ReleaseFade=0;Field->SetVisibility(false);Light->SetIntensity(0);
+        SetActorTickEnabled(false);Field->SetComponentTickEnabled(false);return;
+    }
     // Key-up can be swallowed when focus is lost. Never leave an NPC permanently captured.
     if(auto* PC=Cast<APlayerController>(Wielder->GetController()); bFiring&&bTrackButton&&PC&&PC->IsLocalController()&&!PC->IsInputKeyDown(EKeys::LeftMouseButton))
         StopBeam(false);
     Age+=Delta;ReleaseFade=FMath::Max(0.f,ReleaseFade-Delta);
+    if(!bFiring && ReleaseFade<=0)
+    {
+        Field->SetVisibility(false);Light->SetIntensity(0);
+        SetActorTickEnabled(false);Field->SetComponentTickEnabled(false);return;
+    }
     const FVector Eye=Wielder->GetFirstPersonCameraComponent()->GetComponentLocation();
     const FVector Aim=Wielder->GetController()?Wielder->GetControlRotation().Vector():Wielder->GetFirstPersonCameraComponent()->GetForwardVector();
     SetActorLocation(Eye);

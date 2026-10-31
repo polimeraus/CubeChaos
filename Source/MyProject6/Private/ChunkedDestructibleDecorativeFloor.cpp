@@ -928,6 +928,7 @@ void AChunkedDestructibleDecorativeFloor::RebuildBlobCache()
 void AChunkedDestructibleDecorativeFloor::RebuildShapeOutline()
 {
 	CachedShapeOutline.Reset();
+	CachedShapeHoles.Reset();
 	CachedShapeTriangles.Reset();
 	CachedShapeFanCenter = FVector2D::ZeroVector;
 
@@ -1160,6 +1161,13 @@ bool AChunkedDestructibleDecorativeFloor::IsPointInsidePolygon(
 	return bInside;
 }
 
+void AChunkedDestructibleDecorativeFloor::ForEachShapeBoundary(
+	TFunctionRef<void(const TArray<FVector2D>&)> Function) const
+{
+	Function(CachedShapeOutline);
+	for (const auto& Hole : CachedShapeHoles) Function(Hole);
+}
+
 bool AChunkedDestructibleDecorativeFloor::IsPointInsideGeneratedShape(
 	const FVector2D& Point,
 	double Tolerance) const
@@ -1167,6 +1175,14 @@ bool AChunkedDestructibleDecorativeFloor::IsPointInsideGeneratedShape(
 	if (CachedShapeOutline.Num() < 3)
 	{
 		return false;
+	}
+	for (const auto& Hole : CachedShapeHoles)
+	{
+		bool bOnBoundary = false;
+		for (int32 I=0; I<Hole.Num(); ++I)
+			bOnBoundary |= IsPointOnSegment(Point,Hole[I],Hole[(I+1)%Hole.Num()],Tolerance);
+		if (bOnBoundary) return true;
+		if (IsPointInsidePolygon(Point,Hole)) return false;
 	}
 
 	bool bInside = false;
@@ -1212,20 +1228,24 @@ bool AChunkedDestructibleDecorativeFloor::DoesShapeOutlineIntersectCell(FIntPoin
 	double MaxX;
 	double MaxY;
 	GetCellBounds(Cell, MinX, MinY, MaxX, MaxY);
-	for (int32 Index = 0; Index < CachedShapeOutline.Num(); ++Index)
+	bool bIntersects = false;
+	ForEachShapeBoundary([&](const TArray<FVector2D>& Boundary)
+	{
+	for (int32 Index = 0; Index < Boundary.Num(); ++Index)
 	{
 		FVector2D ClippedStart;
 		FVector2D ClippedEnd;
 		if (ClipSegmentToRectangle(
-			CachedShapeOutline[Index],
-			CachedShapeOutline[(Index + 1) % CachedShapeOutline.Num()],
+			Boundary[Index],
+			Boundary[(Index + 1) % Boundary.Num()],
 			MinX, MinY, MaxX, MaxY,
 			ClippedStart, ClippedEnd))
 		{
-			return true;
+			bIntersects = true;
 		}
 	}
-	return false;
+	});
+	return bIntersects;
 }
 
 bool AChunkedDestructibleDecorativeFloor::ComputeCellFullyInsideGeneratedShape(FIntPoint Cell) const
@@ -1309,13 +1329,15 @@ void AChunkedDestructibleDecorativeFloor::RebuildCellGeometryCache()
 			double MaxX;
 			double MaxY;
 			GetCellBounds(Cell, MinX, MinY, MaxX, MaxY);
-			for (int32 EdgeIndex = 0; EdgeIndex < CachedShapeOutline.Num(); ++EdgeIndex)
+			ForEachShapeBoundary([&](const TArray<FVector2D>& Boundary)
+			{
+			for (int32 EdgeIndex = 0; EdgeIndex < Boundary.Num(); ++EdgeIndex)
 			{
 				FVector2D ClippedStart;
 				FVector2D ClippedEnd;
 				if (ClipSegmentToRectangle(
-					CachedShapeOutline[EdgeIndex],
-					CachedShapeOutline[(EdgeIndex + 1) % CachedShapeOutline.Num()],
+					Boundary[EdgeIndex],
+					Boundary[(EdgeIndex + 1) % Boundary.Num()],
 					MinX, MinY, MaxX, MaxY,
 					ClippedStart, ClippedEnd))
 				{
@@ -1324,6 +1346,7 @@ void AChunkedDestructibleDecorativeFloor::RebuildCellGeometryCache()
 					Segment.B = ClippedEnd;
 				}
 			}
+			});
 		}
 	}
 }
@@ -1648,17 +1671,21 @@ void AChunkedDestructibleDecorativeFloor::BuildChunkMesh(
 	};
 	auto IsShapeBoundarySegment = [this](const FVector2D& A, const FVector2D& B)
 	{
-		for (int32 Index = 0; Index < CachedShapeOutline.Num(); ++Index)
+		bool bFound = false;
+		ForEachShapeBoundary([&](const TArray<FVector2D>& Boundary)
 		{
-			const FVector2D& Start = CachedShapeOutline[Index];
-			const FVector2D& End = CachedShapeOutline[(Index + 1) % CachedShapeOutline.Num()];
+		for (int32 Index = 0; Index < Boundary.Num(); ++Index)
+		{
+			const FVector2D& Start = Boundary[Index];
+			const FVector2D& End = Boundary[(Index + 1) % Boundary.Num()];
 			if (IsPointOnSegment(A, Start, End, ShapePolygonTolerance) &&
 				IsPointOnSegment(B, Start, End, ShapePolygonTolerance))
 			{
-				return true;
+				bFound = true;
 			}
 		}
-		return false;
+		});
+		return bFound;
 	};
 	auto AppendWall = [this, &OutMesh](
 		const FVector2D& A,

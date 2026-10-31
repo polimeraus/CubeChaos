@@ -25,6 +25,7 @@ public:
 	void SetBarColor(FLinearColor InColor);
 
 	void UpdateHealth(float CurrentHealth, float MaxHealth);
+	uint32 GetVisibilityCheckCount() const { return VisibilityCheckCount; }
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 protected:
@@ -36,4 +37,6 @@ private:
 	bool CanSeeCharacter() const;
 	FName HeadBone;
 	bool bHasHealth = true;
+	float VisibilityCheckRemaining = 0.0f;
+	uint32 VisibilityCheckCount = 0;
 };

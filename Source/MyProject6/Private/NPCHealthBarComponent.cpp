@@ -37,6 +37,8 @@ void UNPCHealthBarComponent::BeginPlay()
 		UpdateHeadPosition();
 	}
 	UpdateVisibility();
+	// Spread occlusion work across frames when a portal creates a group of NPCs.
+	VisibilityCheckRemaining = .01f + (GetUniqueID() % 10) * .01f;
 }
 
 void UNPCHealthBarComponent::UpdateHeadPosition()
@@ -52,9 +54,11 @@ void UNPCHealthBarComponent::UpdateHeadPosition()
 
 void UNPCHealthBarComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
-	if (bHasHealth) { UpdateHeadPosition(); }
 	SetBarColor(BarColor);
-	UpdateVisibility();
+	VisibilityCheckRemaining -= FMath::Max(0.f, DeltaTime);
+	if (VisibilityCheckRemaining <= 0.f) { UpdateVisibility(); }
+	// Keep visible bars attached to animated heads at the full frame rate.
+	if (bHasHealth && IsVisible()) { UpdateHeadPosition(); }
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 }
 
@@ -113,5 +117,7 @@ bool UNPCHealthBarComponent::CanSeeCharacter() const
 
 void UNPCHealthBarComponent::UpdateVisibility()
 {
+	++VisibilityCheckCount;
+	VisibilityCheckRemaining = .1f;
 	SetVisibility(bHasHealth && CanSeeCharacter());
 }

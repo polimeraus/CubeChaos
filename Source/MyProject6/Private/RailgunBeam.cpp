@@ -3,6 +3,7 @@
 #include "Components/DynamicMeshComponent.h"
 #include "DynamicMesh/DynamicMesh3.h"
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
+#include "UDynamicMesh.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
@@ -115,23 +116,70 @@ void ARailgunBeam::FaceCamera(FVector ViewLocation)
 
 void ARailgunBeam::UpdateParticles(FVector ViewLocation)
 {
-    FDynamicMesh3 Mesh;
-    Mesh.EnableAttributes();
-    Mesh.Attributes()->EnablePrimaryColors();
+    const float Pitch = FMath::Clamp(Visuals.SpiralPitch, 50.f, 1000.f);
+    const int32 Steps = FMath::CeilToInt(FMath::Clamp(BeamLength / FMath::Min(8.f, Pitch / 48.f), 2.f, 4096.f));
+    const float ParticleStep = FMath::Max(25.f, BeamLength / 4096.f);
+    int32 ExpectedVertices = (Age < .09f ? 4 : 0) + (bHasImpact && Age < .22f ? 4 : 0);
+    if (Visuals.bSpiral && Visuals.bSmoothSpiral) ExpectedVertices += (Steps + 1) * 2;
+    else if (Visuals.bSpiral)
+    {
+        for (float Distance = FMath::Min(50.f, BeamLength * .5f); Distance < BeamLength; Distance += ParticleStep)
+            if (FMath::Clamp(1.f - Age / FMath::Min(5.f, .6f + Distance * .0002f), 0.f, 1.f) > 0.f) ExpectedVertices += 4;
+    }
+    FDynamicMesh3& Mesh = Spiral->GetDynamicMesh()->GetMeshRef();
+    const bool bBuild = Mesh.VertexCount() != ExpectedVertices || !Mesh.HasAttributes()
+        || bCachedSpiral != Visuals.bSpiral || bCachedSmoothSpiral != Visuals.bSmoothSpiral;
+    if (bBuild)
+    {
+        ++ParticleTopologyBuildCount;
+        Mesh.Clear();Mesh.EnableAttributes();Mesh.Attributes()->EnablePrimaryColors();
+        bCachedSpiral = Visuals.bSpiral;bCachedSmoothSpiral = Visuals.bSmoothSpiral;
+    }
+    int32 VertexIndex = 0;
+    auto Vertex = [&](FVector3d Position, FVector3f Normal, FVector2f UV, FVector4f Color)
+    {
+        const int32 ID = VertexIndex++;
+        if (bBuild)
+        {
+            Mesh.AppendVertex(Position);
+            Mesh.Attributes()->PrimaryNormals()->AppendElement(Normal);
+            Mesh.Attributes()->PrimaryUV()->AppendElement(UV);
+            Mesh.Attributes()->PrimaryColors()->AppendElement(Color);
+        }
+        else
+        {
+            Mesh.SetVertex(ID, Position);
+            Mesh.Attributes()->PrimaryNormals()->SetElement(ID, Normal);
+            Mesh.Attributes()->PrimaryUV()->SetElement(ID, UV);
+            Mesh.Attributes()->PrimaryColors()->SetElement(ID, Color);
+        }
+    };
+    auto Triangle = [&](FIndex3i Indices)
+    {
+        if (!bBuild) return;
+        const int32 ID = Mesh.AppendTriangle(Indices);
+        Mesh.Attributes()->PrimaryNormals()->SetTriangle(ID, Indices);
+        Mesh.Attributes()->PrimaryUV()->SetTriangle(ID, Indices);
+        Mesh.Attributes()->PrimaryColors()->SetTriangle(ID, Indices);
+    };
     const FVector View = GetActorTransform().InverseTransformPosition(ViewLocation);
     auto Sprite = [&](FVector Centre, float Radius, float Alpha, float Mode = 0.f)
     {
         const FVector Normal = (View - Centre).GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
         FVector Right, Up;
         Normal.FindBestAxisVectors(Right, Up);
-        RailTrailMesh::Quad(Mesh, Centre, Right * Radius, Up * Radius, Alpha, Mode);
+        Right *= Radius;Up *= Radius;
+        const FVector Points[] = {Centre - Right - Up, Centre + Right - Up, Centre - Right + Up, Centre + Right + Up};
+        const FVector2f UVs[] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
+        const FVector3f FaceNormal(FVector::CrossProduct(Right, Up).GetSafeNormal());
+        const int32 Base = VertexIndex;
+        for (int32 I = 0; I < 4; ++I) Vertex(FVector3d(Points[I]), FaceNormal, UVs[I], FVector4f(Mode, 1, 1, Alpha));
+        Triangle(FIndex3i(Base, Base + 1, Base + 2));Triangle(FIndex3i(Base + 1, Base + 3, Base + 2));
     };
     if (Visuals.bSpiral && Visuals.bSmoothSpiral)
     {
         // A smooth world-space helix. Only the thin ribbon's facing changes with the
         // viewer; its centreline and phase never follow the camera or the weapon.
-        const float Pitch = FMath::Clamp(Visuals.SpiralPitch, 50.f, 1000.f);
-        const int32 Steps = FMath::CeilToInt(FMath::Clamp(BeamLength / FMath::Min(8.f, Pitch / 48.f), 2.f, 4096.f));
         auto CentreAt = [&](float Distance)
         {
             Distance = FMath::Clamp(Distance, 0.f, BeamLength);
@@ -152,21 +200,13 @@ void ARailgunBeam::UpdateParticles(FVector ViewLocation)
             const float HalfWidth = FMath::Clamp(Visuals.SpiralWidth, .5f, 10.f) * .5f * (1.f + Age * .4f);
             for (int32 Edge = 0; Edge < 2; ++Edge)
             {
-                Mesh.AppendVertex(FVector3d(Centre + Side * HalfWidth * (Edge ? 1.f : -1.f)));
-                Mesh.Attributes()->PrimaryNormals()->AppendElement(Normal);
-                Mesh.Attributes()->PrimaryUV()->AppendElement(FVector2f(Distance / 70.f, float(Edge)));
-                Mesh.Attributes()->PrimaryColors()->AppendElement(FVector4f(1, 1, 1, Fade));
+                Vertex(FVector3d(Centre + Side * HalfWidth * (Edge ? 1.f : -1.f)), Normal,
+                    FVector2f(Distance / 70.f, float(Edge)), FVector4f(1, 1, 1, Fade));
             }
             if (Index > 0)
             {
                 const int32 V = Index * 2;
-                for (FIndex3i Triangle : {FIndex3i(V - 2, V, V - 1), FIndex3i(V - 1, V, V + 1)})
-                {
-                    const int32 ID = Mesh.AppendTriangle(Triangle);
-                    Mesh.Attributes()->PrimaryNormals()->SetTriangle(ID, Triangle);
-                    Mesh.Attributes()->PrimaryUV()->SetTriangle(ID, Triangle);
-                    Mesh.Attributes()->PrimaryColors()->SetTriangle(ID, Triangle);
-                }
+                Triangle(FIndex3i(V - 2, V, V - 1));Triangle(FIndex3i(V - 1, V, V + 1));
             }
         }
     }
@@ -174,8 +214,7 @@ void ARailgunBeam::UpdateParticles(FVector ViewLocation)
     {
         // Q3 proportions: 4u radius, 180u pitch, one 1.1u sprite per 10u, 6u/s drift.
         // All particles exist on the same frame as the hitscan.
-        const float Step = FMath::Max(25.f, BeamLength / 4096.f);
-        for (float Distance = FMath::Min(50.f, BeamLength * .5f); Distance < BeamLength; Distance += Step)
+        for (float Distance = FMath::Min(50.f, BeamLength * .5f); Distance < BeamLength; Distance += ParticleStep)
         {
             const float ParticleLife = FMath::Min(5.f, .6f + Distance * .0002f);
             const float Alpha = FMath::Clamp(1.f - Age / ParticleLife, 0.f, 1.f);
@@ -189,7 +228,10 @@ void ARailgunBeam::UpdateParticles(FVector ViewLocation)
         Sprite(FVector(1, 0, 0), 4.5f, .5f * FMath::Square(1.f - Age / .09f), .5f);
     if (bHasImpact && Age < .22f)
         Sprite(ImpactLocation - FVector(.6f, 0, 0), 7.f + Age * 25.f, FMath::Square(1.f - Age / .22f), .5f);
-    Spiral->SetMesh(MoveTemp(Mesh));
+    check(VertexIndex == ExpectedVertices);
+    // Retain topology and GPU buffers while only the pose, facing and fade change.
+    if (bBuild) Spiral->NotifyMeshUpdated();
+    else Spiral->FastNotifyPositionsUpdated(true, true, true);
 }
 
 void ARailgunBeam::SetPreviewAge(float Seconds)

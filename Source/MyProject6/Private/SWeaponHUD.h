@@ -2,6 +2,7 @@
 
 #include "MyProject6Character.h"
 #include "ElectricTetherWeapon.h"
+#include "RailgunWeapon.h"
 #include "Rendering/DrawElements.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/SLeafWidget.h"
@@ -20,14 +21,14 @@ public:
         // Weapon ownership is external state; refresh even inside an invalidation panel.
         ForceVolatile(true);
     }
-    virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D(330, 142); }
+    virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D(380, 142); }
 
     virtual int32 OnPaint(const FPaintArgs&, const FGeometry& G, const FSlateRect&, FSlateWindowElementList& Out,
         int32 Layer, const FWidgetStyle&, bool) const override
     {
         const AMyProject6Character* Pawn = Player.Get().Get();
         const EPlayerWeapon Active = Pawn ? Pawn->GetActiveWeapon() : EPlayerWeapon::Default;
-        const FLinearColor Colors[] = {FLinearColor(1,.62f,.18f), FLinearColor(.15f,.83f,1), FLinearColor(.36f,1,.2f), FLinearColor(1,.34f,.09f), FLinearColor(.32f,.78f,1.f), FLinearColor(.4f,.86f,1.f)};
+        const FLinearColor Colors[] = {FLinearColor(1,.62f,.18f), FLinearColor(.15f,.83f,1), FLinearColor(.36f,1,.2f), FLinearColor(1,.34f,.09f), FLinearColor(.32f,.78f,1.f), FLinearColor(.4f,.86f,1.f), FLinearColor(.8f,.12f,1.f)};
         const FLinearColor Accent = Colors[int32(Active)];
         auto Box = [&](float X, float Y, float W, float H, FLinearColor C)
         {
@@ -44,11 +45,11 @@ public:
             TArray<FVector2f> P; P.Append(Points.begin(), Points.size());
             FSlateDrawElement::MakeLines(Out, Layer+1, G.ToPaintGeometry(), P, ESlateDrawEffect::None, C, true, Width);
         };
-        Box(0,0,330,142,FLinearColor(.008f,.016f,.025f,.91f));
+        Box(0,0,380,142,FLinearColor(.008f,.016f,.025f,.91f));
         Box(0,0,3,142,Accent);
-        Box(16,32,298,1,FLinearColor(.15f,.24f,.29f,.45f));
+        Box(16,32,348,1,FLinearColor(.15f,.24f,.29f,.45f));
         Text(16,10,TEXT("AKTİF SİLAH"),10,FLinearColor(.65f,.74f,.78f),true);
-        Text(177,10,TEXT("TEKERLEK / 1–6"),9,FLinearColor(.48f,.59f,.65f));
+        Text(227,10,TEXT("TEKERLEK / 1–7"),9,FLinearColor(.48f,.59f,.65f));
         if (Active == EPlayerWeapon::ElectricTether)
         {
             Line({{27,76},{27,61},{47,55},{74,55},{84,47},{110,47},{110,55},{91,59}},3,Accent);
@@ -100,6 +101,14 @@ public:
             Line({{43,44},{67,44}},3,FLinearColor(.4f,1,.8f));
             Line({{43,55},{61,55},{68,65},{61,75},{43,75},{37,65},{43,55}},2,FLinearColor(.8f,1,.65f));
         }
+        else if (Active == EPlayerWeapon::PurpleRailgun)
+        {
+            Line({{20,56},{41,56},{46,51},{78,51},{84,56},{117,56},{117,71},{83,71},{72,77},{42,77},{20,69},{20,56}},2,Accent);
+            Line({{30,60},{39,60},{39,69},{30,66},{30,60}},2,Accent);
+            Line({{53,77},{46,93},{66,93},{73,77}},3,Accent);
+            for (int32 I=0; I<4; ++I) Line({{83.f+I*8,52},{83.f+I*8,75}},2,Accent);
+            Line({{51,46},{68,46}},3,FLinearColor(.94f,.65f,1.f));
+        }
         else if (Active == EPlayerWeapon::Railgun)
         {
             Line({{20,63},{39,54},{69,54},{78,59},{115,59},{115,66},{78,66},{67,76},{35,76},{20,70},{20,63}},2,Accent);
@@ -114,13 +123,18 @@ public:
             Line({{65,73},{62,87},{76,87},{77,73}},3,Accent);
             Line({{54,50},{69,50}},3,Accent);
         }
-        const TCHAR* Names[] = {TEXT("BAŞLANGIÇ"),TEXT("RAILGUN"),TEXT("BFG 10K"),TEXT("BOMBA"),TEXT("UYKU SİNYALİ"),TEXT("ARK KAFESİ")};
-        const TCHAR* Descriptions[] = {TEXT("Seri atış"),TEXT("Hassas enerji atışı"),TEXT("Patlayıcı plazma"),TEXT("3 sn fitil · 2× BFG"),TEXT("Yakına bırak · Alan uykusu"),TEXT("Basılı tut · Savur · Bırak")};
+        const TCHAR* Names[] = {TEXT("BAŞLANGIÇ"),TEXT("RAILGUN"),TEXT("BFG 10K"),TEXT("BOMBA"),TEXT("UYKU SİNYALİ"),TEXT("ARK KAFESİ"),TEXT("MOR RAILGUN")};
+        const TCHAR* Descriptions[] = {TEXT("Seri atış"),TEXT("Hassas enerji atışı"),TEXT("Patlayıcı plazma"),TEXT("3 sn fitil · 2× BFG"),TEXT("Yakına bırak · Alan uykusu"),TEXT("Basılı tut · Savur · Bırak"),TEXT("Delici mor enerji ışını")};
         Text(137,47,Names[int32(Active)],int32(Active)>=4 ? 16 : 19,Accent,true);
         const bool Captured=Active==EPlayerWeapon::ElectricTether && Pawn && Pawn->ElectricWeapon && Pawn->ElectricWeapon->HasTarget();
         Text(138,76,Captured?TEXT("HEDEF BAĞLI · SAVUR"):Descriptions[int32(Active)],10,FLinearColor(.72f,.8f,.83f));
-        const TCHAR* Slots[] = {TEXT("1 TÜF"),TEXT("2 RAIL"),TEXT("3 BFG"),TEXT("4 BOM"),TEXT("5 UYK"),TEXT("6 ARK")};
-        for (int32 I=0;I<6;++I)
+        if ((Active == EPlayerWeapon::Railgun || Active == EPlayerWeapon::PurpleRailgun) && Pawn && Pawn->Railgun)
+        {
+            Box(138,96,218,3,FLinearColor(.1f,.12f,.17f));
+            Box(138,96,218*Pawn->Railgun->GetRailgunCharge(),3,Accent);
+        }
+        const TCHAR* Slots[] = {TEXT("1 TÜF"),TEXT("2 RAIL"),TEXT("3 BFG"),TEXT("4 BOM"),TEXT("5 UYK"),TEXT("6 ARK"),TEXT("7 MOR")};
+        for (int32 I=0;I<UE_ARRAY_COUNT(Slots);++I)
         {
             const bool Owned = Pawn ? Pawn->HasWeapon(static_cast<EPlayerWeapon>(I)) : I==0;
             const bool Selected = int32(Active)==I;

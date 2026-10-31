@@ -18,7 +18,41 @@ enum class EChunkedDecorativeFloorShape : uint8
 	Square,
 	Circle,
 	Star,
-	Hexagon
+	Hexagon,
+	LShape UMETA(DisplayName = "L / J"),
+	TShape UMETA(DisplayName = "T"),
+	Zigzag UMETA(DisplayName = "S / Z"),
+	UShape UMETA(DisplayName = "U / C"),
+	Cross UMETA(DisplayName = "Cross / Plus"),
+	CustomBlocks UMETA(DisplayName = "Custom Blocks"),
+	// Append only: existing serialized enum values must stay stable.
+	DiagonalLink UMETA(DisplayName = "Diagonal Link"),
+	OffsetLink UMETA(DisplayName = "Offset Link"),
+	OffsetFork UMETA(DisplayName = "Offset Fork"),
+	OffsetArch UMETA(DisplayName = "Offset Arch"),
+	SteppedArch UMETA(DisplayName = "Stepped Arch"),
+	SteppedBlock UMETA(DisplayName = "Stepped Block"),
+	PiercedSteppedBlock UMETA(DisplayName = "Stepped Block with Hole"),
+	NotchedBar UMETA(DisplayName = "Notched Bar"),
+	FingerCorner UMETA(DisplayName = "Finger Corner"),
+	ForkNotch UMETA(DisplayName = "Fork with Round Notch"),
+	PiercedTrapezoid UMETA(DisplayName = "Trapezoid with Hole"),
+	NotchedTrapezoid UMETA(DisplayName = "Notched Trapezoid"),
+	PiercedCapsule UMETA(DisplayName = "Capsule with Hole"),
+	RoundU UMETA(DisplayName = "Round Horseshoe"),
+	CombArch UMETA(DisplayName = "Comb Arch"),
+	InterlockTab UMETA(DisplayName = "Interlock Tabs with Hole"),
+	InterlockSocket UMETA(DisplayName = "Interlock Sockets with Hole"),
+	WaistedPier UMETA(DisplayName = "Waisted Pier"),
+	Ring,
+	HalfRing UMETA(DisplayName = "Half Ring / Arch"),
+	HalfDisc UMETA(DisplayName = "Half Disc"),
+	VNotchHalfDisc UMETA(DisplayName = "Half Disc with V Notch"),
+	PiercedDiamond UMETA(DisplayName = "Diamond with Hole"),
+	NotchedWedge UMETA(DisplayName = "Notched Wedge"),
+	UnequalU UMETA(DisplayName = "Unequal Arm U"),
+	SteppedBranch UMETA(DisplayName = "Stepped Branch"),
+	ParametricShape UMETA(DisplayName = "Parametric Shape")
 };
 
 /** Material-layer and geometry controls shown only while Heart Motif is selected. */
@@ -440,15 +474,18 @@ protected:
 
 	TArray<float> CachedBlobRadii;
 	TArray<FVector2D> CachedShapeOutline;
+	// Clockwise interior loops; shared by clipping, collision and boundary walls.
+	TArray<TArray<FVector2D>> CachedShapeHoles;
+	void ForEachShapeBoundary(TFunctionRef<void(const TArray<FVector2D>&)> Function) const;
 	TArray<FShapeTriangle> CachedShapeTriangles;
 	FVector2D CachedShapeFanCenter = FVector2D::ZeroVector;
 	TArray<FDecorativeCellGeometryCache> CellGeometryCache;
 	mutable TArray<FPatternSurfaceCache> PatternSurfaceCaches;
 
 	virtual void RebuildBlobCache();
-	void RebuildShapeOutline();
+	virtual void RebuildShapeOutline();
 	void CenterMotifsInShape();
-	bool IsPointInsideOuterShape(const FVector2D& LocalPoint, float Inset = 0.0f) const;
+	virtual bool IsPointInsideOuterShape(const FVector2D& LocalPoint, float Inset = 0.0f) const;
 	bool IsPointInsideNormalizedShape(const FVector2D& Point) const;
 	bool IsPointInsidePolygon(const FVector2D& Point, const TArray<FVector2D>& Polygon) const;
 	bool IsPointInsideGeneratedShape(const FVector2D& Point, double Tolerance = 0.01) const;

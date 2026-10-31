@@ -1,19 +1,23 @@
-// R selects a compact flash, a pressure ribbon, or the electronic fuse.
+// A continuous circular glow, with time-driven diffusion and opacity fade.
 float2 p = UV * 2. - 1.;
-float3 neon = lerp(float3(.015, 2.7, 4.5), float3(4., .035, 2.2), Particle.g);
 float alpha = 0.;
-float3 color = neon;
-if (Particle.r < .15)
+float3 color = float3(0., 0., 0.);
+if (Particle.r < .85)
 {
     float r = length(p);
-    alpha = exp(-r*r*7.)*(1.-smoothstep(.55,1.,r));
-    color = lerp(neon*.55, float3(8.,11.,13.), exp(-r*r*26.));
-}
-else if (Particle.r < .5)
-{
-    float ribbon = pow(saturate(1.-abs(p.y)),5.);
-    alpha = (ribbon + .2*pow(saturate(1.-abs(p.y)),1.5))*smoothstep(0.,.07,UV.x)*(1.-smoothstep(.93,1.,UV.x));
-    color = neon + float3(.7,1.,1.2)*ribbon;
+    float progress = saturate(Age / 1.35);
+    float blur = lerp(.045, .25, smoothstep(0., 1., progress));
+    float edgeDistance = (r - .68) / blur;
+    float haloDistance = (r - .64) / (blur * 2.2);
+    float edge = exp(-edgeDistance * edgeDistance);
+    float halo = exp(-haloDistance * haloDistance);
+    float body = 1. - smoothstep(.18, .78, r);
+    float core = exp(-r * r * 22.) * exp(-Age * 16.);
+    // A dark violet-blue body and a cyan rim diffuse into a single soft disc.
+    // Reduce the peak as blur grows so the fading cloud never brightens again.
+    alpha = (.60 * edge + .16 * halo + .20 * body + .28 * core)
+        * lerp(1., .42, progress) * (1. - smoothstep(.84, 1., r));
+    color = lerp(float3(.16, .045, .65), float3(.035, 1.5, 2.6), saturate(r / .7));
 }
 else
 {

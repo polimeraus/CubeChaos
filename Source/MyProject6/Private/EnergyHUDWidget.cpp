@@ -52,7 +52,12 @@ TSharedRef<SWidget> UEnergyHUDWidget::RebuildWidget()
 			SNew(STextBlock)
 			.Text(FText::FromString(TEXT("+")))
 			.Font(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 16))
-			.ColorAndOpacity(FLinearColor(.65f, .95f, 1.f, .85f))
+			.ColorAndOpacity_Lambda([this]()
+			{
+				const auto* Pawn = Cast<AMyProject6Character>(GetOwningPlayerPawn());
+				return FSlateColor(Pawn && Pawn->GetActiveWeapon() == EPlayerWeapon::PurpleRailgun
+					? FLinearColor(.85f, .3f, 1.f, .95f) : FLinearColor(.65f, .95f, 1.f, .85f));
+			})
 			.Visibility(EVisibility::HitTestInvisible)
 		]
 
@@ -196,7 +201,7 @@ TSharedRef<SWidget> UEnergyHUDWidget::RebuildWidget()
 								.Padding(14)
 								[
 									SNew(STextBlock)
-									.Text(NSLOCTEXT("EnergyHUD", "ControlsHelp", "W A S D   ·   Hareket\nFare   ·   Etrafa bak\nBoşluk   ·   Zıpla\nSol tık   ·   Ateş et\nFare tekerleği   ·   Silah değiştir\n1 / 2 / 3 / 4   ·   Silah seç\nOrta fare   ·   Railgun ateşi\nBackspace   ·   Havadayken platform oluştur"))
+									.Text(NSLOCTEXT("EnergyHUD", "ControlsHelp", "W A S D   ·   Hareket\nFare   ·   Etrafa bak\nBoşluk   ·   Zıpla\nSol tık   ·   Ateş et\nFare tekerleği   ·   Silah değiştir\n1–7   ·   Silah seç (7: Mor Railgun)\nOrta fare   ·   Seçili railgun ateşi\nBackspace   ·   Havadayken platform oluştur"))
 									.Font(CaptionFont).ColorAndOpacity(FLinearColor(0.75f, 0.83f, 0.91f))
 									.AutoWrapText(true)
 								]

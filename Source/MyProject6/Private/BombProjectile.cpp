@@ -1,6 +1,10 @@
 #include "BombProjectile.h"
 #include "ChunkedDestructibleFloor.h"
 #include "DestructibleRadialSculpture.h"
+#include "DynamicMeshActor.h"
+#include "SimpleHouseActor.h"
+#include "ParametricFantasyHouse.h"
+#include "ParametricLobbyPlatform.h"
 #include "BFGCameraShake.h"
 #include "MyProject6Character.h"
 #include "NPCHitReactionComponent.h"
@@ -24,6 +28,9 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/DamageType.h"
+#include "GeometryScript/MeshBooleanFunctions.h"
+#include "GeometryScript/MeshNormalsFunctions.h"
+#include "GeometryScript/MeshPrimitiveFunctions.h"
 #include "PhysicsEngine/BodyInstance.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -35,6 +42,41 @@ using namespace UE::Geometry;
 
 namespace
 {
+bool IsDynamicMeshStructure(const AActor* Actor)
+{
+    // Do not carve arbitrary dynamic components: pickups, weapons and effects
+    // use the same component type without being destructible world geometry.
+    return Actor->IsA<ADynamicMeshActor>() || Actor->IsA<ASimpleHouseActor>()
+        || Actor->IsA<AParametricFantasyHouse>();
+}
+
+void CarveBlastSphere(UDynamicMeshComponent* Component, UDynamicMesh* Cutter,
+    const FVector& Origin, float Radius)
+{
+    if (!IsValid(Component) || !Component->GetDynamicMesh() || Component->GetMesh()->TriangleCount() == 0
+        || Component->Bounds.GetBox().ComputeSquaredDistanceToPoint(Origin) >= FMath::Square(Radius)) return;
+    FGeometryScriptMeshBooleanOptions Options;
+    Options.bFillHoles = true;
+    Options.bSimplifyOutput = true;
+    Options.bAllowEmptyResult = true;
+    Options.OutputTransformSpace = EGeometryScriptBooleanOutputSpace::TargetTransformSpace;
+    const bool bHadCollision = Component->GetCollisionEnabled() != ECollisionEnabled::NoCollision;
+    Component->SetTransientDeferCollisionUpdates(true);
+    UGeometryScriptLibrary_MeshBooleanFunctions::ApplyMeshBoolean(Component->GetDynamicMesh(),
+        Component->GetComponentTransform(), Cutter, FTransform(Origin),
+        EGeometryScriptBooleanOperation::Subtract, Options);
+    FGeometryScriptSplitNormalsOptions Split;
+    Split.bSplitByOpeningAngle = true;
+    Split.OpeningAngleDeg = 60.f;
+    UGeometryScriptLibrary_MeshNormalsFunctions::ComputeSplitNormals(Component->GetDynamicMesh(),
+        Split, FGeometryScriptCalculateNormalsOptions());
+    Component->SetTransientDeferCollisionUpdates(false);
+    Component->InvalidateAutoCalculatedTangents();
+    Component->NotifyMeshUpdated();
+    // Publish the final hole immediately so the next thrown bomb can pass through it.
+    Component->SetComplexAsSimpleCollisionEnabled(bHadCollision, true);
+}
+
 FVector ClosestBlastPoint(UPrimitiveComponent* Component, const FVector& Origin)
 {
     FVector Closest = Origin;
@@ -51,7 +93,7 @@ ABombProjectile::ABombProjectile()
     PrimaryActorTick.bCanEverTick = true;
     Collision = CreateDefaultSubobject<USphereComponent>(TEXT("BombCollision"));
     SetRootComponent(Collision);
-    Collision->InitSphereRadius(11.5f);
+    Collision->InitSphereRadius(FlightCollisionRadius);
     Collision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
     Collision->SetCollisionObjectType(ECC_GameTraceChannel1);
     Collision->SetCollisionResponseToAllChannels(ECR_Block);
@@ -177,7 +219,7 @@ void ABombProjectile::ApplyBlastDamage(const FVector& Origin)
         AActor* Actor = Overlap.GetActor();
         UPrimitiveComponent* Component = Overlap.GetComponent();
         if (!IsValid(Actor) || !Component || Actor == this || !Actor->CanBeDamaged()
-            || Actor->IsA<AChunkedDestructibleFloor>()) continue;
+            || Actor->IsA<AChunkedDestructibleFloor>() || IsDynamicMeshStructure(Actor)) continue;
         // Contact sensors, weapons and cosmetic components must not extend a
         // character's damage radius. Their capsule is the gameplay body.
         if (auto* Character = Cast<ACharacter>(Actor)) Component = Character->GetCapsuleComponent();
@@ -289,6 +331,7 @@ void ABombProjectile::ApplyBlastImpulse(const FVector& Origin)
 
 void ABombProjectile::DamageStructures(const FVector& Origin)
 {
+    if (!FMath::IsFinite(BlastDamage) || BlastDamage <= 0.f) return;
     // Collision cooking and complex-only/query-disabled chunks must not decide
     // whether a destructible wall is damaged. Bounds prune distant actors; each
     // structure then tests its own cells against the world-space sphere once.
@@ -304,6 +347,46 @@ void ABombProjectile::DamageStructures(const FVector& Origin)
             FMath::Max(0.f,BlastDamage) * (bSculpture ? FMath::Max(1.f, SculptureDamageMultiplier) : 1.f),
             EChunkedFloorBlastShape::Sphere, false);
     }
+
+    // Complex triangle collision does not reliably participate in sphere overlaps.
+    // Find mesh structures by bounds, then subtract the actual world-space sphere.
+    // Each structure is handled here once, independently of the NPC damage query.
+    const float Radius = FMath::Max(1.f, BlastRadius);
+    UDynamicMesh* Cutter = nullptr;
+    for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+    {
+        AActor* Structure = *It;
+        if (!IsValid(Structure) || !Structure->CanBeDamaged() || !IsDynamicMeshStructure(Structure)) continue;
+        const FBox Bounds = Structure->GetComponentsBoundingBox(true);
+        if (!Bounds.IsValid || Bounds.ComputeSquaredDistanceToPoint(Origin) >= FMath::Square(Radius)) continue;
+        if (auto* House = Cast<ASimpleHouseActor>(Structure))
+        {
+            // An airburst is centred at the bomb, without the bullet-impact inset.
+            House->CarveSphereAtWorldLocation(Origin, Radius, 0.f);
+        }
+        else if (auto* Platform = Cast<AParametricLobbyPlatform>(Structure))
+        {
+            FRadialDamageEvent Event;
+            Event.DamageTypeClass = UDamageType::StaticClass();
+            Event.Origin = Origin;
+            Event.Params = FRadialDamageParams(BlastDamage, 0.f, 0.f, Radius, 1.f);
+            // Keep its destruction switch, damage threshold and stored cuts intact.
+            Platform->TakeDamage(BlastDamage, Event, GetInstigatorController(), this);
+        }
+        else
+        {
+            if (!Cutter)
+            {
+                Cutter = NewObject<UDynamicMesh>(this);
+                UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendSphereLatLong(Cutter,
+                    FGeometryScriptPrimitiveOptions(), FTransform::Identity, Radius, 16, 32,
+                    EGeometryScriptPrimitiveOriginMode::Center);
+            }
+            TInlineComponentArray<UDynamicMeshComponent*> Components;
+            Structure->GetComponents(Components);
+            for (UDynamicMeshComponent* Component : Components) CarveBlastSphere(Component, Cutter, Origin, Radius);
+        }
+    }
 }
 
 void ABombProjectile::PreviewEffect(float Seconds, bool bImpact, FVector ViewLocation)
@@ -317,6 +400,7 @@ void ABombProjectile::PreviewEffect(float Seconds, bool bImpact, FVector ViewLoc
 
 void ABombProjectile::DrawEffect(float Seconds, bool bImpact, FVector ViewLocation)
 {
+    ++VisualUpdateCount;
     if (!DynamicMaterial && EffectMaterial)
     {
         DynamicMaterial = UMaterialInstanceDynamic::Create(EffectMaterial, this);
@@ -328,13 +412,14 @@ void ABombProjectile::DrawEffect(float Seconds, bool bImpact, FVector ViewLocati
         (ViewLocation-GetActorLocation()).GetSafeNormal(UE_SMALL_NUMBER,FVector::ForwardVector));
     const FVector WorldUp = GetActorTransform().InverseTransformVectorNoScale(FVector::UpVector);
     FVector Right = FVector::CrossProduct(Normal,WorldUp).GetSafeNormal();
-    if (Right.IsNearlyZero()) Right = FVector::RightVector;
-    const FVector Up = FVector::CrossProduct(Right,Normal).GetSafeNormal();
-    constexpr int32 RingSegments=48, Rays=8;
+    FVector Up;
+    if (Right.IsNearlyZero()) Normal.FindBestAxisVectors(Right,Up);
+    else Up = FVector::CrossProduct(Right,Normal).GetSafeNormal();
     FDynamicMesh3& Mesh = Effect->GetDynamicMesh()->GetMeshRef();
-    const bool bBuild = Mesh.VertexCount() != (bImpact ? (RingSegments+1+Rays)*4 : 28);
+    const bool bBuild = Mesh.VertexCount() != (bImpact ? 4 : 28);
     if (bBuild)
     {
+        ++VisualTopologyBuildCount;
         Mesh.Clear(); Mesh.EnableAttributes(); Mesh.Attributes()->EnablePrimaryColors();
     }
     int32 VertexIndex=0;
@@ -375,40 +460,15 @@ void ABombProjectile::DrawEffect(float Seconds, bool bImpact, FVector ViewLocati
     if (bImpact)
     {
         const float T=FMath::Max(0.f,Seconds);
-        // One fast, compact neon flash: no patterned cloud or confetti layers.
-        const float CoreFade=FMath::Exp(-T*8.f);
-        const float CoreSize=35.f+135.f*(1.f-FMath::Exp(-T*12.f));
-        Quad(FVector::ZeroVector,Right*CoreSize,Up*CoreSize,0,0,CoreFade);
-        // A broad ground-hugging pressure front accompanies the plasma body.
-        for (int32 Ring=0;Ring<1;++Ring)
-        {
-            const float RingAge=FMath::Max(0.f,T-Ring*.055f);
-            const float Fade=FMath::Clamp(RingAge*22.f,0.f,1.f)*FMath::Square(FMath::Clamp(1.f-RingAge/1.45f,0.f,1.f));
-            const float Radius=18.f+570.f*(1.f-FMath::Exp(-RingAge*3.3f));
-            const float Width=12.f+14.f*Fade;
-            const FVector Axis = Ring==0 ? WorldUp : FVector(Ring==1?.72f:-.32f,Ring==1?.32f:.85f,.62f).GetSafeNormal();
-            FVector X,Y; Axis.FindBestAxisVectors(X,Y);
-            for (int32 I=0;I<RingSegments;++I)
-            {
-                const float A=I*UE_TWO_PI/RingSegments, B=(I+1)*UE_TWO_PI/RingSegments;
-                const FVector D0=X*FMath::Cos(A)+Y*FMath::Sin(A),D1=X*FMath::Cos(B)+Y*FMath::Sin(B);
-                const FVector P[]={D0*(Radius-Width),D1*(Radius-Width),D0*(Radius+Width),D1*(Radius+Width)};
-                QuadPoints(P,FVector4f(.33f,Ring==1?1.f:0.f,1,Fade*(I%8==0?.35f:1.f)));
-            }
-        }
-        FRandomStream Random(43817);
-        for (int32 I=0;I<Rays;++I)
-        {
-            const FVector Direction=Random.VRand();
-            const float Speed=Random.FRandRange(220.f,540.f);
-            const FVector Centre=Direction*(35.f+Speed*T);
-            const FVector Tangent=FVector::CrossProduct(Normal,Direction).GetSafeNormal(UE_SMALL_NUMBER,Right);
-            const float Fade=FMath::Square(FMath::Clamp(1.f-T/.45f,0.f,1.f));
-            Quad(Centre,Direction*(8.f+40.f*T),Tangent*(1.f+1.5f*Fade),.33f,I%4==0?1.f:0.f,Fade);
-        }
+        // One camera-facing soft orb. The material supplies the round silhouette,
+        // dark centre and widening glow; no latitude lines, spokes or wire cage.
+        const float Fade=FMath::Clamp(T*25.f,0.f,1.f)*FMath::Square(FMath::Clamp(1.f-T/1.35f,0.f,1.f));
+        const float Radius=18.f+570.f*(1.f-FMath::Exp(-T*3.3f));
+        Quad(FVector::ZeroVector,Right*Radius*1.35f,Up*Radius*1.35f,.66f,0,Fade);
         FuseLight->SetWorldLocation(GetActorLocation());
-        FuseLight->SetLightColor(FLinearColor(.025f,.65f,1.f));
-        FuseLight->SetIntensity(32000.f*FMath::Exp(-T/.045f)+6500.f*FMath::Exp(-T/.20f));
+        FuseLight->SetLightColor(FLinearColor(.08f,.35f,1.f));
+        const float LightFade=1.f-FMath::SmoothStep(1800.f,3000.f,float(FVector::Distance(ViewLocation,GetActorLocation())));
+        FuseLight->SetIntensity((12000.f*FMath::Exp(-T/.045f)+2400.f*FMath::Exp(-T/.20f))*LightFade);
         FuseLight->SetAttenuationRadius(850.f);
         FuseLight->SetSourceRadius(35.f);
     }

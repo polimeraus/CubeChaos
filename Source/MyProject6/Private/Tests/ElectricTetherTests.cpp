@@ -136,6 +136,8 @@ bool FArcAcquireTest::RunTest(const FString&)
 {
     ArcTests::FScene S;auto* P=S.Player();auto* Gun=P->ElectricWeapon.Get();
     if(!TestNotNull(TEXT("Native weapon on saved player class"),Gun))return false;
+    TestFalse(TEXT("Unequipped electric weapon has no actor tick"),Gun->IsActorTickEnabled());
+    TestFalse(TEXT("Unequipped electric effect has no component tick"),Gun->Field->IsComponentTickEnabled());
     TestFalse(TEXT("Uncollected slot is locked"),P->SelectWeapon(EPlayerWeapon::ElectricTether));
     const FTransform PickupPose(P->GetActorLocation());
     auto* Pickup=S.World->SpawnActorDeferred<AParametricPickup>(AParametricPickup::StaticClass(),PickupPose);
@@ -144,6 +146,7 @@ bool FArcAcquireTest::RunTest(const FString&)
     TestNotNull(TEXT("Authored weapon mesh loaded"),P->Railgun->WeaponMesh->GetStaticMesh().Get());
     P->NextWeapon();TestEqual(TEXT("Wheel wraps from six to one"),P->GetActiveWeapon(),EPlayerWeapon::Default);P->PreviousWeapon();
     TestEqual(TEXT("Wheel wraps back to owned sixth slot"),P->GetActiveWeapon(),EPlayerWeapon::ElectricTether);
+    TestFalse(TEXT("Selecting the idle weapon does not start its tick"),Gun->IsActorTickEnabled());
     const FVector Eye=P->GetFirstPersonCameraComponent()->GetComponentLocation();P->GetController()->SetControlRotation(FRotator::ZeroRotator);
     auto* N=S.NPC(AChasingNPC::StaticClass(),Eye+FVector(650,0,0));auto* T=N->FindComponentByClass<UNPCElectricTetherComponent>();
     auto* Wall=S.Box(Eye+FVector(300,0,0),FVector(10,250,350));Gun->StartBeam();S.Advance(.15f);
@@ -162,6 +165,8 @@ bool FArcAcquireTest::RunTest(const FString&)
     TestTrue(TEXT("Stationary capture has no throw momentum"),T->GetThrowVelocity().IsNearlyZero());
     Gun->StopBeam();TestFalse(TEXT("Mouse release immediately removes cage"),T->IsCaptured());
     S.Advance(2.f);TestFalse(TEXT("Dropped target recovers"),T->IsControlled());
+    TestFalse(TEXT("Actor tick stops after release fade"),Gun->IsActorTickEnabled());
+    TestFalse(TEXT("Visual tick stops after release fade"),Gun->Field->IsComponentTickEnabled());
     N->SetActorLocation(Eye+FVector(650,0,0));Gun->StartBeam();S.Advance(.1f);TestTrue(TEXT("Target can be recaptured"),Gun->HasTarget());
     P->SelectWeapon(EPlayerWeapon::Default);TestFalse(TEXT("Switching releases target"),T->IsCaptured());TestFalse(TEXT("Switching stops beam"),Gun->bFiring);
     P->SelectWeapon(EPlayerWeapon::ElectricTether);N->SetActorLocation(Eye+FVector(650,0,0));Gun->StartBeam();S.Advance(.1f);

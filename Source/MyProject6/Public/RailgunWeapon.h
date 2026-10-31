@@ -29,6 +29,10 @@ public:
 
     UFUNCTION(BlueprintCallable, Category="Railgun")
     void ActivateRailgun();
+    UFUNCTION(BlueprintCallable, Category="Railgun")
+    void ActivatePurpleRailgun();
+    UFUNCTION(BlueprintPure, Category="Railgun")
+    float GetRailgunCharge() const;
     UFUNCTION(BlueprintCallable, Category="Electric Tether") void ActivateElectricTether();
 
     UFUNCTION(BlueprintCallable, Category="Weapons")
@@ -141,10 +145,13 @@ private:
     UPROPERTY() TObjectPtr<USoundBase> FireSound;
     UPROPERTY() TObjectPtr<UMaterialInterface> ArmsMaterial;
     UPROPERTY() TObjectPtr<UStaticMesh> RailgunModel;
+    UPROPERTY() TObjectPtr<UStaticMesh> PurpleRailgunModel;
+    UPROPERTY() TObjectPtr<UAnimSequence> PurpleHoldAnimation;
     UPROPERTY() TObjectPtr<UStaticMesh> BFGModel;
     UPROPERTY() TObjectPtr<USoundBase> BFGFireSound;
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> ChargeMaterial;
     double NextFireTime = 0;
+    float PurpleEquipRemaining = 0.f;
     double NextBFGFireTime = 0;
     double NextBombFireTime = 0;
     double LastBombThrowTime = -10;

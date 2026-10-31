@@ -3,6 +3,10 @@
 #include "CoreMinimal.h"
 #include "ChunkedDestructibleDecorativeFloor.h"
 #include "PlatformPadPathPattern.h"
+#include "PlatformBlockShape.h"
+#include "PlatformReferenceShape.h"
+#include "PlatformParametricShape.h"
+#include "Curve/GeneralPolygon2.h"
 #include "ParametricPlatform.generated.h"
 
 UENUM(BlueprintType)
@@ -45,8 +49,13 @@ class MYPROJECT6_API AParametricPlatform : public AChunkedDestructibleDecorative
     friend class FParametricPlatformTest;
     friend class FParametricPlatformSurfaceTest;
     friend class FParametricPlatformPadPathTest;
+    friend class FParametricPlatformBlockShapeTest;
+    friend class FParametricPlatformReferenceShapeTest;
+    friend class FParametricPlatformOrganicShapeTest;
 public:
     AParametricPlatform();
+    UFUNCTION(BlueprintPure, Category="Platform")
+    bool UsesReferenceShape() const;
     virtual void GenerateFloor(bool bPreserveCellState = false) override;
     virtual void ApplyMaterialPattern() override;
     virtual void PostRegisterAllComponents() override;
@@ -75,6 +84,28 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(EditCondition="OuterShape == EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides))
     EPlatformBlobProfile BlobProfile = EPlatformBlobProfile::Organic;
+
+    /** Zero keeps sharp corners. Positive values fillet convex and concave polygon corners.
+     * Radius is locally limited by adjacent edges; Circle/Blob already have their own curve controls. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(ClampMin="0", Units="cm", EditCondition="!UsesReferenceShape() && OuterShape != EChunkedDecorativeFloorShape::ParametricShape && OuterShape != EChunkedDecorativeFloorShape::Circle && OuterShape != EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides))
+    float CornerRadius = 0;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(ClampMin="1", ClampMax="32", EditCondition="CornerRadius > 0 && !UsesReferenceShape() && OuterShape != EChunkedDecorativeFloorShape::ParametricShape && OuterShape != EChunkedDecorativeFloorShape::Circle && OuterShape != EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides))
+    int32 CornerSegments = 8;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(EditCondition="OuterShape == EChunkedDecorativeFloorShape::LShape || OuterShape == EChunkedDecorativeFloorShape::TShape || OuterShape == EChunkedDecorativeFloorShape::Zigzag || OuterShape == EChunkedDecorativeFloorShape::UShape || OuterShape == EChunkedDecorativeFloorShape::Cross || OuterShape == EChunkedDecorativeFloorShape::CustomBlocks", EditConditionHides))
+    FPlatformBlockShape BlockShape;
+
+    /** Reference pieces include their characteristic rounded outline even at Corner Radius = 0. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(EditCondition="UsesReferenceShape()", EditConditionHides))
+    FPlatformReferenceShape ReferenceShape;
+
+    /** Circular hub with curved, tapered arms and circular end platforms, authored in cm. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(DisplayName="Parametric Shape", EditCondition="OuterShape == EChunkedDecorativeFloorShape::ParametricShape", EditConditionHides))
+    FPlatformParametricShape ParametricShapeSettings;
+
+    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Platform|Shape")
+    FString ShapeWarning;
 
     /** Optional per-slot tints. Materials may expose Color, BaseColor, or Tint. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Materials")
@@ -128,6 +159,13 @@ public:
     UFUNCTION(BlueprintPure, Category="Platform")
     void GetPlatformOutline(TArray<FVector2D>& Outline) const { Outline = CachedShapeOutline; }
 
+    UFUNCTION(BlueprintPure, Category="Platform")
+    int32 GetPlatformHoleCount() const { return CachedShapeHoles.Num(); }
+
+    UFUNCTION(BlueprintPure, Category="Platform")
+    void GetPlatformHole(int32 Index, TArray<FVector2D>& Outline) const
+    { Outline = CachedShapeHoles.IsValidIndex(Index) ? CachedShapeHoles[Index] : TArray<FVector2D>(); }
+
 #if WITH_EDITOR
     virtual bool CanEditChange(const FProperty* Property) const override;
 #endif
@@ -141,6 +179,8 @@ protected:
     virtual int32 SelectCellsInRadius(FVector Location, float Radius, EChunkedFloorBlastShape Shape,
         TFunctionRef<void(int32, float)> CellFunction) override;
     virtual void RebuildBlobCache() override;
+    virtual void RebuildShapeOutline() override;
+    virtual bool IsPointInsideOuterShape(const FVector2D& LocalPoint, float Inset = 0.f) const override;
     virtual float SampleBlobRadius(float Angle) const override;
     virtual void AppendPolygonSurface(UE::Geometry::FDynamicMesh3& Mesh, int32 ChunkIndex,
         const TArray<FVector2D>& Outline, int32 MaterialIndex, double SurfaceZ) const override;
@@ -162,4 +202,12 @@ private:
     void AppendSolidSurfaceTriangle(UE::Geometry::FDynamicMesh3& Mesh,
         const FVector2D& A, const FVector2D& B, const FVector2D& C, int32 MaterialIndex, double SurfaceZ) const;
     bool UsesRegularGroundSlab() const;
+    bool UsesBlockShape() const;
+    bool UsesRoundedCorners() const;
+    bool BuildReferenceShape();
+    void PrepareParametricShape();
+    TArray<FVector2D> PreparedParametricOutline;
+    TArray<TArray<FVector2D>> PreparedParametricHoles;
+    FString PreparedParametricWarning;
+    UE::Geometry::FGeneralPolygon2d GetPlatformPolygon() const;
 };

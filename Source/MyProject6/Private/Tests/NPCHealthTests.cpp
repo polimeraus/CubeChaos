@@ -166,7 +166,8 @@ bool FNPCHealthBarVisibilityTest::RunTest(const FString& Parameters)
 	if (!TestNotNull(TEXT("Health bar widget exists"), Gauge)) { return false; }
 	auto Advance = [World]()
 	{
-		for (int32 Frame = 0; Frame < 3; ++Frame) { ++GFrameCounter; World->Tick(LEVELTICK_All, 1.0f / 60.0f); }
+		// Occlusion is refreshed at 10 Hz; head tracking still runs every frame.
+		for (int32 Frame = 0; Frame < 8; ++Frame) { ++GFrameCounter; World->Tick(LEVELTICK_All, 1.0f / 60.0f); }
 	};
 	Advance();
 	TestEqual(TEXT("Bar is thinner"), Bar->GetDrawSize(), FVector2D(64.0f, 6.0f));
@@ -222,6 +223,16 @@ bool FNPCHealthBarVisibilityTest::RunTest(const FString& Parameters)
 	Camera->SetActorRotation(FRotator(0, 180, 0));
 	Advance();
 	TestFalse(TEXT("Character behind the camera has no visible bar"), Bar->IsVisible());
+	const uint32 ChecksBefore = Bar->GetVisibilityCheckCount();
+	for (int32 Frame = 0; Frame < 120; ++Frame)
+	{
+		++GFrameCounter; World->Tick(LEVELTICK_All, 1.f / 120.f);
+	}
+	const uint32 Checks = Bar->GetVisibilityCheckCount() - ChecksBefore;
+	TestTrue(TEXT("120 FPS performs only 9-11 visibility checks per second"), Checks >= 9 && Checks <= 11);
+	Bar->UpdateHealth(0, 100);
+	TestFalse(TEXT("Death hides the bar without waiting for the occlusion interval"), Bar->IsVisible());
+	TestFalse(TEXT("Dead health bars stop ticking"), Bar->IsComponentTickEnabled());
 	return true;
 }
 #endif

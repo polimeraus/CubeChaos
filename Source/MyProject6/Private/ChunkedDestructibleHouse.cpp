@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ChunkedDestructibleHouse.h"
+#include "DestructibleBoxCollision.h"
 
 #include "Components/StaticMeshComponent.h"
 #include "DynamicMesh/DynamicMesh3.h"
@@ -226,14 +227,23 @@ bool AChunkedDestructibleHouse::GetCachedCellPolygonXZ(
 	FIntPoint Cell,
 	TArray<FVector2D>& OutPolygon) const
 {
+	TArray<FVector2D> Fallback;
+	const TArray<FVector2D>* Polygon = FindCellPolygonXZ(Cell, Fallback);
+	if (!Polygon) { OutPolygon.Reset(); return false; }
+	OutPolygon = *Polygon;
+	return true;
+}
+
+const TArray<FVector2D>* AChunkedDestructibleHouse::FindCellPolygonXZ(
+	FIntPoint Cell, TArray<FVector2D>& Fallback) const
+{
 	const int32 CellIndex = IsValidCell(Cell) ? ToCellIndex(Cell) : INDEX_NONE;
 	if (!CachedCellPolygons.IsValidIndex(CellIndex) ||
 		!CachedCellPolygonValid.IsValidIndex(CellIndex))
 	{
-		return GetCellPolygonXZ(Cell, OutPolygon);
+		return GetCellPolygonXZ(Cell, Fallback) ? &Fallback : nullptr;
 	}
-	OutPolygon = CachedCellPolygons[CellIndex];
-	return CachedCellPolygonValid[CellIndex];
+	return CachedCellPolygonValid[CellIndex] ? &CachedCellPolygons[CellIndex] : nullptr;
 }
 
 FChunkedDestructibleHouseMetrics AChunkedDestructibleHouse::GetHouseMetrics() const
@@ -630,8 +640,8 @@ bool AChunkedDestructibleHouse::IsCellPolygonFullRectangle(
 
 bool AChunkedDestructibleHouse::ShouldCellExistInGeneratedShape(FIntPoint Cell) const
 {
-	TArray<FVector2D> Polygon;
-	return GetCachedCellPolygonXZ(Cell, Polygon);
+	TArray<FVector2D> Fallback;
+	return FindCellPolygonXZ(Cell, Fallback) != nullptr;
 }
 
 int32 AChunkedDestructibleHouse::EvaluatePatternMaterial(FIntPoint Cell) const
@@ -724,11 +734,13 @@ void AChunkedDestructibleHouse::BuildChunkMesh(int32 ChunkIndex, FDynamicMesh3& 
 		{
 			continue;
 		}
-		TArray<FVector2D> Polygon;
-		if (!GetCachedCellPolygonXZ(Cell, Polygon))
+		TArray<FVector2D> Fallback;
+		const TArray<FVector2D>* PolygonView = FindCellPolygonXZ(Cell, Fallback);
+		if (!PolygonView)
 		{
 			continue;
 		}
+		const TArray<FVector2D>& Polygon = *PolygonView;
 
 		const FVector Center = GetCellLocalCenter(Cell);
 		const double FrontY = Center.Y - BlockDimensions.Y * 0.5;
@@ -881,6 +893,10 @@ void AChunkedDestructibleHouse::BuildChunkSimpleCollision(
 	}
 	TArray<FIntPoint> ChunkCells;
 	GatherChunkCells(ChunkIndex, ChunkCells);
+	FIntVector Minimum, Maximum;
+	const bool bMerge = GetSpatialChunkBounds(ChunkIndex, Minimum, Maximum);
+	const FIntVector Size = Maximum-Minimum;
+	TBitArray<> FullBlocks(false, bMerge ? Size.X*Size.Y*Size.Z : 0);
 
 	for (const FIntPoint Cell : ChunkCells)
 	{
@@ -888,14 +904,23 @@ void AChunkedDestructibleHouse::BuildChunkSimpleCollision(
 		{
 			continue;
 		}
-		TArray<FVector2D> Polygon;
-		if (!GetCachedCellPolygonXZ(Cell, Polygon))
+		TArray<FVector2D> Fallback;
+		const TArray<FVector2D>* PolygonView = FindCellPolygonXZ(Cell, Fallback);
+		if (!PolygonView)
 		{
 			continue;
 		}
+		const TArray<FVector2D>& Polygon = *PolygonView;
 		const FVector Center = GetCellLocalCenter(Cell);
 		if (IsCellPolygonFullRectangle(Cell, Polygon))
 		{
+			if (bMerge)
+			{
+				int32 X,Y,Z;
+				DecodeCell(Cell,X,Y,Z);
+				FullBlocks[(X-Minimum.X)+Size.X*((Y-Minimum.Y)+Size.Y*(Z-Minimum.Z))]=true;
+				continue;
+			}
 			FKBoxElem& Box = OutCollision.BoxElems.Emplace_GetRef(
 				static_cast<float>(BlockDimensions.X),
 				static_cast<float>(BlockDimensions.Y),
@@ -915,6 +940,11 @@ void AChunkedDestructibleHouse::BuildChunkSimpleCollision(
 		}
 		Convex.UpdateElemBox();
 	}
+	if (bMerge)
+	{
+		DestructibleCollision::AppendMergedBoxes(OutCollision,Minimum,Maximum,
+			BlockDimensions,BlockSpacing,HouseGridLocalMin,FullBlocks);
+	}
 }
 
 FTransform AChunkedDestructibleHouse::GetCellFlashTransform(FIntPoint Cell) const
@@ -933,14 +963,15 @@ void AChunkedDestructibleHouse::GetPieceLocalBounds(
 	FVector& OutCenter,
 	FVector& OutSize) const
 {
-	TArray<FVector2D> Polygon;
-	if (!GetCachedCellPolygonXZ(Cell, Polygon))
+	TArray<FVector2D> Fallback;
+	const TArray<FVector2D>* Polygon = FindCellPolygonXZ(Cell, Fallback);
+	if (!Polygon)
 	{
 		OutCenter = GetCellLocalCenter(Cell);
 		OutSize = BlockDimensions;
 		return;
 	}
-	FBox2D Bounds(Polygon);
+	FBox2D Bounds(*Polygon);
 	const FVector CellCenter = GetCellLocalCenter(Cell);
 	OutCenter = FVector(Bounds.GetCenter().X, CellCenter.Y, Bounds.GetCenter().Y);
 	OutSize = FVector(Bounds.GetSize().X, BlockDimensions.Y, Bounds.GetSize().Y);
@@ -1276,14 +1307,16 @@ void AChunkedDestructibleHouse::ScheduleStructuralIntegrityCheck()
 		return;
 	}
 	bIntegrityCheckQueued = true;
-	StructuralIntegrityTimerHandle = GetWorld()->GetTimerManager().SetTimerForNextTick(
+	// Coalesce the short destruction ripple into one connectivity scan. The mesh
+	// and collision of destroyed cells are still published immediately together.
+	GetWorld()->GetTimerManager().SetTimer(StructuralIntegrityTimerHandle,
 		FTimerDelegate::CreateWeakLambda(
 			this,
 			[this]()
 			{
 				bIntegrityCheckQueued = false;
 				EvaluateStructuralIntegrity();
-			}));
+			}), .12f, false);
 }
 
 void AChunkedDestructibleHouse::EvaluateStructuralIntegrity()

@@ -21,6 +21,8 @@ class MYPROJECT6_API ABombProjectile : public AActor
     GENERATED_BODY()
 public:
     ABombProjectile();
+    /** Forgiving flight body; also used by the hand-to-launch clearance sweep. */
+    static constexpr float FlightCollisionRadius = 7.f;
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
 
@@ -46,6 +48,8 @@ public:
     UFUNCTION(BlueprintPure, Category="Bomb") float GetFuseRemaining() const;
     UFUNCTION(BlueprintCallable, Category="Bomb") void Explode();
     UFUNCTION(BlueprintCallable, Category="Bomb|Preview") void PreviewEffect(float Seconds, bool bImpact, FVector ViewLocation);
+    int32 GetVisualUpdateCount() const { return VisualUpdateCount; }
+    int32 GetVisualTopologyBuildCount() const { return VisualTopologyBuildCount; }
 
 private:
     UPROPERTY() TObjectPtr<UMaterialInterface> EffectMaterial;
@@ -56,6 +60,8 @@ private:
     float ImpactAge = 0.f;
     float VisualAccumulator = 0.f;
     bool bVisualImpact = false;
+    int32 VisualUpdateCount = 0;
+    int32 VisualTopologyBuildCount = 0;
     void DrawEffect(float Seconds, bool bImpact, FVector ViewLocation);
     void ApplyBlastDamage(const FVector& Origin);
     void DamageStructures(const FVector& Origin);

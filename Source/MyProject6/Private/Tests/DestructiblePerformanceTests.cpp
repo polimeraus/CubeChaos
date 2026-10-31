@@ -91,6 +91,41 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDestructibleCollisionTest,
 
 bool FDestructibleCollisionTest::RunTest(const FString& Parameters)
 {
+	// Three-axis merging must preserve holes and tiny gaps on every axis.
+	for (const FVector Spacing : {FVector::ZeroVector, FVector(.001, 0, 0), FVector(0, .001, 0), FVector(0, 0, .001), FVector(.001)})
+	{
+		const FIntVector Minimum(2, 3, 4), Count(4, 3, 2);
+		const FVector BlockSize(10, 20, 30), GridMinimum(-100, -200, -300);
+		TBitArray<> Occupied(true, 24);
+		Occupied[5] = false;
+		FKAggregateGeom Collision;
+		DestructibleCollision::AppendMergedBoxes(Collision, Minimum, Minimum + Count, BlockSize, Spacing, GridMinimum, Occupied);
+		double Volume = 0;
+		for (const FKBoxElem& Box : Collision.BoxElems) Volume += double(Box.X) * Box.Y * Box.Z;
+		TestEqual(TEXT("3D merge preserves exact occupied volume"), Volume, 23. * 10 * 20 * 30);
+		if (Spacing.IsZero()) TestTrue(TEXT("Solid slabs merge across all three axes"), Collision.BoxElems.Num() < 10);
+		for (int32 Z = 0; Z < Count.Z; ++Z) for (int32 Y = 0; Y < Count.Y; ++Y) for (int32 X = 0; X < Count.X; ++X)
+		{
+			const FVector Corner = GridMinimum + FVector(Minimum + FIntVector(X, Y, Z)) * (BlockSize + Spacing);
+			auto Coverage = [&](FVector Point)
+			{
+				int32 Hits = 0;
+				for (const FKBoxElem& Box : Collision.BoxElems)
+				{
+					const FVector Delta = (Point - Box.Center).GetAbs();
+					Hits += Delta.X < Box.X * .5 && Delta.Y < Box.Y * .5 && Delta.Z < Box.Z * .5 ? 1 : 0;
+				}
+				return Hits;
+			};
+			TestEqual(TEXT("No filled holes or overlapping collision"), Coverage(Corner + BlockSize * .5), X + Count.X * (Y + Count.Y * Z) == 5 ? 0 : 1);
+			for (int32 Axis = 0; Axis < 3; ++Axis) if (Spacing[Axis] > 0)
+			{
+				FVector Gap = Corner + BlockSize * .5;
+				Gap[Axis] = Corner[Axis] + BlockSize[Axis] + Spacing[Axis] * .5;
+				TestEqual(TEXT("Even sub-millimetre gaps remain open"), Coverage(Gap), 0);
+			}
+		}
+	}
 	// A hole splits a run, and even a sub-centimetre gap must remain a gap.
 	for (double Spacing : {0.0, 0.001, 5.0})
 	{
