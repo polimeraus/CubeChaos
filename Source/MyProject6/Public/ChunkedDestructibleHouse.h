@@ -39,6 +39,7 @@ class MYPROJECT6_API AChunkedDestructibleHouse : public AChunkedDestructibleFloo
 {
 	GENERATED_BODY()
 	friend class FDestructibleStructureTest;
+	friend class FBombAirburstTest;
 
 public:
 	virtual bool UsesPlanarAnimation() const override { return false; }

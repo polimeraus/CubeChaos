@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ChunkedDestructibleConeStructure.h"
+#include "BlastGeometry.h"
 #include "Components/ChildActorComponent.h"
 
 #include "Components/DynamicMeshComponent.h"
@@ -1891,6 +1892,23 @@ int32 AChunkedDestructibleConeStructure::DestroySpiralSegmentsInRadiusFromHit(
 	}
 
 	const FVector WorldImpact = Hit.ImpactPoint.ContainsNaN() ? Hit.Location : Hit.ImpactPoint;
+	return DestroySpiralSegmentsInSphere(WorldImpact, Radius, HitSegmentIndex, HitTriangleSliceIndex);
+}
+
+int32 AChunkedDestructibleConeStructure::DamageCellsInRadius(FVector WorldLocation, float Radius, float DamageAmount,
+	EChunkedFloorBlastShape Shape, bool bUseDamageFalloff)
+{
+	const int32 CellsDamaged = Super::DamageCellsInRadius(WorldLocation, Radius, DamageAmount, Shape, bUseDamageFalloff);
+	if (DamageAmount <= 0.f || Shape != EChunkedFloorBlastShape::Sphere || !bGeneratePlatforms
+		|| PlatformStyle != EConeStructurePlatformStyle::RisingSpiral
+		|| SpiralDestructionMode == EConeStructureSpiralDestructionMode::ExistingCellDestruction) return CellsDamaged;
+	// Smooth slices have their own destruction state, independent of backing grid cells.
+	return CellsDamaged + DestroySpiralSegmentsInSphere(WorldLocation, Radius);
+}
+
+int32 AChunkedDestructibleConeStructure::DestroySpiralSegmentsInSphere(const FVector& WorldImpact, float Radius,
+	int32 HitSegmentIndex, int32 HitTriangleSliceIndex)
+{
 	const float SafeRadiusSquared = FMath::Square(FMath::Max(Radius, 1.0f));
 	const float StartBottom = GetSpiralBottomHeight(false);
 	const float EndBottom = GetSpiralBottomHeight(true);
@@ -1939,18 +1957,32 @@ int32 AChunkedDestructibleConeStructure::DestroySpiralSegmentsInRadiusFromHit(
 		MakeSection(SegmentIndex, InnerBottomA, OuterBottomA, InnerTopA, OuterTopA);
 		MakeSection(SegmentIndex + 1, InnerBottomB, OuterBottomB, InnerTopB, OuterTopB);
 
+		const FVector LocalSlices[2][6] = {
+			{InnerBottomA,OuterBottomA,OuterBottomB,InnerTopA,OuterTopA,OuterTopB},
+			{InnerBottomA,OuterBottomB,InnerBottomB,InnerTopA,OuterTopB,InnerTopB}};
+		double SliceDistances[2];
+		FVector ClosestSlicePoints[2] = {WorldImpact,WorldImpact};
+		for (int32 Slice = 0; Slice < 2; ++Slice)
+		{
+			FVector WorldVertices[6];
+			FBox Bounds(ForceInit);
+			for (int32 Vertex = 0; Vertex < 6; ++Vertex)
+			{
+				WorldVertices[Vertex] = GetActorTransform().TransformPosition(LocalSlices[Slice][Vertex]);
+				Bounds += WorldVertices[Vertex];
+			}
+			SliceDistances[Slice] = Bounds.ComputeSquaredDistanceToPoint(WorldImpact);
+			if (SliceDistances[Slice] <= SafeRadiusSquared)
+				SliceDistances[Slice] = BlastGeometry::TrianglePrismDistanceSquared(WorldImpact, WorldVertices, &ClosestSlicePoints[Slice]);
+		}
+
 		if (SpiralDestructionMode == EConeStructureSpiralDestructionMode::OneTrianglePerHit)
 		{
-			const FVector LocalTriangleCenters[2] = {
-				(InnerTopA + OuterTopA + OuterTopB) / 3.0f,
-				(InnerTopA + OuterTopB + InnerTopB) / 3.0f};
 			for (int32 TriangleSliceIndex = 0; TriangleSliceIndex < 2; ++TriangleSliceIndex)
 			{
 				const bool bDirectlyHitPiece = SegmentIndex == HitSegmentIndex &&
 											   TriangleSliceIndex == HitTriangleSliceIndex;
-				const FVector WorldCenter = GetActorTransform().TransformPosition(
-					LocalTriangleCenters[TriangleSliceIndex]);
-				if (!bDirectlyHitPiece && FVector::DistSquared(WorldCenter, WorldImpact) > SafeRadiusSquared)
+				if (!bDirectlyHitPiece && SliceDistances[TriangleSliceIndex] > SafeRadiusSquared)
 				{
 					continue;
 				}
@@ -1958,6 +1990,8 @@ int32 AChunkedDestructibleConeStructure::DestroySpiralSegmentsInRadiusFromHit(
 				if (!IsSpiralTriangleSliceDestroyed(SegmentIndex, TriangleSliceIndex))
 				{
 					DestroyedSpiralTriangleSliceIndices.Add(SliceKey);
+					if (bScatterDestroyedPieces && ActiveDestructionPressure.Radius > 0.f)
+						SpawnDebrisAtLocalPoint(GetActorTransform().InverseTransformPosition(ClosestSlicePoints[TriangleSliceIndex]), true);
 					SegmentIndicesToRebuild.Add(SegmentIndex);
 					++DestroyedPieceCount;
 				}
@@ -1965,15 +1999,14 @@ int32 AChunkedDestructibleConeStructure::DestroySpiralSegmentsInRadiusFromHit(
 		}
 		else
 		{
-			const FVector LocalCenter = (InnerBottomA + OuterBottomA + InnerTopA + OuterTopA +
-										 InnerBottomB + OuterBottomB + InnerTopB + OuterTopB) /
-										8.0f;
-			const FVector WorldCenter = GetActorTransform().TransformPosition(LocalCenter);
 			const bool bDirectlyHitPiece = SegmentIndex == HitSegmentIndex;
-			if ((bDirectlyHitPiece || FVector::DistSquared(WorldCenter, WorldImpact) <= SafeRadiusSquared) &&
+			if ((bDirectlyHitPiece || FMath::Min(SliceDistances[0], SliceDistances[1]) <= SafeRadiusSquared) &&
 				!IsSpiralSegmentDestroyed(SegmentIndex))
 			{
 				DestroyedSpiralSegmentIndices.Add(SegmentIndex);
+				if (bScatterDestroyedPieces && ActiveDestructionPressure.Radius > 0.f)
+					SpawnDebrisAtLocalPoint(GetActorTransform().InverseTransformPosition(
+						ClosestSlicePoints[SliceDistances[0] <= SliceDistances[1] ? 0 : 1]), true);
 				SegmentIndicesToRebuild.Add(SegmentIndex);
 				++DestroyedPieceCount;
 			}
@@ -5292,6 +5325,13 @@ void AChunkedDestructibleConeStructure::HandleConeCellDestroyed(
 
 void AChunkedDestructibleConeStructure::SpawnDebrisForCell(FIntPoint Cell)
 {
+	int32 X, Y, Z;
+	if (!DecodeCell(Cell, X, Y, Z)) return;
+	SpawnDebrisAtLocalPoint(GetCellFlashTransform(Cell).GetLocation(), IsPlatformCell(X, Y, Z));
+}
+
+void AChunkedDestructibleConeStructure::SpawnDebrisAtLocalPoint(const FVector& LocalCenter, bool bPlatformCell)
+{
 	const int32 EffectiveDebrisLimit = GetEffectiveDebrisLimit();
 	if (!DebrisCubeMesh || EffectiveDebrisLimit <= 0 || !GetWorld())
 	{
@@ -5307,15 +5347,6 @@ void AChunkedDestructibleConeStructure::SpawnDebrisForCell(FIntPoint Cell)
 		return;
 	}
 
-	int32 X;
-	int32 Y;
-	int32 Z;
-	if (!DecodeCell(Cell, X, Y, Z))
-	{
-		return;
-	}
-	const FVector LocalCenter = GetCellFlashTransform(Cell).GetLocation();
-	const bool bPlatformCell = IsPlatformCell(X, Y, Z);
 	UMaterialInterface *DebrisMaterial = ResolveStructureMaterial(bPlatformCell);
 	const float MinimumScale = FMath::Clamp(
 		static_cast<float>(FMath::Min(DebrisScaleRange.X, DebrisScaleRange.Y)), 0.05f, 1.0f);
@@ -5384,7 +5415,8 @@ void AChunkedDestructibleConeStructure::SpawnDebrisForCell(FIntPoint Cell)
 			FMath::FRandRange(0.0f, 0.35f));
 		ScatterDirection.Normalize();
 		Debris->AddImpulse(
-			ScatterDirection * DebrisImpulse + FVector::UpVector * DebrisUpwardImpulse,
+			ScatterDirection * DebrisImpulse + FVector::UpVector * DebrisUpwardImpulse
+				+ GetDebrisBlastImpulse(FragmentWorldLocation),
 			NAME_None,
 			true);
 		Debris->AddAngularImpulseInDegrees(FVector(

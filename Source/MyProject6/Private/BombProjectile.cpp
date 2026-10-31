@@ -79,6 +79,20 @@ void CarveBlastSphere(UDynamicMeshComponent* Component, UDynamicMesh* Cutter,
 
 FVector ClosestBlastPoint(UPrimitiveComponent* Component, const FVector& Origin)
 {
+    if (const auto* Capsule = Cast<UCapsuleComponent>(Component))
+    {
+        // A character's gameplay volume must work even during collision-disabled
+        // spawn/death/ability transitions. Do not approximate a capsule with its box.
+        float Radius, HalfHeight;
+        Capsule->GetScaledCapsuleSize(Radius, HalfHeight);
+        const FVector Axis = Capsule->GetUpVector();
+        const FVector Center = Capsule->GetComponentLocation();
+        const double Length = FMath::Max(0.f, HalfHeight-Radius);
+        const FVector AxisPoint = Center+Axis*FMath::Clamp((Origin-Center).Dot(Axis),-Length,Length);
+        const FVector Offset = Origin-AxisPoint;
+        return Offset.SizeSquared() <= FMath::Square(Radius)
+            ? Origin : AxisPoint+Offset.GetSafeNormal()*Radius;
+    }
     FVector Closest = Origin;
     const float Distance = Component->GetClosestPointOnCollision(Origin, Closest);
     // Zero means the origin is inside the body. Some collision implementations
@@ -197,10 +211,10 @@ void ABombProjectile::Explode()
     FuseAudio->Stop();
     const FVector Origin = GetActorLocation();
     ApplyBlastDamage(Origin);
-    DamageStructures(Origin);
-    // Death callbacks must finish before launch, and newly created debris must
-    // receive the same pressure as physics bodies already in the blast sphere.
+    // Death callbacks finish first. Push existing bodies once; new structure
+    // debris inherits pressure from its queued cell, including delayed ripples.
     ApplyBlastImpulse(Origin);
+    DamageStructures(Origin);
     if (ExplosionSound) UGameplayStatics::PlaySoundAtLocation(this, ExplosionSound, Origin, 1.f);
     UGameplayStatics::PlayWorldCameraShake(this, UBFGCameraShake::StaticClass(), Origin, 0.f, BlastRadius * 3.f, 1.5f);
     SetLifeSpan(1.65f);
@@ -220,12 +234,20 @@ void ABombProjectile::ApplyBlastDamage(const FVector& Origin)
         UPrimitiveComponent* Component = Overlap.GetComponent();
         if (!IsValid(Actor) || !Component || Actor == this || !Actor->CanBeDamaged()
             || Actor->IsA<AChunkedDestructibleFloor>() || IsDynamicMeshStructure(Actor)) continue;
-        // Contact sensors, weapons and cosmetic components must not extend a
-        // character's damage radius. Their capsule is the gameplay body.
-        if (auto* Character = Cast<ACharacter>(Actor)) Component = Character->GetCapsuleComponent();
+        if (Actor->IsA<ACharacter>()) continue; // Enumerated once below, independently of collision.
         const FVector Closest = ClosestBlastPoint(Component, Origin);
         if (FVector::DistSquared(Origin, Closest) >= FMath::Square(Radius)) continue;
         Hits.FindOrAdd(Actor).Emplace(Actor, Component, Closest, (Origin-Closest).GetSafeNormal());
+    }
+    for (TActorIterator<ACharacter> It(GetWorld()); It; ++It)
+    {
+        ACharacter* Character = *It;
+        if (!IsValid(Character) || !Character->CanBeDamaged()) continue;
+        UCapsuleComponent* Capsule = Character->GetCapsuleComponent();
+        if (!Capsule) continue;
+        const FVector Closest = ClosestBlastPoint(Capsule, Origin);
+        if (FVector::DistSquared(Origin, Closest) >= FMath::Square(Radius)) continue;
+        Hits.FindOrAdd(Character).Emplace(Character, Capsule, Closest, (Origin-Closest).GetSafeNormal());
     }
     for (auto& Pair : Hits)
     {
@@ -260,6 +282,11 @@ void ABombProjectile::ApplyBlastImpulse(const FVector& Origin)
     // need pressure. The narrow-phase distance check below bounds their effect.
     for (TActorIterator<AActor> It(GetWorld()); It; ++It)
     {
+        if (auto* Character = Cast<ACharacter>(*It))
+        {
+            FOverlapResult& Overlap = Overlaps.AddDefaulted_GetRef();
+            Overlap.Component = Character->GetCapsuleComponent();
+        }
         TInlineComponentArray<UPrimitiveComponent*> Components(*It);
         for (UPrimitiveComponent* Component : Components)
             if (!Component->IsQueryCollisionEnabled() && Component->IsAnySimulatingPhysics())
@@ -343,9 +370,9 @@ void ABombProjectile::DamageStructures(const FVector& Origin)
         const float Radius = FMath::Max(1.f, BlastRadius) * (bSculpture ? FMath::Max(1.f, SculptureRadiusMultiplier) : 1.f);
         const FBox Bounds = Structure->GetComponentsBoundingBox(true);
         if (!Bounds.IsValid || Bounds.ComputeSquaredDistanceToPoint(Origin) > FMath::Square(Radius)) continue;
-        Structure->DamageCellsInRadius(Origin, Radius,
+        Structure->ApplySphericalBlast(Origin, Radius,
             FMath::Max(0.f,BlastDamage) * (bSculpture ? FMath::Max(1.f, SculptureDamageMultiplier) : 1.f),
-            EChunkedFloorBlastShape::Sphere, false);
+            ImpulseRadius, ImpulseSpeed, ImpulseLift);
     }
 
     // Complex triangle collision does not reliably participate in sphere overlaps.

@@ -1262,7 +1262,8 @@ void AChunkedDestructibleHouse::SpawnDebrisForCell(FIntPoint Cell, FVector World
 			FMath::FRandRange(0.0f, 0.35f));
 		ScatterDirection.Normalize();
 		Debris->AddImpulse(
-			ScatterDirection * DebrisImpulse + FVector::UpVector * DebrisUpwardImpulse,
+			ScatterDirection * DebrisImpulse + FVector::UpVector * DebrisUpwardImpulse
+				+ GetDebrisBlastImpulse(FragmentWorldLocation),
 			NAME_None,
 			true);
 		Debris->AddAngularImpulseInDegrees(FVector(

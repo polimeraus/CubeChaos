@@ -404,12 +404,16 @@ public:
 
 	/** Damages cells using explicit radial selection settings. */
 	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Damage")
-	int32 DamageCellsInRadius(
+	virtual int32 DamageCellsInRadius(
 		FVector WorldLocation,
 		float Radius,
 		float DamageAmount,
 		EChunkedFloorBlastShape Shape,
 		bool bUseDamageFalloff);
+
+	/** Sphere damage with pressure retained by queued cells until their debris is spawned. */
+	int32 ApplySphericalBlast(FVector Origin, float Radius, float Damage,
+		float PressureRadius, float PressureSpeed, float PressureLift);
 
 	/** Queues one cell for destruction, bypassing health but respecting its destructible flag. */
 	UFUNCTION(BlueprintCallable, Category = "Chunked Floor|Damage")
@@ -814,11 +818,22 @@ protected:
 		int32 MaterialIndex = 0;
 	};
 
+	struct FDestructionPressure
+	{
+		FVector Origin = FVector::ZeroVector;
+		float Radius = 0.f;
+		float Speed = 0.f;
+		float Lift = 0.f;
+	};
+	FDestructionPressure ActiveDestructionPressure;
+	FVector GetDebrisBlastImpulse(const FVector& WorldLocation) const;
+
 	struct FQueuedCellDestruction
 	{
 		int32 CellIndex = INDEX_NONE;
 		double ExecuteTime = 0.0;
 		bool bRadial = false;
+		FDestructionPressure Pressure;
 
 		bool operator<(const FQueuedCellDestruction& Other) const
 		{

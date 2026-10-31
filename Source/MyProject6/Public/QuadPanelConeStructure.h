@@ -17,6 +17,7 @@ UCLASS(BlueprintType, Blueprintable)
 class MYPROJECT6_API AQuadPanelConeStructure : public AChunkedDestructibleFloor
 {
 	GENERATED_BODY()
+	friend class FBombAirburstTest;
 	friend class FQuadPanelConeTest;
 	friend class FDestructibleMusicAnimationTest;
 	friend class FDestructibleConeMusicGroupsTest;
@@ -81,6 +82,9 @@ public:
 	/** Rebuilds the cone from its current settings. */
 	UFUNCTION(BlueprintCallable, Category = "Destructible Cone Structure|Generation")
 	void RebuildConeStructure(bool bPreserveCellState = false);
+
+	virtual int32 DamageCellsInRadius(FVector WorldLocation, float Radius, float DamageAmount,
+		EChunkedFloorBlastShape Shape, bool bUseDamageFalloff) override;
 
 	/** Updates the main cone dimensions and rebuilds all chunks. */
 	UFUNCTION(BlueprintCallable, Category = "Destructible Cone Structure|Generation")
@@ -595,6 +599,8 @@ private:
 		int32* OutTriangleSliceIndex = nullptr) const;
 	bool DestroySpiralSegmentFromHit(const FHitResult& Hit);
 	int32 DestroySpiralSegmentsInRadiusFromHit(const FHitResult& Hit, float Radius);
+	int32 DestroySpiralSegmentsInSphere(const FVector& WorldImpact, float Radius,
+		int32 HitSegmentIndex = INDEX_NONE, int32 HitTriangleSliceIndex = INDEX_NONE);
 	void AddSpiralCrossSectionCells(
 		FIntPoint Cell,
 		FVector WorldImpact,
@@ -676,5 +682,6 @@ private:
 	void HandleConeCellDestroyed(FIntPoint Cell, FVector WorldLocation, bool bRadialDestruction);
 
 	void SpawnDebrisForCell(FIntPoint Cell);
+	void SpawnDebrisAtLocalPoint(const FVector& LocalCenter, bool bPlatformCell);
 	void ClearDebris();
 };

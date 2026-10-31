@@ -2272,6 +2272,24 @@ int32 AChunkedDestructibleFloor::SelectCellsInRadius(
 	return SelectedCount;
 }
 
+int32 AChunkedDestructibleFloor::ApplySphericalBlast(FVector Origin, float Radius, float Damage,
+	float PressureRadius, float PressureSpeed, float PressureLift)
+{
+	const FDestructionPressure Pressure{Origin, FMath::Max(0.f, PressureRadius),
+		FMath::Max(0.f, PressureSpeed), FMath::Max(0.f, PressureLift)};
+	TGuardValue<FDestructionPressure> Guard(ActiveDestructionPressure, Pressure);
+	return DamageCellsInRadius(Origin, Radius, Damage, EChunkedFloorBlastShape::Sphere, false);
+}
+
+FVector AChunkedDestructibleFloor::GetDebrisBlastImpulse(const FVector& WorldLocation) const
+{
+	if (ActiveDestructionPressure.Radius <= 0.f) return FVector::ZeroVector;
+	const FVector Away = WorldLocation-ActiveDestructionPressure.Origin;
+	const float Falloff = FMath::Clamp(1.f-Away.Length()/ActiveDestructionPressure.Radius, 0.f, 1.f);
+	return (Away.GetSafeNormal(UE_SMALL_NUMBER,FVector::UpVector)*ActiveDestructionPressure.Speed
+		+ FVector::UpVector*ActiveDestructionPressure.Lift)*Falloff;
+}
+
 int32 AChunkedDestructibleFloor::DamageCellsInRadius(
 	FVector WorldLocation,
 	float Radius,
@@ -2387,6 +2405,7 @@ bool AChunkedDestructibleFloor::QueueCellDestruction(int32 CellIndex, float Dela
 	Queued.CellIndex = CellIndex;
 	Queued.ExecuteTime = CurrentTime + FMath::Max(Delay, 0.0f);
 	Queued.bRadial = bRadial;
+	Queued.Pressure = ActiveDestructionPressure;
 	QueuedDestructions.HeapPush(MoveTemp(Queued));
 	PendingCellIndices.Add(CellIndex);
 	SetActorTickEnabled(true);
@@ -2437,7 +2456,10 @@ void AChunkedDestructibleFloor::ProcessQueuedDestructions(double CurrentTime)
 		MarkCellChunksDirty(Cell);
 		SpawnCellFlash(Cell, CurrentTime);
 		PlayDestroySound(WorldCenter, CurrentTime);
-		OnCellDestroyed.Broadcast(Cell, WorldCenter, Queued.bRadial);
+		{
+			TGuardValue<FDestructionPressure> Guard(ActiveDestructionPressure, Queued.Pressure);
+			OnCellDestroyed.Broadcast(Cell, WorldCenter, Queued.bRadial);
+		}
 		bDestroyedAnyCell = true;
 	}
 
