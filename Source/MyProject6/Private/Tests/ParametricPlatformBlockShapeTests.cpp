@@ -21,6 +21,7 @@ bool FParametricPlatformBlockShapeTest::RunTest(const FString& Parameters)
     ON_SCOPE_EXIT { World->DestroyWorld(false); GEngine->DestroyWorldContext(World); };
     auto* P = World->SpawnActor<AParametricPlatform>();
     P->BorderStyle = EPlatformBorder::None;
+    P->bRoundCorners = true;
     P->TileSize = FVector2D(130, 130);
     P->FillRule = EChunkedFloorFillRule::StretchCells;
     P->bUseDestructionRipple = false;

@@ -320,8 +320,8 @@ bool AParametricPlatform::BuildReferenceShape()
 
 bool AParametricPlatform::UsesRoundedCorners() const
 {
-    return FMath::IsFinite(CornerRadius) && CornerRadius > UE_SMALL_NUMBER &&
-        OuterShape != EChunkedDecorativeFloorShape::Circle && OuterShape != EChunkedDecorativeFloorShape::RoundedBlob;
+    return bRoundCorners && FMath::IsFinite(CornerRadius) && CornerRadius > UE_SMALL_NUMBER &&
+        OuterShape != EChunkedDecorativeFloorShape::Circle && OuterShape != EChunkedDecorativeFloorShape::Ellipse && OuterShape != EChunkedDecorativeFloorShape::RoundedBlob;
 }
 
 void AParametricPlatform::RebuildShapeOutline()
@@ -340,6 +340,16 @@ void AParametricPlatform::RebuildShapeOutline()
     {
         CachedShapeOutline.Reset(); CachedShapeTriangles.Reset();
         if (!BuildReferenceShape()) { ShapeWarning = TEXT("The reference shape could not be built."); return; }
+    }
+    else if (OuterShape == EChunkedDecorativeFloorShape::Ellipse || OuterShape == EChunkedDecorativeFloorShape::RegularPolygon)
+    {
+        CachedShapeOutline.Reset();
+        const int32 Count = OuterShape == EChunkedDecorativeFloorShape::Ellipse ? FMath::Clamp(CircleEdgeSegments, 16, 512) : FMath::Clamp(PolygonSides, 3, 32);
+        for (int32 I = 0; I < Count; ++I)
+        {
+            const double A = UE_DOUBLE_HALF_PI + UE_DOUBLE_TWO_PI * I / Count;
+            CachedShapeOutline.Add(FVector2D(FMath::Cos(A) * ShapeSize.X * .5, FMath::Sin(A) * ShapeSize.Y * .5));
+        }
     }
     else if (!UsesBlockShape())
     {
@@ -475,7 +485,7 @@ void AParametricPlatform::RebuildShapeOutline()
 
 bool AParametricPlatform::IsPointInsideOuterShape(const FVector2D& Point, float Inset) const
 {
-    if (!UsesBlockShape() && !UsesRoundedCorners() && !UsesReferenceShape() && OuterShape != EChunkedDecorativeFloorShape::ParametricShape)
+    if (!UsesBlockShape() && !UsesRoundedCorners() && !UsesReferenceShape() && OuterShape != EChunkedDecorativeFloorShape::ParametricShape && OuterShape != EChunkedDecorativeFloorShape::Ellipse && OuterShape != EChunkedDecorativeFloorShape::RegularPolygon)
         return Super::IsPointInsideOuterShape(Point, Inset);
     if (CachedShapeOutline.Num() < 3 || !IsPointInsideGeneratedShape(Point)) return false;
     return Inset <= 0 || BoundaryDistanceSquared(GetPlatformPolygon(),Point) >= FMath::Square(double(Inset));

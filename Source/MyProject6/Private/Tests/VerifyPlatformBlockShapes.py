@@ -28,7 +28,7 @@ if setup and not unreal.EditorAssetLibrary.does_asset_exist(CHILD):
     child = unreal.AssetToolsHelpers.get_asset_tools().create_asset('BP_ParametricPlatform_RoundedU', ROOT+'/Examples', unreal.Blueprint, factory)
     cdo = unreal.get_default_object(child.generated_class())
     for key, value in {'outer_shape':unreal.ChunkedDecorativeFloorShape.U_SHAPE, 'shape_size':unreal.Vector2D(1200,1500),
-                       'corner_radius':90., 'corner_segments':12, 'floor_pattern':unreal.ChunkedFloorPattern.CIRCLES_AND_PATHS}.items():
+                       'round_corners':True, 'corner_radius':90., 'corner_segments':12, 'floor_pattern':unreal.ChunkedFloorPattern.CIRCLES_AND_PATHS}.items():
         cdo.set_editor_property(key, value)
     settings = cdo.get_editor_property('block_shape')
     settings.set_editor_property('rows', 4)
@@ -57,7 +57,7 @@ if setup and not unreal.EditorAssetLibrary.does_asset_exist(MAP):
             p.set_actor_label(label)
             for key,value in {'platform_mode':mode,'outer_shape':getattr(unreal.ChunkedDecorativeFloorShape,shape),
                               'shape_size':unreal.Vector2D(1000,360 if row == 2 and col == 1 else 1000),
-                              'corner_radius':0. if row == 0 else 130.,'corner_segments':12,'thickness':100.,
+                              'round_corners':row != 0,'corner_radius':0. if row == 0 else 130.,'corner_segments':12,'thickness':100.,
                               'tile_size':unreal.Vector2D(100,100),'border_style':unreal.PlatformBorder.NONE,
                               'floor_pattern':unreal.ChunkedFloorPattern.SOLID,'use_destruction_ripple':False}.items():
                 p.set_editor_property(key,value)

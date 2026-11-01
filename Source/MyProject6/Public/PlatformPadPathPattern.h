@@ -26,6 +26,17 @@ struct FPlatformPatternPad
     EPlatformPadPaint Paint = EPlatformPadPaint::Disc;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Circle", meta=(ClampMin="0.01", ClampMax="1", EditCondition="bShowCircle && Paint == EPlatformPadPaint::Ring"))
     float RingWidth = .14f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Spawn", meta=(EditCondition="bShowCircle", EditConditionHides))
+    bool bSpawnActor = false;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Spawn", meta=(EditCondition="bShowCircle && bSpawnActor", EditConditionHides))
+    TSubclassOf<AActor> ActorClass;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Spawn", meta=(EditCondition="bShowCircle && bSpawnActor", EditConditionHides, Units="cm"))
+    FVector SpawnOffset = FVector::ZeroVector;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Spawn", meta=(EditCondition="bShowCircle && bSpawnActor", EditConditionHides))
+    FRotator SpawnRotation = FRotator::ZeroRotator;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Spawn", meta=(EditCondition="bShowCircle && bSpawnActor", EditConditionHides))
+    FVector SpawnScale = FVector::OneVector;
 };
 
 USTRUCT(BlueprintType)
@@ -47,7 +58,7 @@ struct FPlatformPatternPath
     float EdgeInset = 65.f;
 };
 
-/** Surface painting only; no spawning or level actor references. */
+/** One pad layout shared by painting and optional spawning; no level actor references. */
 USTRUCT(BlueprintType)
 struct FPlatformPadPathPattern
 {
@@ -61,6 +72,13 @@ struct FPlatformPadPathPattern
     TArray<FPlatformPatternPath> Paths;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Circles & Paths") bool bFitPadsInsidePlatform = true;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Circles & Paths") bool bShowLayout = true;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Spawning") bool bEnableSpawning = false;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Spawning", meta=(EditCondition="bEnableSpawning", EditConditionHides))
+    bool bSpawnOnBeginPlay = true;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Spawning", meta=(EditCondition="bEnableSpawning", EditConditionHides))
+    bool bAttachSpawnedActors = true;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Spawning", meta=(EditCondition="bEnableSpawning", EditConditionHides))
+    ESpawnActorCollisionHandlingMethod SpawnCollisionHandling = ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Circles & Paths", meta=(HideAlphaChannel))
     FLinearColor BackgroundColor = FLinearColor(.105f, .003f, .46f);
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Circles & Paths", meta=(HideAlphaChannel))

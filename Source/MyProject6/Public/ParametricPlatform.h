@@ -21,7 +21,8 @@ enum class EPlatformBorder : uint8
 {
     None,
     CellBorder UMETA(DisplayName="Colored Edge Tiles"),
-    InsetBand UMETA(DisplayName="Inset Surface Line")
+    InsetBand UMETA(DisplayName="Inset Surface Line"),
+    Rim UMETA(DisplayName="Edge Rim")
 };
 
 UENUM(BlueprintType)
@@ -37,7 +38,8 @@ enum class EPlatformPreset : uint8
     Ground,
     Triangle,
     RoundedBlob,
-    DecorativeFloor
+    DecorativeFloor,
+    Lobby
 };
 
 /** One platform authoring surface. Shape, palette, patterns, edge treatment and animation are
@@ -52,8 +54,12 @@ class MYPROJECT6_API AParametricPlatform : public AChunkedDestructibleDecorative
     friend class FParametricPlatformBlockShapeTest;
     friend class FParametricPlatformReferenceShapeTest;
     friend class FParametricPlatformOrganicShapeTest;
+    friend class FParametricPlatformFinishTest;
 public:
     AParametricPlatform();
+    virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual float TakeDamage(float DamageAmount, const FDamageEvent& Event, AController* EventInstigator, AActor* Causer) override;
     UFUNCTION(BlueprintPure, Category="Platform")
     bool UsesReferenceShape() const;
     virtual void GenerateFloor(bool bPreserveCellState = false) override;
@@ -82,16 +88,39 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Edge", meta=(ClampMin="0", Units="cm", EditCondition="BorderStyle == EPlatformBorder::InsetBand", EditConditionHides))
     float BoundaryInset = 150.f;
 
+    /** Bevel the upper and lower silhouette edges, including holes. Fracture edges stay sharp. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Edge", meta=(DisplayName="Vertical Edge Bevel"))
+    bool bBevelEdges = false;
+
+    /** Limited automatically by thickness and narrow details to avoid intersecting bevels. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Edge", meta=(ClampMin="0", Units="cm", EditCondition="bBevelEdges", EditConditionHides))
+    float BevelSize = 10.f;
+
+    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Platform|Edge", meta=(EditCondition="bBevelEdges", EditConditionHides, Units="cm"))
+    float EffectiveBevelSize = 0.f;
+
+    /** -1 follows the surface palette; otherwise use this existing palette slot for sides and bottom. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="Platform|Materials", meta=(ClampMin="-1"))
+    int32 BodyMaterialIndex = -1;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(EditCondition="OuterShape == EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides))
     EPlatformBlobProfile BlobProfile = EPlatformBlobProfile::Organic;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(DisplayName="Horizontal Corner Rounding", EditCondition="!UsesReferenceShape() && OuterShape != EChunkedDecorativeFloorShape::ParametricShape && OuterShape != EChunkedDecorativeFloorShape::Circle && OuterShape != EChunkedDecorativeFloorShape::Ellipse && OuterShape != EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides))
+    // Keep enabled by default so existing Blueprints/placed radius overrides retain their shape.
+    // A zero radius still produces sharp corners, exactly as before this switch was introduced.
+    bool bRoundCorners = true;
+
     /** Zero keeps sharp corners. Positive values fillet convex and concave polygon corners.
      * Radius is locally limited by adjacent edges; Circle/Blob already have their own curve controls. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(ClampMin="0", Units="cm", EditCondition="!UsesReferenceShape() && OuterShape != EChunkedDecorativeFloorShape::ParametricShape && OuterShape != EChunkedDecorativeFloorShape::Circle && OuterShape != EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(ClampMin="0", Units="cm", EditCondition="bRoundCorners && !UsesReferenceShape() && OuterShape != EChunkedDecorativeFloorShape::ParametricShape && OuterShape != EChunkedDecorativeFloorShape::Circle && OuterShape != EChunkedDecorativeFloorShape::Ellipse && OuterShape != EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides))
     float CornerRadius = 0;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(ClampMin="1", ClampMax="32", EditCondition="CornerRadius > 0 && !UsesReferenceShape() && OuterShape != EChunkedDecorativeFloorShape::ParametricShape && OuterShape != EChunkedDecorativeFloorShape::Circle && OuterShape != EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(ClampMin="1", ClampMax="32", EditCondition="bRoundCorners && CornerRadius > 0 && !UsesReferenceShape() && OuterShape != EChunkedDecorativeFloorShape::ParametricShape && OuterShape != EChunkedDecorativeFloorShape::Circle && OuterShape != EChunkedDecorativeFloorShape::Ellipse && OuterShape != EChunkedDecorativeFloorShape::RoundedBlob", EditConditionHides))
     int32 CornerSegments = 8;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(ClampMin="3", ClampMax="32", EditCondition="OuterShape == EChunkedDecorativeFloorShape::RegularPolygon", EditConditionHides))
+    int32 PolygonSides = 8;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(EditCondition="OuterShape == EChunkedDecorativeFloorShape::LShape || OuterShape == EChunkedDecorativeFloorShape::TShape || OuterShape == EChunkedDecorativeFloorShape::Zigzag || OuterShape == EChunkedDecorativeFloorShape::UShape || OuterShape == EChunkedDecorativeFloorShape::Cross || OuterShape == EChunkedDecorativeFloorShape::CustomBlocks", EditConditionHides))
     FPlatformBlockShape BlockShape;
@@ -142,6 +171,25 @@ public:
     UFUNCTION(BlueprintCallable, CallInEditor, Category="Platform")
     void RebuildPlatform();
 
+    UFUNCTION(BlueprintPure, Category="Platform|Pads")
+    TArray<FName> GetPadIds() const;
+    UFUNCTION(BlueprintPure, Category="Platform|Pads")
+    bool GetPadWorldCenter(FName PadId, FVector& WorldCenter) const;
+    UFUNCTION(BlueprintPure, Category="Platform|Pads")
+    bool GetPadSpawnTransform(FName PadId, FTransform& WorldTransform) const;
+    UFUNCTION(BlueprintPure, Category="Platform|Pads")
+    bool IsPadSurfaceIntact(FName PadId) const;
+    UFUNCTION(BlueprintCallable, Category="Platform|Pads")
+    AActor* SpawnActorAtPad(FName PadId, TSubclassOf<AActor> ActorClass);
+    UFUNCTION(BlueprintCallable, Category="Platform|Pads")
+    TArray<AActor*> SpawnConfiguredActors();
+    UFUNCTION(BlueprintPure, Category="Platform|Pads")
+    AActor* GetSpawnedActorAtPad(FName PadId) const;
+    UFUNCTION(BlueprintCallable, Category="Platform|Pads")
+    bool ClearSpawnedActorAtPad(FName PadId);
+    UFUNCTION(BlueprintCallable, Category="Platform|Pads")
+    void ClearSpawnedActors();
+
     UFUNCTION(BlueprintCallable, Category="Platform")
     void SetPlatformMode(EPlatformMode NewMode);
 
@@ -175,7 +223,8 @@ protected:
     virtual void BuildChunkSimpleCollision(int32 ChunkIndex, FKAggregateGeom& Collision) const override;
     virtual void ConfigureChunkComponent(UDynamicMeshComponent* Component) const override;
     virtual int32 EvaluatePatternMaterial(FIntPoint Cell) const override;
-    virtual bool CanDestroyCell(FIntPoint Cell) const override { return PlatformMode == EPlatformMode::Cellular; }
+    virtual bool CanDestroyCell(FIntPoint Cell) const override { return PlatformMode == EPlatformMode::Cellular && CanBeDamaged() && HasAuthority(); }
+    virtual void FinalizeDestructionBatch(double CurrentTime) override;
     virtual int32 SelectCellsInRadius(FVector Location, float Radius, EChunkedFloorBlastShape Shape,
         TFunctionRef<void(int32, float)> CellFunction) override;
     virtual void RebuildBlobCache() override;
@@ -187,6 +236,21 @@ protected:
     virtual void ClipSpiralSurface(const TArray<TArray<FVector2D>>& CellPolygons,
         TArray<FChunkedCachedSpiralTriangle>& OutTriangles) const override;
 private:
+    struct FBevelPatch
+    {
+        FVector3d P[3];
+        FBox2D Bounds = FBox2D(ForceInit);
+    };
+    TArray<FBevelPatch> BevelPatches;
+    UE::Geometry::FGeneralPolygon2d BevelTopPolygon;
+    void PrepareBevel();
+    void ApplyEdgeFinish(int32 ChunkIndex, UE::Geometry::FDynamicMesh3& Mesh) const;
+    void BevelSimpleCollision(FKAggregateGeom& Collision) const;
+    UE::Geometry::FGeneralPolygon2d GetPadSurfacePolygon() const;
+    bool ImportLobbySettings(const class AParametricLobbyPlatformDestructable* Lobby);
+    struct FResolvedPlatformPad { FVector2D Center; double Radius; bool Show; int32 Index; };
+    TMap<FName, FResolvedPlatformPad> ResolvedPads;
+    UPROPERTY(Transient) TMap<FName, TObjectPtr<AActor>> SpawnedPadActors;
     UPROPERTY(Transient) TArray<TObjectPtr<UMaterialInstanceDynamic>> TintedMaterials;
     UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> PadPathMaterialInstance;
     bool bGeneratedPlatform = false;

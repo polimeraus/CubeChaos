@@ -57,7 +57,7 @@ void FChunkedFloorDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& D
 		const auto Shape = DetailBuilder.GetProperty(TEXT("OuterShape"), AChunkedDestructibleDecorativeFloor::StaticClass());
 		const auto Restriction = MakeShared<FPropertyRestriction>(LOCTEXT("PlatformShapesOnly", "Available on Parametric Platform."));
 		const UEnum* Shapes = StaticEnum<EChunkedDecorativeFloorShape>();
-		for (int32 Value = int32(EChunkedDecorativeFloorShape::LShape); Value <= int32(EChunkedDecorativeFloorShape::ParametricShape); ++Value)
+		for (int32 Value = int32(EChunkedDecorativeFloorShape::LShape); Value <= int32(EChunkedDecorativeFloorShape::RegularPolygon); ++Value)
 			Restriction->AddHiddenValue(Shapes->GetNameStringByValue(Value));
 		Shape->AddRestriction(Restriction);
 	}
@@ -72,7 +72,12 @@ void FChunkedFloorDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& D
 			if (Name == TEXT("ShapeSize"))
 				Handle->SetInstanceMetaData(TEXT("EditCondition"), TEXT("OuterShape != EChunkedDecorativeFloorShape::ParametricShape"));
 			if (Name == TEXT("BorderWidth") || Name == TEXT("BorderMaterialIndex"))
+			{
 				Handle->SetInstanceMetaData(TEXT("EditCondition"), TEXT("BorderStyle != EPlatformBorder::None"));
+                Handle->SetInstanceMetaData(TEXT("EditConditionHides"), TEXT("true"));
+            }
+            if (Name == TEXT("CircleEdgeSegments"))
+                Handle->SetInstanceMetaData(TEXT("EditCondition"), TEXT("OuterShape == EChunkedDecorativeFloorShape::Circle || OuterShape == EChunkedDecorativeFloorShape::Ellipse"));
 			if (Name == TEXT("AreaSize") || Name == TEXT("CellDimensions") || Name == TEXT("bUseBrightBorder"))
 			{
 				DetailBuilder.HideProperty(Handle);

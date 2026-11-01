@@ -1,4 +1,5 @@
 #include "ParametricPlatform.h"
+#include "ParametricLobbyPlatformDestructable.h"
 #include "ParametricGround.h"
 #include "ParametricGroundGeometry.h"
 #include "ChunkedDestructibleTriangle.h"
@@ -94,7 +95,7 @@ void AParametricPlatform::PostRegisterAllComponents()
         GenerateFloor(false);
 }
 
-void AParametricPlatform::RebuildPlatform() { GenerateFloor(false); }
+void AParametricPlatform::RebuildPlatform() { GenerateFloor(true); }
 void AParametricPlatform::ApplyMaterialPattern()
 {
     if (PlatformMode == EPlatformMode::Solid || !bGeneratedPlatform || GeneratedMode != PlatformMode ||
@@ -148,7 +149,7 @@ bool AParametricPlatform::CalculateLayout()
     if (PlatformMode == EPlatformMode::Cellular)
     {
         const bool Result = Super::CalculateLayout();
-        if (Result) UpdatePadPathMaterial();
+        if (Result) { PrepareBevel(); UpdatePadPathMaterial(); }
         return Result;
     }
     // A single surface record lets shared motif/animation code address this slab. It is never
@@ -165,7 +166,7 @@ bool AParametricPlatform::CalculateLayout()
     while (FMath::CeilToDouble(ShapeSize.X / (TileSize.X * Scale)) *
         FMath::CeilToDouble(ShapeSize.Y / (TileSize.Y * Scale)) > Budget) Scale *= 2;
     EffectiveSolidTileSize = TileSize * Scale;
-    if (Result) UpdatePadPathMaterial();
+    if (Result) { PrepareBevel(); UpdatePadPathMaterial(); }
     return Result;
 }
 
@@ -322,14 +323,15 @@ void AParametricPlatform::AppendSolidTiles(FDynamicMesh3& Mesh) const
 
 void AParametricPlatform::AppendInsetBorder(int32 ChunkIndex, FDynamicMesh3& Mesh) const
 {
-    if (BorderStyle != EPlatformBorder::InsetBand || BorderWidth <= 0 || CachedShapeOutline.Num() < 3) return;
-    if (PlatformMode == EPlatformMode::Solid && UsesRegularGroundSlab() &&
+    if ((BorderStyle != EPlatformBorder::InsetBand && BorderStyle != EPlatformBorder::Rim) || BorderWidth <= 0 || CachedShapeOutline.Num() < 3) return;
+    if (BorderStyle == EPlatformBorder::InsetBand && PlatformMode == EPlatformMode::Solid && UsesRegularGroundSlab() &&
         (FloorPattern == EChunkedFloorPattern::Solid || FloorPattern == EChunkedFloorPattern::CirclesAndPaths)) return;
-    const TArray<FGeneralPolygon2d> Shape = {GetPlatformPolygon()};
+    const TArray<FGeneralPolygon2d> Shape = {BorderStyle == EPlatformBorder::Rim && EffectiveBevelSize > 0 ? BevelTopPolygon : GetPlatformPolygon()};
+    const double Inset = BorderStyle == EPlatformBorder::Rim ? 0 : BoundaryInset;
     TArray<FGeneralPolygon2d> Outside, Inside, Band;
-    if (BoundaryInset <= UE_SMALL_NUMBER) Outside = Shape;
-    else PolygonsOffset(-BoundaryInset, Shape, Outside, false, 4, EPolygonOffsetJoinType::Miter);
-    PolygonsOffset(-(BoundaryInset + BorderWidth), Shape, Inside, false, 4, EPolygonOffsetJoinType::Miter);
+    if (Inset <= UE_SMALL_NUMBER) Outside = Shape;
+    else PolygonsOffset(-Inset, Shape, Outside, false, 4, EPolygonOffsetJoinType::Miter);
+    PolygonsOffset(-(Inset + BorderWidth), Shape, Inside, false, 4, EPolygonOffsetJoinType::Miter);
     if (Inside.IsEmpty()) Band = Outside;
     else PolygonsDifference(Outside, Inside, Band);
     for (const FGeneralPolygon2d& Polygon : Band)
@@ -421,11 +423,13 @@ void AParametricPlatform::BuildChunkMesh(int32 ChunkIndex, FDynamicMesh3& Mesh) 
     else Super::BuildChunkMesh(ChunkIndex, Mesh);
     AppendInsetBorder(ChunkIndex, Mesh);
     ApplyPadPathSurface(Mesh);
+    ApplyEdgeFinish(ChunkIndex, Mesh);
 }
 
 void AParametricPlatform::BuildChunkSimpleCollision(int32 ChunkIndex, FKAggregateGeom& Collision) const
 {
     if (PlatformMode == EPlatformMode::Cellular) Super::BuildChunkSimpleCollision(ChunkIndex, Collision);
+    if (EffectiveBevelSize > 0) BevelSimpleCollision(Collision);
 }
 
 int32 AParametricPlatform::SelectCellsInRadius(FVector Location, float Radius, EChunkedFloorBlastShape Shape,
@@ -506,6 +510,7 @@ void AParametricPlatform::ApplyPreset()
     case EPlatformPreset::Triangle: Source = GetMutableDefault<AChunkedDestructibleTriangle>(); break;
     case EPlatformPreset::RoundedBlob: Source = GetMutableDefault<AChunkedDestructibleRoundedBlob>(); break;
     case EPlatformPreset::DecorativeFloor: Source = GetMutableDefault<AChunkedDestructibleDecorativeFloor>(); break;
+    case EPlatformPreset::Lobby: Source = GetMutableDefault<AParametricLobbyPlatformDestructable>(); break;
     }
     CopyPlatformSettingsFrom(Source);
 }
@@ -513,6 +518,12 @@ void AParametricPlatform::ApplyPreset()
 bool AParametricPlatform::CopyPlatformSettingsFrom(AActor* Source)
 {
     if (!Source || Source == this) return false;
+    if (const auto* Lobby = Cast<AParametricLobbyPlatformDestructable>(Source)) return ImportLobbySettings(Lobby);
+    if (!Source->IsA<AParametricGround>() && !Source->IsA<AChunkedDestructibleFloor>()) return false;
+    bBevelEdges = false;
+    bRoundCorners = false;
+    BodyMaterialIndex = -1;
+    PadPathSettings.bEnableSpawning = false;
     if (const AParametricGround* Ground = Cast<AParametricGround>(Source))
     {
         PlatformMode = EPlatformMode::Solid;
@@ -590,6 +601,10 @@ bool AParametricPlatform::CopyPlatformSettingsFrom(AActor* Source)
             CornerRadius = Platform->CornerRadius; CornerSegments = Platform->CornerSegments; BlockShape = Platform->BlockShape;
             ReferenceShape = Platform->ReferenceShape;
             ParametricShapeSettings = Platform->ParametricShapeSettings;
+            bBevelEdges = Platform->bBevelEdges; BevelSize = Platform->BevelSize;
+            bRoundCorners = Platform->bRoundCorners; PolygonSides = Platform->PolygonSides;
+            BodyMaterialIndex = Platform->BodyMaterialIndex;
+            SetCanBeDamaged(Platform->CanBeDamaged());
         }
         else CornerRadius = 0;
     }

@@ -84,6 +84,7 @@ FPlatformPadPathPattern::FPlatformPadPathPattern()
 void AParametricPlatform::UpdatePadPathMaterial()
 {
     PadPathWarning.Reset();
+    ResolvedPads.Reset();
     if (FloorPattern != EChunkedFloorPattern::CirclesAndPaths)
     {
         PadPathMaterialInstance = nullptr;
@@ -104,32 +105,32 @@ void AParametricPlatform::UpdatePadPathMaterial()
     {
         PadPathMaterialInstance = nullptr;
         Warn(TEXT("Assign the Circles & Paths Surface Material to display this pattern."));
-        return;
     }
-    if (!PadPathMaterialInstance || PadPathMaterialInstance->Parent != PadPathSettings.SurfaceMaterial)
+    else if (!PadPathMaterialInstance || PadPathMaterialInstance->Parent != PadPathSettings.SurfaceMaterial)
     {
         PadPathMaterialInstance = UMaterialInstanceDynamic::Create(PadPathSettings.SurfaceMaterial, this);
         PadPathMaterialInstance->SetFlags(RF_Transient);
     }
     auto* M = PadPathMaterialInstance.Get();
-    M->SetVectorParameterValue(TEXT("Color"), PadPathSettings.BackgroundColor);
-    M->SetVectorParameterValue(TEXT("YellowColor"), PadPathSettings.PatternColor);
-    M->SetScalarParameterValue(TEXT("Emission"), Safe(PadPathSettings.BackgroundEmission, 0, 20, .18));
-    M->SetScalarParameterValue(TEXT("YellowEmission"), Safe(PadPathSettings.PatternEmission, 0, 20, .55));
-    M->SetScalarParameterValue(TEXT("Roughness"), Safe(PadPathSettings.Roughness, .02, 1, .19));
-    M->SetScalarParameterValue(TEXT("Metallic"), Safe(PadPathSettings.Metallic, 0, 1, .32));
-    M->SetScalarParameterValue(TEXT("UVWorldUnits"), FMath::Max(UVWorldUnits, 1.f));
-    M->SetScalarParameterValue(TEXT("ShowLayout"), PadPathSettings.bShowLayout ? 1 : 0);
+    if (M)
+    {
+        M->SetVectorParameterValue(TEXT("Color"), PadPathSettings.BackgroundColor);
+        M->SetVectorParameterValue(TEXT("YellowColor"), PadPathSettings.PatternColor);
+        M->SetScalarParameterValue(TEXT("Emission"), Safe(PadPathSettings.BackgroundEmission, 0, 20, .18));
+        M->SetScalarParameterValue(TEXT("YellowEmission"), Safe(PadPathSettings.PatternEmission, 0, 20, .55));
+        M->SetScalarParameterValue(TEXT("Roughness"), Safe(PadPathSettings.Roughness, .02, 1, .19));
+        M->SetScalarParameterValue(TEXT("Metallic"), Safe(PadPathSettings.Metallic, 0, 1, .32));
+        M->SetScalarParameterValue(TEXT("UVWorldUnits"), FMath::Max(UVWorldUnits, 1.f));
+        M->SetScalarParameterValue(TEXT("ShowLayout"), PadPathSettings.bShowLayout ? 1 : 0);
+    }
     const FVector2D Half(ShapeSize.X * .5, (OuterShape == EChunkedDecorativeFloorShape::Circle ||
         OuterShape == EChunkedDecorativeFloorShape::Square ? ShapeSize.X : ShapeSize.Y) * .5);
     const double MinimumHalf = FMath::Min(Half.X, Half.Y);
     auto Position = [Half](FVector2D P) { return FVector2D(Safe(P.X, -1, 1, 0) * Half.X, Safe(P.Y, -1, 1, 0) * Half.Y); };
-    struct FResolved { FVector2D Center; double Radius; bool Show; };
-    TMap<FName, FResolved> Resolved;
     TMap<FName, int32> Counts;
     for (const auto& Pad : PadPathSettings.Pads) ++Counts.FindOrAdd(Pad.Id);
     if (PadPathSettings.Pads.Num() > MaxPads) Warn(TEXT("Only the first 16 pads are supported."));
-    const FGeneralPolygon2d ShapePolygon = GetPlatformPolygon();
+    const FGeneralPolygon2d ShapePolygon = GetPadSurfacePolygon();
     const double AnchorClearance = FMath::Max(0., Clearance(ShapePolygon, CachedShapeFanCenter) - .01);
     int32 PaintedCount = 0;
     for (int32 I = 0; I < FMath::Min(PadPathSettings.Pads.Num(), MaxPads); ++I)
@@ -150,11 +151,14 @@ void AParametricPlatform::UpdatePadPathMaterial()
         }
         else if (Pad.bShowCircle && Clearance(ShapePolygon, Center) < Radius)
             Warn(FString::Printf(TEXT("Pad %s extends beyond the platform and will be clipped."), *Pad.Id.ToString()));
-        Resolved.Add(Pad.Id, {Center, Radius, Pad.bShowCircle});
+        ResolvedPads.Add(Pad.Id, {Center, Radius, Pad.bShowCircle, I});
         if (!Pad.bShowCircle) continue;
         const double Inner = Pad.Paint == EPlatformPadPaint::Ring ? Radius * (1 - Safe(Pad.RingWidth, .01, 1, .14)) : 0;
-        M->SetVectorParameterValue(FName(*FString::Printf(TEXT("Pad%d"), PaintedCount++)), FLinearColor(Center.X, Center.Y, Radius, Inner));
+        if (M) M->SetVectorParameterValue(FName(*FString::Printf(TEXT("Pad%d"), PaintedCount)), FLinearColor(Center.X, Center.Y, Radius, Inner));
+        ++PaintedCount;
     }
+    // Gameplay sockets resolve from the same fitted circles even without a surface material.
+    if (!M) return;
     M->SetScalarParameterValue(TEXT("PadCount"), PaintedCount);
     for (int32 I = PaintedCount; I < MaxPads; ++I)
         M->SetVectorParameterValue(FName(*FString::Printf(TEXT("Pad%d"), I)), FLinearColor::Transparent);
@@ -162,7 +166,7 @@ void AParametricPlatform::UpdatePadPathMaterial()
     for (const auto& Path : PadPathSettings.Paths)
     {
         if (!Path.bEnabled) continue;
-        const FResolved* From = Resolved.Find(Path.FromPad), *To = Resolved.Find(Path.ToPad);
+        const FResolvedPlatformPad* From = ResolvedPads.Find(Path.FromPad), *To = ResolvedPads.Find(Path.ToPad);
         if (!From || !To || From == To)
         {
             Warn(FString::Printf(TEXT("Path %s -> %s has missing, disabled or identical endpoints; skipped."), *Path.FromPad.ToString(), *Path.ToPad.ToString()));
