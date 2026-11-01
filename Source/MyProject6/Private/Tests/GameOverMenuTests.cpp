@@ -54,7 +54,9 @@ namespace
 		AMyProject6Character* Character;
 		FGameOverTestWorld()
 		{
-			UPackage* Package = CreatePackage(TEXT("/Temp/GameOverMenu/UEDPIE_2_Entry"));
+			// Keep the map's PIE name, but isolate packages between tests in one process.
+			static int32 WorldSerial = 0;
+			UPackage* Package = CreatePackage(*FString::Printf(TEXT("/Temp/GameOverMenu/Run%d/UEDPIE_2_Entry"), ++WorldSerial));
 			World = UWorld::CreateWorld(EWorldType::Game, false, TEXT("UEDPIE_2_Entry"), Package);
 			World->StreamingLevelsPrefix = TEXT("UEDPIE_2_");
 			GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
@@ -180,6 +182,10 @@ bool FGameOverMenuRenderingTest::RunTest(const FString& Parameters)
 	{
 		UTextureRenderTarget2D* Target = Renderer.DrawWidget(Root, Size);
 		if (!TestNotNull(TEXT("Menu renders to a texture"), Target)) { return; }
+		// SScaleBox invalidates its normalization prepass after seeing a new viewport
+		// size. Capture settled layout, as displayed on the following gameplay frames.
+		Renderer.DrawWidget(Target, Root, Size, 0.f);
+		Renderer.DrawWidget(Target, Root, Size, 0.f);
 		FlushRenderingCommands();
 		TArray<FColor> Pixels;
 		FReadSurfaceDataFlags ReadFlags(RCM_UNorm);

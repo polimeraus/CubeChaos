@@ -12,6 +12,7 @@ class SProgressBar;
 class STextBlock;
 class SWidget;
 class SButton;
+class SPlayerDamageFeedback;
 
 /** Native, asset-free energy HUD displayed in the top-left corner. */
 UCLASS()
@@ -22,6 +23,8 @@ class MYPROJECT6_API UEnergyHUDWidget : public UUserWidget
 public:
 	UEnergyHUDWidget(const FObjectInitializer& ObjectInitializer);
 	void SetEnergy(float CurrentEnergy, float MaxEnergy);
+	void NotifyEnergyDamage(float DamageFraction);
+	void ClearDamageFeedback();
 	void ShowGameOver(float SurvivalSeconds = 0.0f);
 	TSharedPtr<SWidget> GetGameOverFocusTarget() const;
 	virtual void ReleaseSlateResources(bool bReleaseChildren) override;
@@ -30,6 +33,8 @@ protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 
 private:
+	friend class FPlayerDamageFeedbackTest;
+	friend class FPlayerDamageFeedbackRenderTest;
 	void RefreshEnergyDisplay();
 	FReply RestartClicked();
 	FReply QuitClicked();
@@ -51,4 +56,5 @@ private:
 	TSharedPtr<SBorder> GameOverPanel;
 	TSharedPtr<SBorder> ControlsPanel;
 	TSharedPtr<SButton> RestartButton;
+	TSharedPtr<SPlayerDamageFeedback> DamageFeedback;
 };

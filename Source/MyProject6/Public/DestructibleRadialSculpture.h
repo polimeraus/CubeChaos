@@ -29,6 +29,8 @@ class MYPROJECT6_API ADestructibleRadialSculpture : public AChunkedDestructibleF
     GENERATED_BODY()
     friend class FRadialSculptureTest;
     friend class FRadialSculpturePresentationTest;
+    friend class FBombSculptureBenchmark;
+    friend class FSculptureIncrementalGeometryTest;
 public:
     ADestructibleRadialSculpture();
     virtual void OnConstruction(const FTransform& Transform) override;
@@ -160,6 +162,7 @@ protected:
     virtual void FinalizeDestructionBatch(double CurrentTime) override;
 
 private:
+    void BuildFullChunkMesh(int32 ChunkIndex, UE::Geometry::FDynamicMesh3& Mesh) const;
     enum class EPart : uint8 { Fin, Sphere, Base };
     struct FPiece
     {

@@ -3,6 +3,7 @@
 #include "EnergyHUDWidget.h"
 #include "MyProject6PlayerController.h"
 #include "SWeaponHUD.h"
+#include "SPlayerDamageFeedback.h"
 
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Styling/CoreStyle.h"
@@ -113,6 +114,12 @@ TSharedRef<SWidget> UEnergyHUDWidget::RebuildWidget()
 		+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(24)
 		[
 			SNew(SWeaponHUD).Player_Lambda([this]() { return TWeakObjectPtr<AMyProject6Character>(Cast<AMyProject6Character>(GetOwningPlayerPawn())); })
+		]
+
+		// Keep all four streaks visible over the HUD panels, below the game-over menu.
+		+ SOverlay::Slot()
+		[
+			SAssignNew(DamageFeedback, SPlayerDamageFeedback)
 		]
 
 		+ SOverlay::Slot()
@@ -240,8 +247,21 @@ void UEnergyHUDWidget::SetEnergy(const float CurrentEnergy, const float MaxEnerg
 	RefreshEnergyDisplay();
 }
 
+void UEnergyHUDWidget::NotifyEnergyDamage(float DamageFraction)
+{
+	if (bGameOverVisible) return;
+	TakeWidget();
+	if (DamageFeedback) DamageFeedback->Trigger(DamageFraction);
+}
+
+void UEnergyHUDWidget::ClearDamageFeedback()
+{
+	if (DamageFeedback) DamageFeedback->Clear();
+}
+
 void UEnergyHUDWidget::ShowGameOver(float SurvivalSeconds)
 {
+	ClearDamageFeedback();
 	bGameOverVisible = true;
 	SurvivalTime = FMath::Max(0.0f, SurvivalSeconds);
 	// Also handles game over before the first viewport paint.
@@ -325,4 +345,5 @@ void UEnergyHUDWidget::ReleaseSlateResources(bool bReleaseChildren)
 	GameOverPanel.Reset();
 	ControlsPanel.Reset();
 	RestartButton.Reset();
+	DamageFeedback.Reset();
 }

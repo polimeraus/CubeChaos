@@ -450,11 +450,48 @@ FTransform ADestructibleRadialSculpture::GetCellFlashTransform(FIntPoint Cell) c
 }
 void ADestructibleRadialSculpture::BuildChunkMesh(int32 ChunkIndex,FDynamicMesh3& Mesh) const
 {
-    Mesh=NewMesh();FDynamicMeshEditor Editor(&Mesh);
+    const int32 First=ChunkIndex*FMath::Clamp(ChunkSideLength,4,128),End=FMath::Min(First+FMath::Clamp(ChunkSideLength,4,128),Pieces.Num());
+    const auto* Component=ChunkComponents.IsValidIndex(ChunkIndex)?ChunkComponents[ChunkIndex].Get():nullptr;
+    const FDynamicMesh3* Current=Component?Component->GetMesh():nullptr;
+    if (Current && Current->HasTriangleGroups() && Current->HasAttributes() && Current->Attributes()->GetMaterialID())
+    {
+        // Every body/glow triangle carries its owning cell. Immutable sculpture
+        // pieces can be removed from a bulk copy instead of rebuilding every
+        // surviving piece, normal overlay, UV overlay and glow skin per ripple.
+        TBitArray<> Present(false,End-First);
+        TArray<int32> RemovedTriangles;
+        bool bValid=true,bHasGlow=false;
+        for (const int32 T:Current->TriangleIndicesItr())
+        {
+            const int32 Cell=Current->GetTriangleGroup(T)-1;
+            if (Cell<First || Cell>=End) { bValid=false; break; }
+            Present[Cell-First]=true;
+            bHasGlow|=Current->Attributes()->GetMaterialID()->GetValue(T)==1;
+            if (!Cells.IsValidIndex(Cell) || !Cells[Cell].bExists) RemovedTriangles.Add(T);
+        }
+        for (int32 I=First;bValid && I<End;++I)
+            if (Cells.IsValidIndex(I) && Cells[I].bExists && !Present[I-First]) bValid=false;
+        // Restoring cells or toggling glow needs the authoritative piece geometry.
+        // Normal generation creates fresh components and also takes that path.
+        if (bValid && (Current->TriangleCount()==0 || bHasGlow==bool(SculptureGlowInstance)))
+        {
+            Mesh=*Current;
+            for (const int32 T:RemovedTriangles) Mesh.RemoveTriangle(T,true,false);
+            return;
+        }
+    }
+    BuildFullChunkMesh(ChunkIndex,Mesh);
+}
+
+void ADestructibleRadialSculpture::BuildFullChunkMesh(int32 ChunkIndex,FDynamicMesh3& Mesh) const
+{
+    Mesh=NewMesh(); Mesh.EnableTriangleGroups(0);
+    FDynamicMeshEditor Editor(&Mesh);
     const int32 First=ChunkIndex*FMath::Clamp(ChunkSideLength,4,128),End=FMath::Min(First+FMath::Clamp(ChunkSideLength,4,128),Pieces.Num());
     for (int32 I=First;I<End;++I) if (Cells.IsValidIndex(I) && Cells[I].bExists)
     {
         FMeshIndexMappings Map;Editor.AppendMesh(&Pieces[I].Mesh,Map);
+        for (const int32 T:Pieces[I].Mesh.TriangleIndicesItr()) Mesh.SetTriangleGroup(Map.GetTriangleMap().GetTo(T),I+1);
         if (SculptureGlowInstance)
         {
             // A separate additive skin retains the chosen surface material and
@@ -469,6 +506,7 @@ void ADestructibleRadialSculpture::BuildChunkMesh(int32 ChunkIndex,FDynamicMesh3
                 Glow.Attributes()->GetMaterialID()->SetValue(T,1);
             }
             FMeshIndexMappings GlowMap;Editor.AppendMesh(&Glow,GlowMap);
+            for (const int32 T:Glow.TriangleIndicesItr()) Mesh.SetTriangleGroup(GlowMap.GetTriangleMap().GetTo(T),I+1);
         }
     }
 }
