@@ -48,6 +48,8 @@ UCLASS(BlueprintType, Blueprintable, meta=(DisplayName="Parametric Platform"))
 class MYPROJECT6_API AParametricPlatform : public AChunkedDestructibleDecorativeFloor
 {
     GENERATED_BODY()
+    // The city assembler configures inherited settings before deferred construction builds geometry.
+    friend class AParametricPlatformCity;
     friend class FParametricPlatformTest;
     friend class FParametricPlatformSurfaceTest;
     friend class FParametricPlatformPadPathTest;
@@ -72,6 +74,11 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Mode")
     EPlatformMode PlatformMode = EPlatformMode::Solid;
+
+    /** 0 restores the original bright equalizer exactly; 1 hides its light. Intermediate
+     * values reveal the underlying material with softly backlit squares. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Animation|Music", meta=(ClampMin="0", ClampMax="1", UIMin="0", UIMax="1", EditCondition="bReactToMusic && MusicAnimationType == EMusicAnimationType::Equalizer", EditConditionHides))
+    float EqualizerTransparency = 0.8f;
 
     /** Surface stays at local Z=0 in both modes. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Dimensions", meta=(ClampMin="1", Units="cm"))
@@ -121,6 +128,10 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(ClampMin="3", ClampMax="32", EditCondition="OuterShape == EChunkedDecorativeFloorShape::RegularPolygon", EditConditionHides))
     int32 PolygonSides = 8;
+
+    /** Free polygon boundary in local cm. Dimensions derive from these vertices; no catalog shape is used. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(EditCondition="OuterShape == EChunkedDecorativeFloorShape::DynamicPolygon", EditConditionHides))
+    TArray<FVector2D> PolygonOutline = {{-500,-400}, {500,-400}, {500,400}, {-500,400}};
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Platform|Shape", meta=(EditCondition="OuterShape == EChunkedDecorativeFloorShape::LShape || OuterShape == EChunkedDecorativeFloorShape::TShape || OuterShape == EChunkedDecorativeFloorShape::Zigzag || OuterShape == EChunkedDecorativeFloorShape::UShape || OuterShape == EChunkedDecorativeFloorShape::Cross || OuterShape == EChunkedDecorativeFloorShape::CustomBlocks", EditConditionHides))
     FPlatformBlockShape BlockShape;
@@ -195,6 +206,9 @@ public:
 
     UFUNCTION(BlueprintCallable, Category="Platform")
     void ConfigurePlatform(EChunkedDecorativeFloorShape Shape, FVector2D Size, float NewThickness, EPlatformMode Mode);
+
+    UFUNCTION(BlueprintCallable, Category="Platform")
+    bool ConfigurePolygon(const TArray<FVector2D>& Outline, float NewThickness, float NewCornerRadius, int32 NewCornerSegments);
 
     UFUNCTION(BlueprintPure, Category="Platform")
     EChunkedDecorativeFloorShape GetPlatformShape() const { return OuterShape; }

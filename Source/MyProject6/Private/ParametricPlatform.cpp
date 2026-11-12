@@ -1,4 +1,5 @@
 #include "ParametricPlatform.h"
+#include "PlatformPolygonGeometry.h"
 #include "ParametricLobbyPlatformDestructable.h"
 #include "ParametricGround.h"
 #include "ParametricGroundGeometry.h"
@@ -56,6 +57,8 @@ namespace
 
 AParametricPlatform::AParametricPlatform()
 {
+    PlanarAnimationMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(
+        TEXT("/Game/Materials/Structures/M_PlatformEqualizerBacklight.M_PlatformEqualizerBacklight")));
     ShapeSize = FVector2D(6000, 4500);
     BorderWidth = 60;
     SecondaryMaterialIndex = 2;
@@ -141,8 +144,28 @@ void AParametricPlatform::ConfigurePlatform(EChunkedDecorativeFloorShape Shape, 
     GenerateFloor(false);
 }
 
+bool AParametricPlatform::ConfigurePolygon(const TArray<FVector2D>& Outline, float NewThickness,
+    float NewCornerRadius, int32 NewCornerSegments)
+{
+    TArray<FVector2D> Validated; FString Error;
+    if (!FMath::IsFinite(NewThickness) || NewThickness < 1 || NewCornerSegments < 2 || NewCornerSegments > 24 ||
+        !PlatformPolygonGeometry::BuildOutline(Outline, NewCornerRadius, NewCornerSegments, Validated, Error)) return false;
+    OuterShape = EChunkedDecorativeFloorShape::DynamicPolygon;
+    PolygonOutline = Outline; Thickness = NewThickness; CornerRadius = NewCornerRadius;
+    CornerSegments = NewCornerSegments; bRoundCorners = NewCornerRadius > 0;
+    GenerateFloor(false);
+    return ShapeWarning.IsEmpty() && GetPlatformMeshCount() > 0;
+}
+
 bool AParametricPlatform::CalculateLayout()
 {
+    if (OuterShape == EChunkedDecorativeFloorShape::DynamicPolygon)
+    {
+        FVector2D Extent(1, 1);
+        for (const auto& P : PolygonOutline)
+            if (!P.ContainsNaN()) { Extent.X = FMath::Max(Extent.X, FMath::Abs(P.X)); Extent.Y = FMath::Max(Extent.Y, FMath::Abs(P.Y)); }
+        ShapeSize = Extent * 2;
+    }
     // Resolve physical dimensions before the base class allocates either the single slab
     // or its destruction grid. The actor origin remains at the circular hub.
     if (OuterShape == EChunkedDecorativeFloorShape::ParametricShape) PrepareParametricShape();
@@ -601,9 +624,11 @@ bool AParametricPlatform::CopyPlatformSettingsFrom(AActor* Source)
             CornerRadius = Platform->CornerRadius; CornerSegments = Platform->CornerSegments; BlockShape = Platform->BlockShape;
             ReferenceShape = Platform->ReferenceShape;
             ParametricShapeSettings = Platform->ParametricShapeSettings;
+            PolygonOutline = Platform->PolygonOutline;
             bBevelEdges = Platform->bBevelEdges; BevelSize = Platform->BevelSize;
             bRoundCorners = Platform->bRoundCorners; PolygonSides = Platform->PolygonSides;
             BodyMaterialIndex = Platform->BodyMaterialIndex;
+            EqualizerTransparency = Platform->EqualizerTransparency;
             SetCanBeDamaged(Platform->CanBeDamaged());
         }
         else CornerRadius = 0;
@@ -619,7 +644,7 @@ bool AParametricPlatform::CanEditChange(const FProperty* Property) const
     if (Property)
     {
         const FName Name = Property->GetFName();
-        if (Name == TEXT("ShapeSize") && OuterShape == EChunkedDecorativeFloorShape::ParametricShape) return false;
+        if (Name == TEXT("ShapeSize") && (OuterShape == EChunkedDecorativeFloorShape::ParametricShape || OuterShape == EChunkedDecorativeFloorShape::DynamicPolygon)) return false;
         if (Name == TEXT("AreaSize") || Name == TEXT("CellDimensions") || Name == TEXT("bUseBrightBorder")) return false;
         if (PlatformMode == EPlatformMode::Solid && (Name == TEXT("CellSpacing") || Name == TEXT("FillRule") ||
             Name == TEXT("ChunkSideLength") || Name == TEXT("MaxGeneratedCells") ||

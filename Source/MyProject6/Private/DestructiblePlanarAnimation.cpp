@@ -1,5 +1,6 @@
 #include "DestructiblePlanarAnimation.h"
 #include "ChunkedDestructibleFloor.h"
+#include "ParametricPlatform.h"
 #include "Components/DynamicMeshComponent.h"
 #include "DynamicMesh/DynamicMesh3.h"
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
@@ -9,6 +10,17 @@
 #include "RHI.h"
 
 using namespace UE::Geometry;
+
+namespace
+{
+	float GetEqualizerTransparency(const AChunkedDestructibleFloor* Owner)
+	{
+		const auto* Platform = Cast<AParametricPlatform>(Owner);
+		if (!Platform) return 0.f;
+		return FMath::IsFinite(Platform->EqualizerTransparency)
+			? FMath::Clamp(Platform->EqualizerTransparency, 0.f, 1.f) : 0.8f;
+	}
+}
 
 double FDestructiblePlanarFlow::TravelDistance(FVector2D Size) const
 {
@@ -51,6 +63,14 @@ bool UDestructiblePlanarAnimation::Initialize(AChunkedDestructibleFloor* InOwner
 	if (!Material)
 	{
 		UMaterialInterface* Parent = Owner->PlanarAnimationMaterial.LoadSynchronous();
+		// Previously saved platform overrides may still name the shared stock material.
+		// Upgrade that stock reference at runtime; explicitly authored custom materials remain valid.
+		if (Owner->IsA<AParametricPlatform>() && Parent && Parent->GetPathName() ==
+			TEXT("/Game/Materials/Structures/M_PlanarAnimation.M_PlanarAnimation"))
+		{
+			Parent = LoadObject<UMaterialInterface>(nullptr,
+				TEXT("/Game/Materials/Structures/M_PlatformEqualizerBacklight.M_PlatformEqualizerBacklight"));
+		}
 		if (!Parent || Parent->GetBlendMode() != BLEND_Additive)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("%s: planar animation requires the additive planar surface material."), *Owner->GetName());
@@ -64,6 +84,7 @@ bool UDestructiblePlanarAnimation::Initialize(AChunkedDestructibleFloor* InOwner
 		for (int32 Index = 0; Index < Surfaces.Num(); ++Index) { RefreshChunk(Index); }
 	}
 	const double Angle = FMath::DegreesToRadians(static_cast<double>(Owner->PlanarFlow.AngleDegrees));
+	Material->SetScalarParameterValue(TEXT("EqualizerTransparency"), GetEqualizerTransparency(Owner));
 	Material->SetVectorParameterValue(TEXT("Flow"), FLinearColor(FMath::Cos(Angle), FMath::Sin(Angle),
 		Owner->PlanarFlow.Mode == EPlanarFlowMode::Radial ? 1.0f : 0.0f, Owner->PlanarFlow.bReverse ? 1.0f : 0.0f));
 	Material->SetVectorParameterValue(TEXT("Footprint"), FLinearColor(Owner->EffectiveGridSize.X,
@@ -152,6 +173,7 @@ void UDestructiblePlanarAnimation::SetFixedAnimation(TConstArrayView<float> Alph
 void UDestructiblePlanarAnimation::SetMusicMask(TConstArrayView<uint8> Mask, int32 Columns, int32 Rows)
 {
 	if (!Material || Columns < 1 || Rows < 1 || Mask.Num() != Columns * Rows) { return; }
+	Material->SetScalarParameterValue(TEXT("EqualizerTransparency"), GetEqualizerTransparency(Owner));
 	Material->SetVectorParameterValue(TEXT("Equalizer"), FLinearColor(Columns, Rows,
 		static_cast<float>(Owner->MusicEqualizerBaseEdge), Owner->MusicAnimationType == EMusicAnimationType::Equalizer ? 1.0f : 0.0f));
 	bMusicVisible = Mask.ContainsByPredicate([](uint8 Value) { return Value != 0; });

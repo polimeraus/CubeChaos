@@ -54,7 +54,8 @@ enum class EChunkedDecorativeFloorShape : uint8
 	SteppedBranch UMETA(DisplayName = "Stepped Branch"),
 	ParametricShape UMETA(DisplayName = "Parametric Shape"),
     Ellipse,
-    RegularPolygon UMETA(DisplayName = "Regular Polygon")
+    RegularPolygon UMETA(DisplayName = "Regular Polygon"),
+    DynamicPolygon UMETA(DisplayName = "Dynamic Polygon")
 };
 
 /** Material-layer and geometry controls shown only while Heart Motif is selected. */

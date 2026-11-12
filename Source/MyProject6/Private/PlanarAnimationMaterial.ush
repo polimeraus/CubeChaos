@@ -46,10 +46,12 @@ float glow = 0.0;
     glow = max(glow, value);
 }
 float music = 0.0;
+float transparency = PlatformBacklight > 0.5 ? saturate(EqualizerTransparency) : 0.0;
 if (MusicEnabled > 0.5)
 {
     float2 musicUV = float2(across, travel);
     float segments = 1.0;
+    float softSegments = 1.0;
     if (Equalizer.w > 0.5)
     {
         // A fixed edge anchors filled bars, independently of the fixed animation's flow.
@@ -57,7 +59,34 @@ if (MusicEnabled > 0.5)
         if (Equalizer.z == 1.0 || Equalizer.z == 3.0) { musicUV.y = 1.0 - musicUV.y; }
         float2 block = frac(saturate(musicUV) * Equalizer.xy);
         segments = step(0.035, block.x) * step(block.x, 0.965) * step(0.07, block.y) * step(block.y, 0.93);
+        if (transparency > 0.0)
+        {
+            // Physical squares even when the footprint and equalizer grid have different aspect ratios.
+            float2 cellSize = (Equalizer.z < 1.5 ? size.yx : size.xy) / max(Equalizer.xy, 1.0);
+            float halfWidth = min(cellSize.x, cellSize.y) * 0.44;
+            float2 local = abs(block - 0.5) * cellSize;
+            float edge = max(local.x, local.y);
+            float feather = max(halfWidth * 0.16, fwidth(edge));
+            softSegments = 1.0 - smoothstep(halfWidth - feather, halfWidth, edge);
+        }
     }
-    music = Texture2DSample(MusicMask, MusicMaskSampler, musicUV).r * segments;
+    float sample = Texture2DSample(MusicMask, MusicMaskSampler, musicUV).r;
+    music = sample * segments;
+    if (transparency > 0.0 && Equalizer.w > 0.5)
+    {
+        // Compress HDR peaks instead of letting 42x (or higher) emission wash the pattern white.
+        float peak = max(MusicColor.r, max(MusicColor.g, MusicColor.b));
+        float backlightMask = (1.0 - exp(-max(peak, 0.0) * sample / 8.0)) * softSegments;
+        float3 tint = MusicColor.rgb / max(peak, 0.0001);
+        // The rendered opaque surface supplies the light's color AND detail. Add only a thin
+        // milky veil; do not replace/dim the original material or blur its underlying pattern.
+        float3 veil = lerp(float3(0.11, 0.11, 0.11), tint * 0.11, 0.12);
+        float3 backlight = (max(UnderlayScene.rgb, 0.0) * 1.15 + veil) * backlightMask;
+        // Ease the legacy HDR emission down quickly enough for the middle of the slider
+        // to expose the material. Both contributions vanish at full transparency.
+        float legacyWeight = pow(1.0 - transparency, 4.0);
+        float backlightWeight = 4.0 * transparency * (1.0 - transparency);
+        return WaveColor.rgb * glow + MusicColor.rgb * music * legacyWeight + backlight * backlightWeight;
+    }
 }
 return WaveColor.rgb * glow + MusicColor.rgb * music;

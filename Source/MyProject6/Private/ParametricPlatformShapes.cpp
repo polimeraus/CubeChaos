@@ -1,4 +1,5 @@
 #include "ParametricPlatform.h"
+#include "PlatformPolygonGeometry.h"
 #include "Algo/Reverse.h"
 #include "Curve/PolygonIntersectionUtils.h"
 #include "ConstrainedDelaunay2.h"
@@ -328,7 +329,13 @@ void AParametricPlatform::RebuildShapeOutline()
 {
     ShapeWarning.Reset();
     CachedShapeHoles.Reset();
-    if (OuterShape == EChunkedDecorativeFloorShape::ParametricShape)
+    if (OuterShape == EChunkedDecorativeFloorShape::DynamicPolygon)
+    {
+        CachedShapeTriangles.Reset();
+        if (!PlatformPolygonGeometry::BuildOutline(PolygonOutline, bRoundCorners ? CornerRadius : 0,
+            CornerSegments, CachedShapeOutline, ShapeWarning)) return;
+    }
+    else if (OuterShape == EChunkedDecorativeFloorShape::ParametricShape)
     {
         CachedShapeOutline = PreparedParametricOutline;
         CachedShapeHoles = PreparedParametricHoles;
@@ -448,7 +455,7 @@ void AParametricPlatform::RebuildShapeOutline()
 
     RemoveStraightVertices(CachedShapeOutline);
     if (FPolygon2d(CachedShapeOutline).IsClockwise()) Algo::Reverse(CachedShapeOutline);
-    if (UsesRoundedCorners() && !UsesReferenceShape() && OuterShape != EChunkedDecorativeFloorShape::ParametricShape)
+    if (UsesRoundedCorners() && !UsesReferenceShape() && OuterShape != EChunkedDecorativeFloorShape::ParametricShape && OuterShape != EChunkedDecorativeFloorShape::DynamicPolygon)
     {
         const TArray<FVector2D> Rounded = RoundCorners(CachedShapeOutline, CornerRadius, FMath::Clamp(CornerSegments, 1, 32));
         const TArray<FGeneralPolygon2d> Input = {FGeneralPolygon2d(FPolygon2d(Rounded))};
@@ -485,7 +492,7 @@ void AParametricPlatform::RebuildShapeOutline()
 
 bool AParametricPlatform::IsPointInsideOuterShape(const FVector2D& Point, float Inset) const
 {
-    if (!UsesBlockShape() && !UsesRoundedCorners() && !UsesReferenceShape() && OuterShape != EChunkedDecorativeFloorShape::ParametricShape && OuterShape != EChunkedDecorativeFloorShape::Ellipse && OuterShape != EChunkedDecorativeFloorShape::RegularPolygon)
+    if (!UsesBlockShape() && !UsesRoundedCorners() && !UsesReferenceShape() && OuterShape != EChunkedDecorativeFloorShape::ParametricShape && OuterShape != EChunkedDecorativeFloorShape::Ellipse && OuterShape != EChunkedDecorativeFloorShape::RegularPolygon && OuterShape != EChunkedDecorativeFloorShape::DynamicPolygon)
         return Super::IsPointInsideOuterShape(Point, Inset);
     if (CachedShapeOutline.Num() < 3 || !IsPointInsideGeneratedShape(Point)) return false;
     return Inset <= 0 || BoundaryDistanceSquared(GetPlatformPolygon(),Point) >= FMath::Square(double(Inset));
