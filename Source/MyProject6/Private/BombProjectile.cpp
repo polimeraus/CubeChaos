@@ -9,6 +9,8 @@
 #include "MyProject6Character.h"
 #include "NPCHitReactionComponent.h"
 #include "Camera/PlayerCameraManager.h"
+#include "Chaos/ISpatialAcceleration.h"
+#include "Chaos/ParticleHandle.h"
 #include "Components/AudioComponent.h"
 #include "Components/DynamicMeshComponent.h"
 #include "Components/PointLightComponent.h"
@@ -32,6 +34,8 @@
 #include "GeometryScript/MeshNormalsFunctions.h"
 #include "GeometryScript/MeshPrimitiveFunctions.h"
 #include "PhysicsEngine/BodyInstance.h"
+#include "Physics/Experimental/PhysScene_Chaos.h"
+#include "Physics/PhysicsInterfaceCore.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Sound/SoundBase.h"
@@ -100,6 +104,34 @@ FVector ClosestBlastPoint(UPrimitiveComponent* Component, const FVector& Origin)
     if (Distance == 0.f) return Origin;
     return Distance > 0.f ? Closest : Component->Bounds.GetBox().GetClosestPointTo(Origin);
 }
+
+// Scene queries skip PhysicsOnly shapes. Visit nearby Chaos particles without
+// a query filter so debris and ragdolls are found even immediately after death.
+class FPhysicsOnlyBlastVisitor final : public Chaos::ISpatialVisitor<Chaos::FAccelerationStructureHandle>
+{
+    using FData = Chaos::TSpatialVisitorData<Chaos::FAccelerationStructureHandle>;
+    FPhysScene& Scene;
+    TArray<FOverlapResult>& Overlaps;
+
+public:
+    FPhysicsOnlyBlastVisitor(FPhysScene& InScene, TArray<FOverlapResult>& InOverlaps)
+        : Scene(InScene), Overlaps(InOverlaps) {}
+
+    bool Overlap(const FData& Data) override
+    {
+        const auto* Particle = Data.Payload.GetExternalGeometryParticle_ExternalThread();
+        if (!Particle || !Particle->CastToRigidParticle()) return true;
+        const auto* Body = Scene.GetBodyInstanceFromProxy(Particle->GetProxy());
+        UPrimitiveComponent* Component = Body ? Body->OwnerComponent.Get()
+            : Scene.GetOwningComponent<UPrimitiveComponent>(Particle->GetProxy());
+        if (Component && !Component->IsQueryCollisionEnabled())
+            Overlaps.AddDefaulted_GetRef().Component = Component;
+        return true;
+    }
+
+    bool Raycast(const FData&, Chaos::FQueryFastData&) override { return true; }
+    bool Sweep(const FData&, Chaos::FQueryFastData&) override { return true; }
+};
 }
 
 ABombProjectile::ABombProjectile()
@@ -188,12 +220,13 @@ void ABombProjectile::Tick(float DeltaSeconds)
     Age += DeltaSeconds;
     if (bExploded) ImpactAge += DeltaSeconds;
     else if (Movement->IsActive()) BombMesh->AddLocalRotation(FRotator(120.f * DeltaSeconds, 35.f * DeltaSeconds, 0));
-    FVector View = GetActorLocation() + FVector(-100, 0, 40);
-    if (const auto* Camera = UGameplayStatics::GetPlayerCameraManager(this, 0)) View = Camera->GetCameraLocation();
+    if (GetNetMode() == NM_DedicatedServer) return;
     VisualAccumulator += DeltaSeconds;
     if (VisualAccumulator >= 1.f/30.f || bVisualImpact != bExploded)
     {
         VisualAccumulator = FMath::Fmod(VisualAccumulator, 1.f/30.f);
+        FVector View = GetActorLocation() + FVector(-100, 0, 40);
+        if (const auto* Camera = UGameplayStatics::GetPlayerCameraManager(this, 0)) View = Camera->GetCameraLocation();
         DrawEffect(bExploded ? ImpactAge : Age, bExploded, View);
     }
 }
@@ -278,22 +311,20 @@ void ABombProjectile::ApplyBlastImpulse(const FVector& Origin)
     FCollisionQueryParams Query(SCENE_QUERY_STAT(BombPressure), false, this);
     GetWorld()->OverlapMultiByObjectType(Overlaps, Origin, FQuat::Identity, FCollisionObjectQueryParams::AllObjects,
         FCollisionShape::MakeSphere(Radius), Query);
-    // PhysicsOnly bodies are intentionally absent from scene queries, but still
-    // need pressure. The narrow-phase distance check below bounds their effect.
-    for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+    if (FPhysScene* Scene = GetWorld()->GetPhysicsScene())
     {
-        if (auto* Character = Cast<ACharacter>(*It))
+        FPhysicsCommand::ExecuteRead(Scene, [&]
         {
-            FOverlapResult& Overlap = Overlaps.AddDefaulted_GetRef();
-            Overlap.Component = Character->GetCapsuleComponent();
-        }
-        TInlineComponentArray<UPrimitiveComponent*> Components(*It);
-        for (UPrimitiveComponent* Component : Components)
-            if (!Component->IsQueryCollisionEnabled() && Component->IsAnySimulatingPhysics())
+            if (const auto* Acceleration = Scene->GetSpacialAcceleration())
             {
-                FOverlapResult& Overlap = Overlaps.AddDefaulted_GetRef();
-                Overlap.Component = Component;
+                FPhysicsOnlyBlastVisitor Visitor(*Scene, Overlaps);
+                Acceleration->Overlap(Chaos::FAABB3(Origin - FVector(Radius), Origin + FVector(Radius)), Visitor);
             }
+        });
+    }
+    for (TActorIterator<ACharacter> It(GetWorld()); It; ++It)
+    {
+        Overlaps.AddDefaulted_GetRef().Component = It->GetCapsuleComponent();
     }
     TSet<ACharacter*> Launched;
     TSet<UPrimitiveComponent*> Pushed;
@@ -380,12 +411,11 @@ void ABombProjectile::DamageStructures(const FVector& Origin)
     // Each structure is handled here once, independently of the NPC damage query.
     const float Radius = FMath::Max(1.f, BlastRadius);
     UDynamicMesh* Cutter = nullptr;
-    for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+    auto DamageMeshStructure = [&](AActor* Structure)
     {
-        AActor* Structure = *It;
-        if (!IsValid(Structure) || !Structure->CanBeDamaged() || !IsDynamicMeshStructure(Structure)) continue;
+        if (!IsValid(Structure) || !Structure->CanBeDamaged()) return;
         const FBox Bounds = Structure->GetComponentsBoundingBox(true);
-        if (!Bounds.IsValid || Bounds.ComputeSquaredDistanceToPoint(Origin) >= FMath::Square(Radius)) continue;
+        if (!Bounds.IsValid || Bounds.ComputeSquaredDistanceToPoint(Origin) >= FMath::Square(Radius)) return;
         if (auto* House = Cast<ASimpleHouseActor>(Structure))
         {
             // An airburst is centred at the bomb, without the bullet-impact inset.
@@ -413,6 +443,10 @@ void ABombProjectile::DamageStructures(const FVector& Origin)
             Structure->GetComponents(Components);
             for (UDynamicMeshComponent* Component : Components) CarveBlastSphere(Component, Cutter, Origin, Radius);
         }
+    };
+    for (UClass* Class : {ADynamicMeshActor::StaticClass(), ASimpleHouseActor::StaticClass(), AParametricFantasyHouse::StaticClass()})
+    {
+        for (TActorIterator<AActor> It(GetWorld(), Class); It; ++It) DamageMeshStructure(*It);
     }
 }
 

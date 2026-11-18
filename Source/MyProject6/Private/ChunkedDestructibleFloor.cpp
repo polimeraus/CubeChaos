@@ -714,7 +714,7 @@ void AChunkedDestructibleFloor::PlayFixedAnimation()
 		GetFixedAnimationType() == EConeStructureAnimationType::RisingSpiralGlow
 			? 1.0f / 20.0f
 			: 1.0f / 30.0f,
-		true);
+		FTimerManagerTimerParameters{.bLoop = true, .bMaxOncePerFrame = true});
 	UpdateFixedAnimation();
 }
 
@@ -812,10 +812,10 @@ void AChunkedDestructibleFloor::UpdateFixedAnimation()
 	{
 		if (const APlayerCameraManager* Camera = UGameplayStatics::GetPlayerCameraManager(this, 0))
 		{
+			if (GetWorld()->GetTimeSeconds() > .5f && !WasRecentlyRendered(.25f)) return;
 			const FBox Bounds = GetComponentsBoundingBox(true);
 			const FVector ToCentre = Bounds.GetCenter()-Camera->GetCameraLocation();
-			if ((Bounds.IsValid && FVector::DotProduct(ToCentre,Camera->GetCameraRotation().Vector()) < -Bounds.GetExtent().Size())
-				|| (GetWorld()->GetTimeSeconds() > .5f && !WasRecentlyRendered(.25f)))
+			if (Bounds.IsValid && FVector::DotProduct(ToCentre,Camera->GetCameraRotation().Vector()) < -Bounds.GetExtent().Size())
 			{
 				return;
 			}
@@ -1331,14 +1331,13 @@ void AChunkedDestructibleFloor::RebuildChunk(int32 ChunkIndex)
 	{
 		Component->ClearSimpleCollisionShapes(false);
 	}
+	// SetDynamicMesh already invalidated tangents, bounds and the render proxy.
+	// Register the replacement once with its final visibility and collision.
+	Component->SetVisibility(Component->GetDynamicMesh()->GetTriangleCount() > 0, true);
 	if (bWasRegistered)
 	{
 		Component->RegisterComponent();
 	}
-	Component->InvalidateAutoCalculatedTangents();
-	Component->NotifyMeshUpdated();
-	Component->SetVisibility(Component->GetDynamicMesh()->GetTriangleCount() > 0, true);
-	Component->MarkRenderStateDirty();
 	if (PlanarAnimation) { PlanarAnimation->RefreshChunk(ChunkIndex); }
 }
 
@@ -3003,15 +3002,26 @@ FTransform AChunkedDestructibleFloor::GetCellFlashTransform(FIntPoint Cell) cons
 void AChunkedDestructibleFloor::UpdateFlashes()
 {
 	const double CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
-	const int32 RemovedCount = ActiveFlashes.RemoveAllSwap(
-		[CurrentTime](const FActiveFlash& Flash)
-		{
-			return Flash.ExpireTime <= CurrentTime;
-		},
-		EAllowShrinking::No);
-	if (RemovedCount > 0)
+	TArray<int32> Expired;
+	const int32 PreviousCount = ActiveFlashes.Num();
+	for (int32 Index = PreviousCount - 1; Index >= 0; --Index)
 	{
-		RebuildFlashInstances();
+		if (ActiveFlashes[Index].ExpireTime <= CurrentTime)
+		{
+			Expired.Add(Index);
+			ActiveFlashes.RemoveAtSwap(Index, 1, EAllowShrinking::No);
+		}
+	}
+	if (!Expired.IsEmpty() && FlashInstances)
+	{
+		// Remove the same slots in the same order from both arrays. Surviving flashes
+		// keep their existing render instances across overlapping destruction ripples.
+		FlashInstances->SetRemoveSwap();
+		if (ActiveFlashes.IsEmpty() || FlashInstances->GetInstanceCount() != PreviousCount ||
+			!FlashInstances->RemoveInstances(Expired, true))
+		{
+			RebuildFlashInstances();
+		}
 	}
 	if (ActiveFlashes.IsEmpty())
 	{

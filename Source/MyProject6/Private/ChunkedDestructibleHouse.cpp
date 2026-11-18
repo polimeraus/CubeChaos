@@ -1121,38 +1121,28 @@ void AChunkedDestructibleHouse::MarkCellChunksDirty(FIntPoint Cell)
 		return;
 	}
 	const FIntVector Offsets[] = {
-		FIntVector(0, 0, 0), FIntVector(-1, 0, 0), FIntVector(1, 0, 0),
+		FIntVector(-1, 0, 0), FIntVector(1, 0, 0),
 		FIntVector(0, -1, 0), FIntVector(0, 1, 0),
 		FIntVector(0, 0, -1), FIntVector(0, 0, 1)
 	};
-	if (UsesSpatialRuntimeChunks())
+	const bool bSpatial = UsesSpatialRuntimeChunks();
+	const int32 ChunkSide = FMath::Clamp(ChunkSideLength, 4, 128);
+	auto ChunkFor = [&](FIntPoint Encoded, int32 CellX, int32 CellY, int32 CellZ)
 	{
-		for (const FIntVector& Offset : Offsets)
-		{
-			const int32 ChunkIndex = GetSpatialChunkIndex(
-				X + Offset.X,
-				Y + Offset.Y,
-				Z + Offset.Z);
-			if (ChunkIndex != INDEX_NONE)
-			{
-				DirtyChunkIndices.Add(ChunkIndex);
-			}
-		}
-	}
-	else
+		return bSpatial ? GetSpatialChunkIndex(CellX, CellY, CellZ)
+			: Encoded.X / ChunkSide + (Encoded.Y / ChunkSide) * ChunkCount.X;
+	};
+	const int32 OwnChunk = ChunkFor(Cell, X, Y, Z);
+	if (OwnChunk == INDEX_NONE) return;
+	DirtyChunkIndices.Add(OwnChunk);
+	for (const FIntVector& Offset : Offsets)
 	{
-		const int32 SafeChunkSide = FMath::Clamp(ChunkSideLength, 4, 128);
-		for (const FIntVector& Offset : Offsets)
-		{
-			const FIntPoint TestCell = EncodeCell(X + Offset.X, Y + Offset.Y, Z + Offset.Z);
-			if (TestCell == FIntPoint::NoneValue)
-			{
-				continue;
-			}
-			const int32 ChunkX = TestCell.X / SafeChunkSide;
-			const int32 ChunkY = TestCell.Y / SafeChunkSide;
-			DirtyChunkIndices.Add(ChunkX + ChunkY * ChunkCount.X);
-		}
+		const FIntVector Other = FIntVector(X, Y, Z) + Offset;
+		const FIntPoint Neighbour = EncodeCell(Other.X, Other.Y, Other.Z);
+		// Only surviving neighbours have a face to expose or hide.
+		if (Neighbour == FIntPoint::NoneValue || !Cells[ToCellIndex(Neighbour)].bExists) continue;
+		const int32 NeighbourChunk = ChunkFor(Neighbour, Other.X, Other.Y, Other.Z);
+		if (NeighbourChunk != OwnChunk) DirtyChunkIndices.Add(NeighbourChunk);
 	}
 }
 
@@ -1344,35 +1334,27 @@ void AChunkedDestructibleHouse::EvaluateStructuralIntegrity()
 		}
 	}
 
-	static const FIntVector NeighbourOffsets[] = {
-		FIntVector(-1, 0, 0), FIntVector(1, 0, 0),
-		FIntVector(0, -1, 0), FIntVector(0, 1, 0),
-		FIntVector(0, 0, -1), FIntVector(0, 0, 1)
+	// X is contiguous, each row is GridWidthBlocks cells, and each layer is CellCount.X cells.
+	const int32 LayerSize = CellCount.X;
+	auto Visit = [&](int32 Index)
+	{
+		if (Cells[Index].bExists && !SupportedIndices[Index])
+		{
+			SupportedIndices[Index] = true;
+			OpenSet.Add(Index);
+		}
 	};
 	for (int32 OpenIndex = 0; OpenIndex < OpenSet.Num(); ++OpenIndex)
 	{
 		const int32 CellIndex = OpenSet[OpenIndex];
-		int32 X;
-		int32 Y;
-		int32 Z;
-		if (!DecodeCell(FromCellIndex(CellIndex), X, Y, Z))
-		{
-			continue;
-		}
-		for (const FIntVector& Offset : NeighbourOffsets)
-		{
-			const FIntPoint Neighbour = EncodeCell(X + Offset.X, Y + Offset.Y, Z + Offset.Z);
-			if (Neighbour == FIntPoint::NoneValue)
-			{
-				continue;
-			}
-			const int32 NeighbourIndex = ToCellIndex(Neighbour);
-			if (Cells[NeighbourIndex].bExists && !SupportedIndices[NeighbourIndex])
-			{
-				SupportedIndices[NeighbourIndex] = true;
-				OpenSet.Add(NeighbourIndex);
-			}
-		}
+		const int32 InLayer = CellIndex % LayerSize;
+		const int32 X = InLayer % GridWidthBlocks;
+		if (X > 0) Visit(CellIndex - 1);
+		if (X + 1 < GridWidthBlocks) Visit(CellIndex + 1);
+		if (InLayer >= GridWidthBlocks) Visit(CellIndex - GridWidthBlocks);
+		if (InLayer < LayerSize - GridWidthBlocks) Visit(CellIndex + GridWidthBlocks);
+		if (CellIndex >= LayerSize) Visit(CellIndex - LayerSize);
+		if (CellIndex < Cells.Num() - LayerSize) Visit(CellIndex + LayerSize);
 	}
 
 	const float MinDelay = FMath::Max(

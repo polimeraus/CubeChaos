@@ -56,7 +56,8 @@ void ABFGProjectile::BeginPlay()
 {
     Super::BeginPlay();
     SetLifeSpan(10.6f);
-    DrawEffect(0, false, GetActorLocation() - GetActorForwardVector() * 100);
+    if (GetNetMode() != NM_DedicatedServer)
+        DrawEffect(0, false, GetActorLocation() - GetActorForwardVector() * 100);
 }
 
 void ABFGProjectile::Tick(float DeltaSeconds)
@@ -82,6 +83,7 @@ void ABFGProjectile::Tick(float DeltaSeconds)
         }
     }
     if (bExploded) ImpactAge += DeltaSeconds;
+    if (GetNetMode() == NM_DedicatedServer) return;
     FVector View = GetActorLocation() - GetActorForwardVector() * 100 + FVector(0, 0, 20);
     if (APlayerCameraManager* Camera = UGameplayStatics::GetPlayerCameraManager(this, 0))
     {
@@ -92,7 +94,7 @@ void ABFGProjectile::Tick(float DeltaSeconds)
         // do not upload animated mesh buffers for those invisible projectiles.
         const bool bVisible = Offset.SizeSquared()<FMath::Square(10000.f)
             && (Offset.SizeSquared()<FMath::Square(250.f)
-                || FVector::DotProduct(Offset.GetSafeNormal(),Camera->GetCameraRotation().Vector())>0.f);
+                || FVector::DotProduct(Offset,Camera->GetCameraRotation().Vector())>0.f);
         Plasma->SetVisibility(bVisible);
         if (!bVisible)
         {
@@ -230,12 +232,22 @@ void ABFGProjectile::DrawEffect(float Seconds, bool bImpact, FVector ViewLocatio
         Quad(Normal*2,Right*Radius*.5f,Up*Radius*.5f,Fade*.8f,0);
         VisualLightIntensity = ImpactLightIntensity*Fade;
         PlasmaLight->SetAttenuationRadius(FlightLightRadius*1.65f);
-        for (int32 I=0; I<9; ++I)
+        struct FSpark { float Cos, Sin, Distance; };
+        static const auto Sparks = []
         {
-            const float Angle = I*2.39996f+.36f*FMath::Sin(I*4.3f);
-            const FVector Radial = Right*FMath::Cos(Angle)+Up*FMath::Sin(Angle);
-            const FVector Tangent = -Right*FMath::Sin(Angle)+Up*FMath::Cos(Angle);
-            const FVector Centre = Radial*Radius*(.6f+.5f*FMath::Abs(FMath::Sin(I*7.3f)));
+            TStaticArray<FSpark, 9> Result;
+            for (int32 I = 0; I < Result.Num(); ++I)
+            {
+                const float Angle = I*2.39996f+.36f*FMath::Sin(I*4.3f);
+                Result[I] = {FMath::Cos(Angle), FMath::Sin(Angle), .6f+.5f*FMath::Abs(FMath::Sin(I*7.3f))};
+            }
+            return Result;
+        }();
+        for (const FSpark& Spark : Sparks)
+        {
+            const FVector Radial = Right*Spark.Cos + Up*Spark.Sin;
+            const FVector Tangent = -Right*Spark.Sin + Up*Spark.Cos;
+            const FVector Centre = Radial*Radius*Spark.Distance;
             Quad(Centre,Radial*(8.f+Seconds*38.f),Tangent*(3.f+Seconds*5.f),Fade*.7f,0);
         }
     }
@@ -245,13 +257,25 @@ void ABFGProjectile::DrawEffect(float Seconds, bool bImpact, FVector ViewLocatio
         VisualLightIntensity = FlightLightIntensity*Pulse;
         PlasmaLight->SetAttenuationRadius(FlightLightRadius);
         // Rotating uneven volume gives the core parallax from every viewing angle.
-        for(int32 R=0; R<=Rings; ++R) for(int32 S=0; S<=Segments; ++S)
+        float CosTheta[Segments+1], SinTheta[Segments+1], Ripple[Segments+1];
+        for (int32 S = 0; S <= Segments; ++S)
         {
-            const float V=float(R)/Rings,U=float(S)/Segments;
-            const float Phi=V*UE_PI,Theta=U*UE_TWO_PI+Seconds*3.5f;
-            const FVector N(FMath::Cos(Phi),FMath::Sin(Phi)*FMath::Cos(Theta),FMath::Sin(Phi)*FMath::Sin(Theta));
-            const float Radius=11.f*Pulse*(1+.14f*FMath::Sin(Theta*5+Seconds*19)*FMath::Sin(Phi*4-Seconds*11));
-            Vertex(N*Radius, N, FVector2f(U,V), FVector4f(.2f,1,1,.46f));
+            const float Theta = float(S)/Segments*UE_TWO_PI + Seconds*3.5f;
+            FMath::SinCos(&SinTheta[S], &CosTheta[S], Theta);
+            Ripple[S] = .14f * FMath::Sin(Theta*5 + Seconds*19);
+        }
+        for (int32 R = 0; R <= Rings; ++R)
+        {
+            const float V = float(R)/Rings, Phi = V*UE_PI;
+            float SinPhi, CosPhi;
+            FMath::SinCos(&SinPhi, &CosPhi, Phi);
+            const float RingRipple = FMath::Sin(Phi*4 - Seconds*11);
+            for (int32 S = 0; S <= Segments; ++S)
+            {
+                const FVector N(CosPhi, SinPhi*CosTheta[S], SinPhi*SinTheta[S]);
+                const float Radius = 11.f*Pulse*(1 + Ripple[S]*RingRipple);
+                Vertex(N*Radius, N, FVector2f(float(S)/Segments,V), FVector4f(.2f,1,1,.46f));
+            }
         }
         if (bBuild) for(int32 R=0; R<Rings; ++R) for(int32 S=0; S<Segments; ++S)
         {

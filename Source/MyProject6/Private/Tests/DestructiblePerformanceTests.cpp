@@ -82,6 +82,27 @@ bool FDestructibleQueueTest::RunTest(const FString& Parameters)
 	TestNull(TEXT("Planar music never uses flash cubes"), Floor->MusicEqualizerInstances.Get());
 	TestNotNull(TEXT("Planar music still renders after flash expiry"), Floor->PlanarAnimation.Get());
 	Floor->SetReactToMusic(false);
+
+	// Overlapping ripples can expire nonadjacent ISM slots as durations change.
+	const double Now = Fixture.World->GetTimeSeconds();
+	Floor->FlashDuration = 1.f;
+	for (int32 X = 0; X < 4; ++X)
+	{
+		Floor->SpawnCellFlash(FIntPoint(X, 0), X % 2 == 0 ? Now - 2. : Now);
+	}
+	Floor->UpdateFlashes();
+	TestEqual(TEXT("Only the two live flash instances remain"), Floor->FlashInstances->GetInstanceCount(), 2);
+	for (int32 X : {1, 3})
+	{
+		const FTransform Expected = Floor->GetCellFlashTransform(FIntPoint(X, 0));
+		const int32 Slot = Floor->ActiveFlashes.IndexOfByPredicate([&](const auto& Flash) { return Flash.Transform.Equals(Expected); });
+		FTransform Actual;
+		TestTrue(TEXT("Surviving ISM slots match their expiry records"), Slot != INDEX_NONE &&
+			Floor->FlashInstances->GetInstanceTransform(Slot, Actual) && Actual.Equals(Expected));
+	}
+	for (auto& Flash : Floor->ActiveFlashes) Flash.ExpireTime = Now;
+	Floor->UpdateFlashes();
+	TestNull(TEXT("The last flash releases its render source"), Floor->FlashInstances->GetStaticMesh());
 	return true;
 }
 

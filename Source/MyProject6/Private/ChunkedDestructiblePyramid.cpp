@@ -1770,9 +1770,7 @@ void AChunkedDestructiblePyramid::UpdatePyramidBottomToTopGlowWaves(
 
 	const bool bVisible = AnimationMesh.TriangleCount() > 0;
 	PyramidAnimationComponent->GetDynamicMesh()->SetMesh(MoveTemp(AnimationMesh));
-	PyramidAnimationComponent->NotifyMeshUpdated();
 	PyramidAnimationComponent->SetVisibility(bVisible, true);
-	PyramidAnimationComponent->MarkRenderStateDirty();
 }
 
 void AChunkedDestructiblePyramid::UpdatePyramidBottomToTopSineRows(
@@ -1821,14 +1819,6 @@ void AChunkedDestructiblePyramid::UpdatePyramidBottomToTopSineRows(
 	}
 	TArray<bool> UsedComponents;
 	UsedComponents.Init(false, ComponentCount);
-	for (int32 ComponentIndex = 0; ComponentIndex < ComponentCount; ++ComponentIndex)
-	{
-		if (PyramidAnimationRowComponents[ComponentIndex])
-		{
-			PyramidAnimationRowComponents[ComponentIndex]->SetVisibility(false, true);
-		}
-	}
-
 	const float SurfaceOffset = FMath::Clamp(Shape.ShellThickness * 0.015f, 0.3f, 2.0f);
 	for (int32 RowIndex = 0; RowIndex < RowCount; ++RowIndex)
 	{
@@ -1878,8 +1868,6 @@ void AChunkedDestructiblePyramid::UpdatePyramidBottomToTopSineRows(
 				AppendPyramidAnimationPieceSurface(RowMesh, CellIndex, SurfaceOffset);
 			}
 			RowComponent->GetDynamicMesh()->SetMesh(MoveTemp(RowMesh));
-			RowComponent->NotifyMeshUpdated();
-			RowComponent->MarkRenderStateDirty();
 			PyramidAnimationRowAssignments[ComponentIndex] = RowIndex;
 		}
 		if (PyramidAnimationRowMaterialInstances.IsValidIndex(ComponentIndex))
@@ -1889,6 +1877,13 @@ void AChunkedDestructiblePyramid::UpdatePyramidBottomToTopSineRows(
 				RowIntensities[RowIndex]);
 		}
 		RowComponent->SetVisibility(true, true);
+	}
+	for (int32 ComponentIndex = 0; ComponentIndex < ComponentCount; ++ComponentIndex)
+	{
+		if (!UsedComponents[ComponentIndex] && PyramidAnimationRowComponents[ComponentIndex])
+		{
+			PyramidAnimationRowComponents[ComponentIndex]->SetVisibility(false, true);
+		}
 	}
 }
 
@@ -1971,7 +1966,5 @@ void AChunkedDestructiblePyramid::UpdatePyramidRisingSpiralGlow(
 
 	const bool bVisible = AnimationMesh.TriangleCount() > 0;
 	PyramidAnimationComponent->GetDynamicMesh()->SetMesh(MoveTemp(AnimationMesh));
-	PyramidAnimationComponent->NotifyMeshUpdated();
 	PyramidAnimationComponent->SetVisibility(bVisible, true);
-	PyramidAnimationComponent->MarkRenderStateDirty();
 }

@@ -3,6 +3,7 @@
 #include "NPCHitReactionComponent.h"
 #include "NPCSleepComponent.h"
 #include "NPCElectricTetherComponent.h"
+#include "Algo/Reverse.h"
 #include "Animation/AnimInstanceProxy.h"
 #include "Animation/AnimNode_LinkedInputPose.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -25,6 +26,7 @@ namespace
 		explicit FNPCHitBendProxy(UAnimInstance* Instance) : FAnimInstanceProxy(Instance) {}
 		FAnimNode_LinkedInputPose* InputPose = nullptr;
 		TArray<float> SpineWeights;
+		TArray<FCompactPoseBoneIndex> BendChain;
 		TArray<FQuat> ComponentRotations;
 		FVector BendAxis = FVector::RightVector;
 		float BendRadians = 0.f;
@@ -32,11 +34,10 @@ namespace
         float ElectricAlpha=0.f,ElectricTime=0.f;
         FVector ElectricRight=FVector::RightVector,ElectricUp=FVector::UpVector,ElectricForward=FVector::ForwardVector;
 		FVector SleepAxis = FVector::RightVector;
-		FVector SleepForward = FVector::ForwardVector;
 		TArray<FVector2f> SleepWeights;
-		TArray<FVector> ArmChildDirections;
 		TArray<FTransform> ComponentPose;
 		FCompactPoseBoneIndex LimbBones[4][3];
+		TArray<FCompactPoseBoneIndex> LimbAncestors[4];
 		FVector Targets[4], Poles[4];
 		FQuat GroundRotation = FQuat::Identity;
 		FVector GroundPoint=FVector::ZeroVector, GroundUp=FVector::UpVector;
@@ -49,16 +50,16 @@ namespace
 			SleepAlpha = Curl = Nod = Breath = 0.f;ElectricAlpha=0;
 			if (AActor* Actor = Instance->GetOwningActor())
 			{
-				if(const auto* T=Actor->FindComponentByClass<UNPCElectricTetherComponent>())
+				if(const auto* T=Actor->FindComponentByClass<UNPCElectricTetherComponent>(); T && T->PoseAlpha > 0.f)
                 {
                     ElectricAlpha=T->PoseAlpha;ElectricTime=T->StruggleTime;
                     const FQuat Q=T->GetPoseBasis();ElectricRight=Q.RotateVector(FVector::RightVector);ElectricUp=Q.RotateVector(FVector::UpVector);ElectricForward=Q.RotateVector(FVector::ForwardVector);
                 }
-				if (const auto* Sleep = Actor->FindComponentByClass<UNPCSleepComponent>())
+				if (const auto* Sleep = Actor->FindComponentByClass<UNPCSleepComponent>(); Sleep && Sleep->PoseAlpha > 0.f)
 				{
 					SleepAlpha = Sleep->PoseAlpha; Curl = Sleep->Curl; Nod = Sleep->Nod; Breath = Sleep->Breath;
-					SleepAxis = Sleep->PoseBendAxis; SleepForward = Sleep->PoseForwardAxis;
-					if (SleepAlpha>0.f) for (int I=0;I<4;++I) { Targets[I]=Sleep->LimbTargets[I]; Poles[I]=Sleep->LimbPoles[I]; }
+					SleepAxis = Sleep->PoseBendAxis;
+					for (int I=0;I<4;++I) { Targets[I]=Sleep->LimbTargets[I]; Poles[I]=Sleep->LimbPoles[I]; }
 					GroundRotation=Sleep->GroundRotation;
 					GroundPoint=Sleep->GroundPoint;GroundUp=Sleep->GroundUp;
 				}
@@ -81,7 +82,6 @@ namespace
 			const FReferenceSkeleton& Ref = Bones.GetReferenceSkeleton();
 			SpineWeights.Init(0.f, Bones.GetCompactPoseNumBones());
 			SleepWeights.Init(FVector2f::ZeroVector, Bones.GetCompactPoseNumBones());
-			ArmChildDirections.Init(FVector::ZeroVector, Bones.GetCompactPoseNumBones());
 			for (int32 Index = 0; Index < Ref.GetNum(); ++Index)
 			{
 				const auto Compact = Bones.MakeCompactPoseIndex(FMeshPoseBoneIndex(Index));
@@ -97,21 +97,6 @@ namespace
 				else if (Name == TEXT("lowerarm_l") || Name == TEXT("lowerarm_r") || Name.Contains(TEXT("forearm"))) Weight.Y = bLeft ? -2.f : 2.f;
 				else if (Name == TEXT("head") || Name == TEXT("head_01") || Name.Contains(TEXT("_head_"))) Weight.X = 13.f;
 				SleepWeights[Compact.GetInt()] = Weight;
-				if (Weight.Y != 0.f)
-				{
-					for (int32 Child=Index+1;Child<Ref.GetNum();++Child)
-					{
-						if (Ref.GetParentIndex(Child)!=Index) continue;
-						const FString ChildName=Ref.GetBoneName(Child).ToString().ToLower();
-						if ((FMath::Abs(Weight.Y)==1.f && (ChildName.Contains(TEXT("lowerarm")) || ChildName.Contains(TEXT("forearm"))))
-							|| (FMath::Abs(Weight.Y)==2.f && ChildName.Contains(TEXT("hand")))
-							|| (FMath::Abs(Weight.Y)==3.f && (ChildName.StartsWith(TEXT("calf_")) || ChildName.Contains(TEXT("leftleg")) || ChildName.Contains(TEXT("rightleg"))))
-							|| (FMath::Abs(Weight.Y)==4.f && ChildName.Contains(TEXT("foot"))))
-						{
-							ArmChildDirections[Compact.GetInt()]=Ref.GetRefBonePose()[Child].GetTranslation().GetSafeNormal(); break;
-						}
-					}
-				}
 			}
 			ComponentRotations.SetNum(SpineWeights.Num());
 			ComponentPose.SetNum(SpineWeights.Num());
@@ -135,6 +120,14 @@ namespace
 						break;
 					}
 			}
+			for (int32 Limb = 0; Limb < 4; ++Limb)
+			{
+				LimbAncestors[Limb].Reset();
+				for (auto Bone = LimbBones[Limb][2]; Bone.IsValid(); Bone = Bones.GetParentBoneIndex(Bone))
+				{
+					LimbAncestors[Limb].Add(Bone);
+				}
+			}
 			TArray<FCompactPoseBoneIndex> Spine;
 			// Follow the head's ancestry instead of sorting names: Black Monster's
 			// Spine02 is BELOW Spine01, and UE5 includes spine-named corrective bones.
@@ -157,6 +150,13 @@ namespace
 				// Most of the fold starts at the waist, with a softer curve through the chest.
 				SpineWeights[Spine[Index].GetInt()] = Spine.Num() == 1 ? 1.f : (Index == 0 ? .65f : .35f / (Spine.Num() - 1));
 			}
+			BendChain.Reset();
+			if (!Spine.IsEmpty())
+			{
+				for (auto Bone = Spine.Last(); Bone.IsValid(); Bone = Bones.GetParentBoneIndex(Bone))
+					BendChain.Add(Bone);
+				Algo::Reverse(BendChain);
+			}
 		}
 
 		virtual bool Evaluate(FPoseContext& Output) override
@@ -164,8 +164,30 @@ namespace
 			if (!InputPose) return false;
 			InputPose->Evaluate_AnyThread(Output);
 			if ((FMath::IsNearlyZero(BendRadians) && SleepAlpha <= 0.f && ElectricAlpha <= 0.f) || SpineWeights.Num() != Output.Pose.GetNumBones()) return true;
-			// Only local spine rotations change; hips/legs and the incoming animation stay intact.
-			// All UObject reads were copied in PreUpdate on the game thread.
+			auto BendSpine = [&](FCompactPoseBoneIndex Bone, const FQuat& ParentRotation, FTransform& Local)
+			{
+				const float Weight = SpineWeights[Bone.GetInt()];
+				if (Weight > 0.f && BendRadians != 0.f)
+				{
+					const FVector LocalAxis = ParentRotation.UnrotateVector(BendAxis);
+					Local.SetRotation((FQuat(LocalAxis, BendRadians * Weight) * Local.GetRotation()).GetNormalized());
+				}
+			};
+			if (SleepAlpha <= 0.f && ElectricAlpha <= 0.f)
+			{
+				// A hit only rotates the spine. Other bones inherit it through the output local pose.
+				FQuat ParentRotation = FQuat::Identity;
+				for (const auto Bone : BendChain)
+				{
+					FTransform& Local = Output.Pose[Bone];
+					BendSpine(Bone, ParentRotation, Local);
+					ParentRotation = ParentRotation * Local.GetRotation();
+				}
+				return true;
+			}
+			const float ElectricSpineFlex = 14.f + 13.f * FMath::Sin(ElectricTime * 8.1f);
+			const float ElectricHeadFlex = 11.f * FMath::Sin(ElectricTime * 11.3f);
+			const float ElectricTwist = 18.f * FMath::Sin(ElectricTime * 6.7f);
 			for (const FCompactPoseBoneIndex Bone : Output.Pose.ForEachBoneIndex())
 			{
 				const FCompactPoseBoneIndex Parent = Output.Pose.GetParentBoneIndex(Bone);
@@ -178,47 +200,51 @@ namespace
 					Local.Blend(Local, RefPose, SleepAlpha);
 					const FVector2f Weights = SleepWeights[Bone.GetInt()];
 					const float Fold = Weights.X*Curl + SpineWeights[Bone.GetInt()]*(Curl*22.f+Nod+Breath*1.8f);
-					const FQuat Flex(ParentRotation.UnrotateVector(SleepAxis), FMath::DegreesToRadians(Fold));
-					Local.SetRotation((Flex*Local.GetRotation()).GetNormalized());
+					if (Fold != 0.f)
+					{
+						const FQuat Flex(ParentRotation.UnrotateVector(SleepAxis), FMath::DegreesToRadians(Fold));
+						Local.SetRotation((Flex*Local.GetRotation()).GetNormalized());
+					}
 				}
-				if(ElectricAlpha>0.f)
-                {
-                    const FVector2f W=SleepWeights[Bone.GetInt()];
-                    Local.Blend(Local,Output.Pose.GetRefPose(Bone),ElectricAlpha);
-                    const float T=ElectricTime;
-                    float Flex=SpineWeights[Bone.GetInt()]*(14.f+13.f*FMath::Sin(T*8.1f));
-                    if(W.X>0)Flex+=11.f*FMath::Sin(T*11.3f);
-                    const FQuat Bend(ParentRotation.UnrotateVector(ElectricRight),FMath::DegreesToRadians(Flex*ElectricAlpha));
-                    const FQuat Twist(ParentRotation.UnrotateVector(ElectricUp),FMath::DegreesToRadians(SpineWeights[Bone.GetInt()]*18.f*FMath::Sin(T*6.7f)*ElectricAlpha));
-                    Local.SetRotation((Twist*Bend*Local.GetRotation()).GetNormalized());
-                }
-				const float Weight = SpineWeights[Bone.GetInt()];
-				if (Weight > 0.f)
+				if (ElectricAlpha > 0.f)
 				{
-					const FVector LocalAxis = ParentRotation.UnrotateVector(BendAxis);
-					Local.SetRotation((FQuat(LocalAxis, BendRadians * Weight) * Local.GetRotation()).GetNormalized());
+					const FVector2f Weights = SleepWeights[Bone.GetInt()];
+					Local.Blend(Local, Output.Pose.GetRefPose(Bone), ElectricAlpha);
+					const float SpineWeight = SpineWeights[Bone.GetInt()];
+					if (SpineWeight != 0.f || Weights.X > 0.f)
+					{
+						const float Flex = SpineWeight * ElectricSpineFlex + (Weights.X > 0.f ? ElectricHeadFlex : 0.f);
+						const FQuat Bend(ParentRotation.UnrotateVector(ElectricRight), FMath::DegreesToRadians(Flex * ElectricAlpha));
+						const FQuat Twist(ParentRotation.UnrotateVector(ElectricUp), FMath::DegreesToRadians(SpineWeight * ElectricTwist * ElectricAlpha));
+						Local.SetRotation((Twist * Bend * Local.GetRotation()).GetNormalized());
+					}
 				}
+				BendSpine(Bone, ParentRotation, Local);
 				ComponentRotations[Bone.GetInt()] = ParentRotation * Local.GetRotation();
 			}
 			if (SleepAlpha>0.f || ElectricAlpha>0.f)
 			{
-				auto Rebuild=[&]()
-				{
-					for (const auto Bone:Output.Pose.ForEachBoneIndex())
-					{
-						const auto Parent=Output.Pose.GetParentBoneIndex(Bone);
-						ComponentPose[Bone.GetInt()]=Parent.IsValid()?Output.Pose[Bone]*ComponentPose[Parent.GetInt()]:Output.Pose[Bone];
-					}
-				};
-				Rebuild();
 				for (int L=0;L<4;++L)
 				{
 					const auto Upper=LimbBones[L][0], Lower=LimbBones[L][1], End=LimbBones[L][2];
 					if (!Upper.IsValid()||!Lower.IsValid()||!End.IsValid()) continue;
+					// Resolve this limb from the current local pose, including edits by earlier limbs.
+					const auto& Ancestors = LimbAncestors[L];
+					for (int32 I = Ancestors.Num() - 1; I >= 0; --I)
+					{
+						const auto Bone = Ancestors[I];
+						ComponentPose[Bone.GetInt()] = I + 1 < Ancestors.Num()
+							? Output.Pose[Bone] * ComponentPose[Ancestors[I + 1].GetInt()] : Output.Pose[Bone];
+					}
 					const FTransform A=ComponentPose[Upper.GetInt()], B=ComponentPose[Lower.GetInt()], C=ComponentPose[End.GetInt()];
 					const FVector Root=A.GetLocation(),Joint=B.GetLocation(),Tip=C.GetLocation();
-					FVector Goal=FMath::Lerp(Tip,Targets[L],SleepAlpha);
-                    FVector PoleTarget=Poles[L];
+					FVector Goal = Tip;
+					FVector PoleTarget = FVector::ZeroVector;
+					if (SleepAlpha > 0.f)
+					{
+						Goal = FMath::Lerp(Tip, Targets[L], SleepAlpha);
+						PoleTarget = Poles[L];
+					}
                     if(ElectricAlpha>0.f)
                     {
                         const double Span=FVector::Dist(Root,Joint)+FVector::Dist(Joint,Tip);
@@ -255,7 +281,8 @@ namespace
 					const FQuat QA=(FQuat::FindBetweenNormals((Joint-Root).GetSafeNormal(),(Knee-Root).GetSafeNormal())*A.GetRotation()).GetNormalized();
 					const FQuat QB=(FQuat::FindBetweenNormals((Tip-Joint).GetSafeNormal(),(Goal-Knee).GetSafeNormal())*B.GetRotation()).GetNormalized();
 					const auto Parent=Output.Pose.GetParentBoneIndex(Upper);
-					Output.Pose[Upper].SetRotation((ComponentPose[Parent.GetInt()].GetRotation().Inverse()*QA).GetNormalized());
+					const FQuat ParentRotation = Parent.IsValid() ? ComponentPose[Parent.GetInt()].GetRotation() : FQuat::Identity;
+					Output.Pose[Upper].SetRotation((ParentRotation.Inverse()*QA).GetNormalized());
 					Output.Pose[Lower].SetRotation((QA.Inverse()*QB).GetNormalized());
 					// Feet stay flat against the support plane during kneeling and rising.
 					FQuat EndRotation=C.GetRotation();
@@ -266,7 +293,6 @@ namespace
 						EndRotation=FQuat::Slerp(EndRotation,GroundRotation*Ref.GetRotation(),SleepAlpha);
 					}
 					Output.Pose[End].SetRotation((QB.Inverse()*EndRotation).GetNormalized());
-					Rebuild();
 				}
 			}
 			return true;

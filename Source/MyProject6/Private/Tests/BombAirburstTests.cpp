@@ -130,10 +130,10 @@ bool FBombAirburstTest::RunTest(const FString&)
         House->bGenerateDoor = false; House->bGenerateWindows = false;
         House->DebrisImpulse = 0; House->DebrisUpwardImpulse = 0; House->DebrisPiecesPerCell = 1;
         House->MaxActiveDebrisPieces = 1; House->MaxRuntimeDebrisPieces = 1;
+        // Rebuilt chunks take their collision settings from the house. Keep walls
+        // non-solid throughout the test so ricochets cannot mask the blast impulse.
+        FindFProperty<FBoolProperty>(House->GetClass(),TEXT("bGenerateCollision"))->SetPropertyValue_InContainer(House,false);
         House->ConfigureHouse(FIntVector(8,8,6),2,1,FVector(50),FVector::ZeroVector,true);
-        // Isolate the initial blast impulse from subsequent wall/debris ricochets.
-        TInlineComponentArray<UDynamicMeshComponent*> HouseChunks(House);
-        for (auto* Chunk : HouseChunks) Chunk->SetCollisionResponseToAllChannels(ECR_Ignore);
         FindFProperty<FBoolProperty>(House->GetClass(),TEXT("bUseDestructionRipple"))->SetPropertyValue_InContainer(House,bRipple);
         const FVector Blast = HouseOrigin+FVector(235,0,150);
         auto* DebrisShot = Bomb(Blast,90);

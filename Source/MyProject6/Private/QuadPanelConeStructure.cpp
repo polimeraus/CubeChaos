@@ -4885,9 +4885,7 @@ void AQuadPanelConeStructure::UpdateBottomToTopGlowWaves(
 	}
 	const bool bHasVisibleWave = AnimationMesh.TriangleCount() > 0;
 	ConeAnimationComponent->GetDynamicMesh()->SetMesh(MoveTemp(AnimationMesh));
-	ConeAnimationComponent->NotifyMeshUpdated();
 	ConeAnimationComponent->SetVisibility(bHasVisibleWave, true);
-	ConeAnimationComponent->MarkRenderStateDirty();
 }
 
 void AQuadPanelConeStructure::UpdateRisingSpiralGlowWaves(
@@ -4911,10 +4909,8 @@ void AQuadPanelConeStructure::UpdateRisingSpiralGlowWaves(
 	AppendConeSpiralGlowSurfaces(AnimationMesh, PhaseOffset);
 	const bool bHasVisibleSpiral = AnimationMesh.TriangleCount() > 0;
 	ConeAnimationComponent->GetDynamicMesh()->SetMesh(MoveTemp(AnimationMesh));
-	ConeAnimationComponent->NotifyMeshUpdated();
 	ConeAnimationComponent->SetRelativeRotation(FRotator::ZeroRotator);
 	ConeAnimationComponent->SetVisibility(bHasVisibleSpiral, true);
-	ConeAnimationComponent->MarkRenderStateDirty();
 	bConeAnimationGeometryDirty = false;
 }
 
@@ -4931,19 +4927,6 @@ void AQuadPanelConeStructure::UpdateBottomToTopSineRows(
 		ConeAnimationRowAssignments.Init(INDEX_NONE, ComponentCount);
 		bConeAnimationGeometryDirty = false;
 	}
-	for (int32 ComponentIndex = 0; ComponentIndex < ComponentCount; ++ComponentIndex)
-	{
-		if (UDynamicMeshComponent *Component = ConeAnimationRowComponents[ComponentIndex])
-		{
-			Component->SetVisibility(false, true);
-		}
-		if (ConeAnimationRowMaterialInstances.IsValidIndex(ComponentIndex))
-		{
-			ApplyFixedAnimationMaterialParameters(
-				ConeAnimationRowMaterialInstances[ComponentIndex], 0.0f);
-		}
-	}
-
 	const int32 RowsPerWave = FMath::Clamp(
 		SineRowsSimultaneousRowCount,
 		2,
@@ -5055,8 +5038,6 @@ void AQuadPanelConeStructure::UpdateBottomToTopSineRows(
 			const float RowTop = FMath::Min(RowBottom + PitchZ, TotalHeight);
 			AppendConeGlowBandSurfaces(RowMesh, RowBottom, RowTop);
 			RowComponent->GetDynamicMesh()->SetMesh(MoveTemp(RowMesh));
-			RowComponent->NotifyMeshUpdated();
-			RowComponent->MarkRenderStateDirty();
 			ConeAnimationRowAssignments[ComponentIndex] = RowIndex;
 		}
 		if (ConeAnimationRowMaterialInstances.IsValidIndex(ComponentIndex))
@@ -5065,6 +5046,17 @@ void AQuadPanelConeStructure::UpdateBottomToTopSineRows(
 				ConeAnimationRowMaterialInstances[ComponentIndex], RowIntensities[RowIndex]);
 		}
 		RowComponent->SetVisibility(true, true);
+	}
+	for (int32 ComponentIndex = 0; ComponentIndex < ComponentCount; ++ComponentIndex)
+	{
+		if (!UsedComponents[ComponentIndex] && ConeAnimationRowComponents[ComponentIndex])
+		{
+			ConeAnimationRowComponents[ComponentIndex]->SetVisibility(false, true);
+			if (ConeAnimationRowMaterialInstances.IsValidIndex(ComponentIndex))
+			{
+				ApplyFixedAnimationMaterialParameters(ConeAnimationRowMaterialInstances[ComponentIndex], 0.0f);
+			}
+		}
 	}
 }
 

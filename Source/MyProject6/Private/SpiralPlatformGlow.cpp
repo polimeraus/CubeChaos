@@ -101,7 +101,8 @@ void USpiralPlatformGlow::Start(AActor* InOwner, const FSpiralPlatformGlowSettin
 	Surface->RegisterComponent();
 	StartTime = InOwner->GetWorld()->GetTimeSeconds();
 	Update();
-	InOwner->GetWorld()->GetTimerManager().SetTimer(Timer, this, &USpiralPlatformGlow::Update, Settings.SliceDuration, true);
+	InOwner->GetWorld()->GetTimerManager().SetTimer(Timer, this, &USpiralPlatformGlow::Update, Settings.SliceDuration,
+		FTimerManagerTimerParameters{.bLoop = true, .bMaxOncePerFrame = true});
 }
 
 void USpiralPlatformGlow::Update()
@@ -145,9 +146,8 @@ void USpiralPlatformGlow::RenderSlice(int32 Slice, bool bForce)
 	auto* Replacement = NewObject<UDynamicMesh>(Surface);
 	Replacement->SetMesh(MoveTemp(Mesh));
 	Surface->SetDynamicMesh(Replacement);
-	Surface->RegisterComponent();
-	Surface->NotifyMeshUpdated();
 	Surface->SetVisibility(bVisible);
+	Surface->RegisterComponent();
 }
 
 void USpiralPlatformGlow::Release()
