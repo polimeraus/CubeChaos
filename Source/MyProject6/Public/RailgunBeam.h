@@ -37,7 +37,6 @@ private:
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> TrailMaterial;
     UPROPERTY() TObjectPtr<UMaterialInterface> ParticleMaterial;
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> SpiralMaterial;
-    FVector ShotDirection = FVector::ForwardVector;
     FVector LastViewLocation = FVector::ZeroVector;
     FVector ImpactLocation = FVector::ZeroVector;
     bool bHasImpact = false;

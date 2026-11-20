@@ -56,10 +56,30 @@ for i in range(8):
 for i in range(3):
     a=i*math.tau/3
     box('Impact bumper',(.11*math.cos(a),.11*math.sin(a),-.091),(.05,.027,.027),'SleepRubber',a)
-# Raised moon / signal emblem, visible on the top face.
-for i in range(24):
-    a=-1.1+i*2.2/23
-    box('Moon emblem',(.054+.017*math.cos(a),.017*math.sin(a),.001),(.004,.004,.003),'SleepCyan')
+# A single tapered crescent replaces the staircase of luminous cubes.
+verts=[];faces=[]
+for i in range(25):
+    a=-1.67+3.34*i/24
+    width=.001+.008*math.sin(math.pi*i/24)
+    for r in (.023-width,.023):
+        verts.append((.048+r*math.cos(a),r*math.sin(a),.002))
+    if i:faces.append((2*i-2,2*i-1,2*i+1,2*i))
+mesh=bpy.data.meshes.new('Lunar inlay');mesh.from_pydata(verts,[],faces);mesh.update()
+moon=bpy.data.objects.new(mesh.name,mesh);bpy.context.collection.objects.link(moon)
+finish(moon,mesh.name,'SleepCyan')
+# Three open ceramic petals frame the emitter without hiding its glow.
+for i in range(3):
+    a=.52+i*math.tau/3
+    curve=bpy.data.curves.new('Petal','CURVE');curve.dimensions='3D'
+    curve.resolution_u=6;curve.bevel_depth=.0032;curve.bevel_resolution=2
+    spline=curve.splines.new('BEZIER');spline.bezier_points.add(3)
+    for point,(r,z,twist) in zip(spline.bezier_points,[(.078,.001,-.20),(.065,.039,-.09),(.039,.078,.08),(.022,.11,.22)]):
+        point.co=(r*math.cos(a+twist),r*math.sin(a+twist),z)
+        point.handle_left_type=point.handle_right_type='AUTO'
+    petal=bpy.data.objects.new('Ceramic petal',curve);bpy.context.collection.objects.link(petal)
+    petal.data.materials.append(materials['SleepCeramic'])
+    bpy.ops.object.select_all(action='DESELECT');petal.select_set(True);bpy.context.view_layer.objects.active=petal
+    bpy.ops.object.convert(target='MESH')
 for i in range(3):box('Signal strength',(-.059+i*.012,0,.001),(.006,.012+i*.009,.003),'SleepCyan')
 bpy.ops.object.select_all(action='SELECT');bpy.context.view_layer.objects.active=bpy.context.selected_objects[0];bpy.ops.object.join()
 obj=bpy.context.object;obj.name='SM_SleepSignalDevice'

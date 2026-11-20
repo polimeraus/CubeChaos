@@ -14,7 +14,8 @@ assert mesh.find_socket('Muzzle') and mesh.find_socket('SupportHand')
 animation=unreal.load_asset(base+'/Animations/A_PurpleRailgunHold');assert animation
 player_class=unreal.load_class(None,'/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
 cdo=unreal.get_default_object(player_class);visuals=cdo.get_editor_property('purple_railgun_visuals')
-assert visuals.color.r>.7 and visuals.color.g<.05 and visuals.color.b>.9
+assert visuals.color.r>.7 and visuals.color.g<.05 and visuals.color.b<.04
+assert not visuals.smooth_spiral and visuals.spiral_color.r>.9 and visuals.spiral_color.b>.5
 assert cdo.railgun_visuals.color.b>.9 and cdo.railgun_visuals.color.r<.05
 pickup_class=unreal.load_class(None,'/Game/GameplayActors/Pickups/PurpleRailgun/BP_PurpleRailgunPickup.BP_PurpleRailgunPickup_C')
 pd=unreal.get_default_object(pickup_class)

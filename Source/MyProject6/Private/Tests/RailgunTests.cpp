@@ -117,6 +117,11 @@ bool FRailgunTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Shot creates a world-space trail"), Trail.IsValid());
     if (Trail.IsValid())
     {
+        const auto Bounds = Trail->Trail->GetMesh()->GetBounds();
+        TestTrue(TEXT("Core has thickness on both transverse axes"), Bounds.Max.Y > 0 && Bounds.Max.Z > 0);
+        const FTransform Transform = Trail->Trail->GetComponentTransform();
+        Trail->FaceCamera(Trail->GetActorLocation() + FVector(0,100,-300));
+        TestTrue(TEXT("The core stays fixed when the viewer moves"), Trail->Trail->GetComponentTransform().Equals(Transform));
         auto* Material = Cast<UMaterialInstanceDynamic>(Trail->Trail->GetMaterial(0));
         TestNotNull(TEXT("Soft trail creates its material"), Material);
         if (Material)

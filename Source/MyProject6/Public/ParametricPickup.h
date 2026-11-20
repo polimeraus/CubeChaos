@@ -22,7 +22,7 @@ enum class EPickupWeapon : uint8
     Bomb UMETA(DisplayName="Fuse Bomb"),
     SleepSignal UMETA(DisplayName="Sleep Signal"),
     ElectricTether UMETA(DisplayName="Arc Cage"),
-    PurpleRailgun UMETA(DisplayName="Purple Railgun")
+    PurpleRailgun UMETA(DisplayName="Red Railgun")
 };
 
 UENUM(BlueprintType)
@@ -64,7 +64,7 @@ enum class EPickupMotif : uint8
     BombCluster UMETA(DisplayName="Bomb Cluster"),
     SleepSignal UMETA(DisplayName="Sleep Signal"),
     ElectricTether UMETA(DisplayName="Arc Cage"),
-    PurpleRailgun UMETA(DisplayName="Purple Railgun")
+    PurpleRailgun UMETA(DisplayName="Red Railgun")
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FParametricPickupCollected, AParametricPickup*, Pickup, APawn*, Collector);

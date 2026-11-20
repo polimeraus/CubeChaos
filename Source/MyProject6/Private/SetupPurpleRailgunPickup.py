@@ -11,7 +11,7 @@ bp=unreal.load_asset(path) if lib.does_asset_exist(path) else assets.create_asse
 cdo=unreal.get_default_object(bp.generated_class())
 settings={'weapon_reward':unreal.PickupWeapon.PURPLE_RAILGUN,'icon':unreal.PickupMotif.PURPLE_RAILGUN,
     'shape':unreal.PickupShape.ROUNDED_CUBE,'size':60.,'corner_radius':8.,
-    'body_color':unreal.LinearColor(.025,.012,.04,1),'icon_color':unreal.LinearColor(.8,.015,1,1),
+    'body_color':unreal.LinearColor(.065,.012,.019,1),'icon_color':unreal.LinearColor(1,.045,.065,1),
     'icon_scale':.83,'minimum_glow':1.8,'maximum_glow':4.,'pulse_period':2.4,
     'motion':unreal.PickupMotion.SPIN_AND_BOB,'spin_speed':35.,'bob_height':18.,'bob_period':2.4,
     'auto_collect':True,'player_only':True,
@@ -23,7 +23,7 @@ cdo.collection_sound=existing_cdo.collection_sound
 unreal.BlueprintEditorLibrary.compile_blueprint(bp);assert lib.save_loaded_asset(bp,False)
 player_bp=unreal.load_asset('/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter')
 player_defaults=unreal.get_default_object(player_bp.generated_class())
-visuals=unreal.RailgunVisualSettings();visuals.color=unreal.LinearColor(.8,.015,1,1);visuals.spiral_color=unreal.LinearColor(.45,.035,1,1)
+visuals=unreal.get_default_object(unreal.MyProject6Character).purple_railgun_visuals
 player_defaults.set_editor_property('purple_railgun_visuals',visuals)
 unreal.BlueprintEditorLibrary.compile_blueprint(player_bp);assert lib.save_loaded_asset(player_bp,False)
 level=unreal.get_editor_subsystem(unreal.LevelEditorSubsystem);actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)

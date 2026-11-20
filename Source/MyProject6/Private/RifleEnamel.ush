@@ -1,0 +1,9 @@
+// Apply paint only to the light ceramic receiver. Local centimetres keep the
+// markings attached to the rifle when picked up or viewed from another angle.
+float lightPaint = smoothstep(.13,.48,dot(Surface,float3(.2126,.7152,.0722)));
+float u = Local.y + .42*(Local.z-8.);
+float aa = max(.045, fwidth(u));
+float broad = smoothstep(21.-aa,21.+aa,u) - smoothstep(25.-aa,25.+aa,u);
+float pin = smoothstep(26.1-aa,26.1+aa,u) - smoothstep(26.85-aa,26.85+aa,u);
+float3 paint = Surface * lerp(float3(1.,1.,1.),float3(.045,.34,.42),broad*lightPaint);
+return lerp(paint, Surface*float3(1.,.47,.085), pin*lightPaint);

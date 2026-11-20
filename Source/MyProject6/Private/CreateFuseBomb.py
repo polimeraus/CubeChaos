@@ -63,6 +63,40 @@ def tube(name, pts, radius, mat):
     bpy.ops.object.convert(target='MESH')
 
 def centre(t): return Vector((.06*t*t, .009*math.sin(t*math.pi), .133+.067*t))
+
+# Three enamel panels wrap the shell. Dark edging and a partial luminous
+# inset catch the light from either hand and remain readable during a tumble.
+for panel in range(3):
+    azimuth=panel*math.tau/3
+    for name, width, radius, material, steps in [
+        ('Panel rim', .0036, .1149, 'BombBrass', 48),
+        ('Inset enamel', .0022, .1167, 'BombSeam', 48),
+        ('Charged segment', .0011, .1185, 'BombCyan', 18)]:
+        points=[]
+        for i in range(steps+1):
+            t=math.tau*i/48
+            a=azimuth+.52*math.cos(t)
+            latitude=.55+.28*math.sin(t)
+            points.append((radius*math.cos(latitude)*math.cos(a),
+                           radius*math.cos(latitude)*math.sin(a),radius*math.sin(latitude)))
+        tube(name,points,width,material)
+    # A four-point enamel glint is inlaid in each oval. Following the shell
+    # curvature keeps the badge legible when the bomb turns in the hand.
+    verts=[]
+    for i in range(9):
+        scale=1. if i%2==0 else .28
+        angle=math.tau*i/8
+        lon=azimuth+.235*scale*math.cos(angle)
+        lat=.55+.19*scale*math.sin(angle)
+        verts.append((.1157*math.cos(lat)*math.cos(lon),
+                      .1157*math.cos(lat)*math.sin(lon),.1157*math.sin(lat)))
+    verts.append((.118*math.cos(.55)*math.cos(azimuth),
+                  .118*math.cos(.55)*math.sin(azimuth),.118*math.sin(.55)))
+    mesh=bpy.data.meshes.new('Compass glint')
+    mesh.from_pydata(verts,[],[(9,i,i+1) for i in range(8)]);mesh.update()
+    glint=bpy.data.objects.new(mesh.name,mesh);bpy.context.collection.objects.link(glint)
+    finish(glint,mesh.name,'BombMagenta')
+
 tube('Neon cable fuse',[centre(i/48) for i in range(49)],.0026,'BombRope')
 # Widely spaced dark sleeves read as an electronic fuse, retaining the classic curve.
 for i in range(9):

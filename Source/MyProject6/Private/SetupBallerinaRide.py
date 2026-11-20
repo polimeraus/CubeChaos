@@ -62,8 +62,8 @@ surface=material('M_RideSurface')
 pattern=material('M_RideSkirt',pattern=True)
 bulb=material('M_RideBulb',bulb=True)
 palette={
- 'CrimsonVelvet':((.48,.012,.033),.12,.33),'Porcelain':((.86,.59,.37),.05,.36),
- 'MidnightHair':((.016,.010,.022),.18,.26),'Brass':((.83,.46,.085),.72,.25),
+ 'CrimsonVelvet':((.41,.012,.043),.035,.54),'Porcelain':((.84,.58,.44),.025,.44),
+ 'MidnightHair':((.025,.014,.022),.09,.34),'Brass':((.83,.46,.085),.72,.25),
  'Ivory':((.91,.88,.72),.08,.26),'Lashes':((.008,.005,.011),.1,.35),
  'JadeEyes':((.018,.21,.16),.25,.22),'Rouge':((.56,.017,.035),.12,.3),
  'SeatPaint':((.016,.32,.34),.45,.3),'SeatCushion':((.53,.19,.028),0,.6),

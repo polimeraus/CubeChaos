@@ -12,5 +12,5 @@ enum class EPlayerWeapon : uint8
     Bomb UMETA(DisplayName="Fuse Bomb"),
     SleepSignal UMETA(DisplayName="Sleep Signal"),
     ElectricTether UMETA(DisplayName="Arc Cage"),
-    PurpleRailgun UMETA(DisplayName="Purple Railgun")
+    PurpleRailgun UMETA(DisplayName="Red Railgun")
 };

@@ -208,7 +208,7 @@ TSharedRef<SWidget> UEnergyHUDWidget::RebuildWidget()
 								.Padding(14)
 								[
 									SNew(STextBlock)
-									.Text(NSLOCTEXT("EnergyHUD", "ControlsHelp", "W A S D   ·   Hareket\nFare   ·   Etrafa bak\nBoşluk   ·   Zıpla\nSol tık   ·   Ateş et\nFare tekerleği   ·   Silah değiştir\n1–7   ·   Silah seç (7: Mor Railgun)\nOrta fare   ·   Seçili railgun ateşi\nBackspace   ·   Havadayken platform oluştur"))
+									.Text(NSLOCTEXT("EnergyHUD", "ControlsHelp", "W A S D   ·   Hareket\nFare   ·   Etrafa bak\nBoşluk   ·   Zıpla\nSol tık   ·   Ateş et\nFare tekerleği   ·   Silah değiştir\n1–7   ·   Silah seç (7: Kırmızı Railgun)\nOrta fare   ·   Seçili railgun ateşi\nBackspace   ·   Havadayken platform oluştur"))
 									.Font(CaptionFont).ColorAndOpacity(FLinearColor(0.75f, 0.83f, 0.91f))
 									.AutoWrapText(true)
 								]

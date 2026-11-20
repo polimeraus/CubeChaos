@@ -65,6 +65,10 @@ box('Rear receiver',(0,-.065,.10),(.148,.20,.135),silver,.012)
 box('Receiver top',(0,-.06,.171),(.095,.15,.018),dark)
 box('Energy display bezel',(0,-.055,.183),(.084,.084,.006),silver,.003)
 box('Flowing energy display',(0,-.055,.187),(.068,.068,.003),energy,.001)
+# Frame the display with stepped brass graduations visible from the grip.
+for side in [-1,1]:
+    for j in range(4):
+        box('Display graduation',(side*.038,-.081+j*.017,.187),(.006,.007,.003),brass,.0007)
 box('Back plate',(0,-.169,.10),(.132,.012,.112),dark)
 for x in [-.076,.076]:
     box('Receiver inset',(x,-.07,.103),(.004,.115,.068),dark,.002)
@@ -72,6 +76,16 @@ for x in [-.076,.076]:
         box('Cooling fins',(x*1.02,y,.103),(.007,.010,.058),silver,.001)
 cylinder('Accelerator dark bed',.305,.044,.55,dark)
 cylinder('Blue induction chamber',.285,.046,.46,energy)
+# A continuous dark helix breaks up the exposed blue chamber between clamps.
+coil=bpy.data.curves.new('Wound inductor','CURVE')
+coil.dimensions='3D';coil.bevel_depth=.0042;coil.bevel_resolution=2
+spline=coil.splines.new('POLY');spline.points.add(180)
+for i,p in enumerate(spline.points):
+    t=i/180;angle=math.tau*8*t
+    p.co=(.047*math.cos(angle),.055+.46*t,.1+.047*math.sin(angle),1)
+winding=bpy.data.objects.new('Wound inductor',coil);bpy.context.collection.objects.link(winding)
+coil.materials.append(brass);bpy.ops.object.select_all(action='DESELECT');winding.select_set(True)
+bpy.context.view_layer.objects.active=winding;bpy.ops.object.convert(target='MESH')
 for y in [.065,.155,.245,.335,.425,.515]:
     ring('Induction clamp',y,.063,.045,.026,silver)
     ring('Clamp gasket',y+.018,.054,.044,.007,black)

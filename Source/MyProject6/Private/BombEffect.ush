@@ -6,18 +6,26 @@ if (Particle.r < .85)
 {
     float r = length(p);
     float progress = saturate(Age / 1.35);
-    float blur = lerp(.045, .25, smoothstep(0., 1., progress));
-    float edgeDistance = (r - .68) / blur;
-    float haloDistance = (r - .64) / (blur * 2.2);
+    // Sample a curved surface so the front of the cloud rolls into the rim.
+    float3 shell = float3(p, sqrt(saturate(.72*.72 - dot(p,p))));
+    float drift = Age * 2.6;
+    float folds = sin(dot(shell,float3(8.,-5.,6.)) - drift
+        + 1.7*sin(dot(shell,float3(4.,7.,-5.)) + drift*.7));
+    float billow = .5 + .5*sin(dot(shell,float3(-9.,5.,8.)) + 2.2*folds + drift);
+    float blur = lerp(.050, .21, smoothstep(0., 1., progress));
+    float rim = .67 + .032*folds + .023*(billow-.5);
+    float edgeDistance = (r - rim) / blur;
+    float haloDistance = (r - rim) / (blur * 2.3);
     float edge = exp(-edgeDistance * edgeDistance);
     float halo = exp(-haloDistance * haloDistance);
-    float body = 1. - smoothstep(.18, .78, r);
-    float core = exp(-r * r * 22.) * exp(-Age * 16.);
-    // A dark violet-blue body and a cyan rim diffuse into a single soft disc.
-    // Reduce the peak as blur grows so the fading cloud never brightens again.
-    alpha = (.60 * edge + .16 * halo + .20 * body + .28 * core)
+    float body = 1. - smoothstep(.44, .75, r);
+    float veins = smoothstep(.48,.91,billow) * (.55+.45*folds);
+    float core = exp(-r*r*17. - Age*13.);
+    alpha = (.51*edge + .15*halo + body*(.17+.32*veins) + .36*core)
         * lerp(1., .42, progress) * (1. - smoothstep(.84, 1., r));
-    color = lerp(float3(.16, .045, .65), float3(.035, 1.5, 2.6), saturate(r / .7));
+    float3 depth = lerp(float3(.16,.045,.55),float3(.48,.17,1.25),veins);
+    color = lerp(depth,float3(.045,1.5,2.6),saturate(edge+.38*halo));
+    color += core*float3(1.7,1.6,1.8);
 }
 else
 {

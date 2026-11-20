@@ -31,8 +31,14 @@ uv = node_for(unreal.MaterialExpressionTextureCoordinate)
 tint = node_for(unreal.MaterialExpressionVectorParameter, 'Tint')
 tint.set_editor_property('parameter_name', 'Tint')
 tint.set_editor_property('default_value', unreal.LinearColor(.008, .22, 1, 1))
-nodes = {'UV':(uv, ''), 'Tint':(tint, 'RGB')}
-for name, value in {'Brightness':7.0, 'Density':1.0, 'BeamLength':1000.0, 'Age':0.0, 'Fade':1.0}.items():
+nodes = {'UV': (uv, ''), 'Tint': (tint, 'RGB'), 'View': (node_for(unreal.MaterialExpressionCameraVectorWS), '')}
+nodes['EndFade'] = (node_for(unreal.MaterialExpressionVertexColor), 'A')
+for name, axis in [('AxisY', (0, 1, 0)), ('AxisZ', (0, 0, 1))]:
+    node = node_for(unreal.MaterialExpressionVectorParameter, name)
+    node.set_editor_property('parameter_name', name)
+    node.set_editor_property('default_value', unreal.LinearColor(*axis, 1))
+    nodes[name] = (node, 'RGB')
+for name, value in {'Brightness':7.0, 'Density':1.0, 'WhiteCore':.95, 'Fade':1.0}.items():
     node = node_for(unreal.MaterialExpressionScalarParameter, name)
     node.set_editor_property('parameter_name', name)
     node.set_editor_property('default_value', value)

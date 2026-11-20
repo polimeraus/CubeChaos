@@ -115,9 +115,22 @@ for y in [.45,.478,.506,.534]:
     box('Upper barrel heatsink',(0,y,.252),(.13,.013,.025),steel,.002)
 # Exposed crown energy window is visible from first person.
 box('Crown dark bed',(0,.12,.298),(.072,.22,.011),dark,.004)
-for y in [.035,.074,.113,.152,.191]:box('Crown energy cell',(0,y,.307),(.056,.024,.010),energy,.003)
+for i in range(5):
+    y=.035+i*.039
+    for side in [-1,1]:
+        vane=box('Chevron cell',(side*.014,y,.307),(.034,.012,.010),energy,.002)
+        vane.rotation_euler.z=side*-.48
 for side in [-1,1]:box('Crown protection rail',(side*.049,.12,.314),(.012,.255,.020),steel,.003)
 box('Rear caution stripe',(0,-.064,.299),(.073,.018,.006),warning,.001)
+# Raised rear instrument face, with a mint arc inset into a dark bezel.
+cyl('Instrument back',(0,-.132,.19),.054,.022,bronze,verts=32)
+cyl('Instrument dial',(0,-.145,.19),.045,.008,dark,verts=32)
+for i in range(7):
+    a=(-.66+i*.22)*math.pi
+    mark=box('Dial graduation',(.034*math.sin(a),-.151,.19+.034*math.cos(a)),
+             (.005,.0025,.012),energy if i<5 else warning,.0008)
+    mark.rotation_euler.y=a
+tube('Gauge pointer',[(0,-.153,.179),(.017,-.153,.209)],.0025,edge)
 # Conventional right-hand grip, left palm under a forward saddle.
 grip=box('Right pistol grip',(0,-.025,-.055),(.05,.066,.15),rubber,.009);grip.rotation_euler.x=-.15
 for z in [-.11,-.087,-.064,-.041]:box('Grip rib',(0,-.061,z),(.052,.008,.009),steel,.001)

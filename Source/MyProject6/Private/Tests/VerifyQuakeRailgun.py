@@ -12,10 +12,10 @@ cdo=unreal.get_default_object(cls)
 visuals=cdo.get_editor_property('railgun_visuals')
 assert visuals.get_editor_property('spiral')
 assert abs(visuals.get_editor_property('color').b-1)<.001
-assert abs(visuals.get_editor_property('spiral_radius')-7.5)<.001
+assert abs(visuals.get_editor_property('spiral_radius')-22)<.001
 assert visuals.get_editor_property('smooth_spiral')
-assert abs(visuals.intensity-14)<.001 and abs(visuals.density-1.5)<.001
-assert abs(visuals.width-28)<.001 and abs(visuals.spiral_width-5.5)<.001
+assert abs(visuals.intensity-7)<.001 and abs(visuals.density-1)<.001
+assert abs(visuals.width-16)<.001 and abs(visuals.spiral_width-6.4)<.001
 assert not cdo.get_editor_property('railgun_equipped')
 gun_cdo=unreal.get_default_object(unreal.RailgunWeapon)
 assert abs(gun_cdo.get_editor_property('fire_interval')-1.5)<.001

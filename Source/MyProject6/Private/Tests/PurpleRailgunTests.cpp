@@ -61,25 +61,29 @@ bool FPurpleRailgunTest::RunTest(const FString&)
     };
     ARailgunWeapon* Gun=Player->Railgun;
     if(!TestNotNull(TEXT("Weapon rig exists"),Gun))return false;
-    TestFalse(TEXT("Purple weapon starts locked"),Player->HasWeapon(EPlayerWeapon::PurpleRailgun));
+    TestFalse(TEXT("Red weapon starts locked"),Player->HasWeapon(EPlayerWeapon::PurpleRailgun));
     Key(EKeys::Seven);
     TestEqual(TEXT("Hotkey cannot grant an uncollected weapon"),Player->GetActiveWeapon(),EPlayerWeapon::Default);
     UClass* PickupClass=LoadClass<AParametricPickup>(nullptr,TEXT("/Game/GameplayActors/Pickups/PurpleRailgun/BP_PurpleRailgunPickup.BP_PurpleRailgunPickup_C"));
-    if(!TestNotNull(TEXT("Saved purple pickup loads"),PickupClass))return false;
+    if(!TestNotNull(TEXT("Saved red pickup loads"),PickupClass))return false;
     auto* Pickup=World->SpawnActor<AParametricPickup>(PickupClass,FVector(1200,0,500),FRotator::ZeroRotator);
     TestEqual(TEXT("New pickup inherits reward"),Pickup->WeaponReward,EPickupWeapon::PurpleRailgun);
     TestEqual(TEXT("New pickup inherits rifle icon"),Pickup->Icon,EPickupMotif::PurpleRailgun);
     Player->SetActorLocation(FVector(1200,0,530));Advance(.05f);
     TestTrue(TEXT("Real overlap collects pickup"),Pickup->IsCollected());
     TestFalse(TEXT("Pickup cannot grant twice"),Pickup->TryCollect(Player));
-    TestTrue(TEXT("Purple weapon is owned after overlap"),Player->HasWeapon(EPlayerWeapon::PurpleRailgun));
-    TestFalse(TEXT("Purple pickup does not unlock the blue railgun"),Player->HasWeapon(EPlayerWeapon::Railgun));
-    TestEqual(TEXT("Collection equips purple railgun"),Player->GetActiveWeapon(),EPlayerWeapon::PurpleRailgun);
+    TestTrue(TEXT("Red weapon is owned after overlap"),Player->HasWeapon(EPlayerWeapon::PurpleRailgun));
+    TestFalse(TEXT("Red pickup does not unlock the blue railgun"),Player->HasWeapon(EPlayerWeapon::Railgun));
+    TestEqual(TEXT("Collection equips red railgun"),Player->GetActiveWeapon(),EPlayerWeapon::PurpleRailgun);
     if(!TestNotNull(TEXT("Imported mesh exists"),Gun->WeaponMesh->GetStaticMesh().Get()))return false;
-    TestEqual(TEXT("Fab model is equipped"),Gun->WeaponMesh->GetStaticMesh()->GetName(),FString(TEXT("SM_PurpleRailgun")));
+    TestEqual(TEXT("Comet model is equipped"),Gun->WeaponMesh->GetStaticMesh()->GetName(),FString(TEXT("SM_PurpleRailgun")));
     TestEqual(TEXT("Weapon follows grip"),Gun->WeaponMesh->GetAttachSocketName(),FName(TEXT("HandGrip_R")));
     TestEqual(TEXT("Baked fit animation runs"),Gun->Arms->GetSingleNodeInstance()->GetCurrentAsset()->GetName(),FString(TEXT("A_PurpleRailgunHold")));
-    TestTrue(TEXT("Mesh keeps imported PBR body material"),Gun->WeaponMesh->GetMaterial(0)->GetName().Contains(TEXT("PurpleRailgun")));
+    const int32 Shell = Gun->WeaponMesh->GetMaterialIndex(TEXT("PurpleBody"));
+    if (TestTrue(TEXT("Comet has a cherry enamel shell"), Shell != INDEX_NONE))
+        TestEqual(TEXT("Equipped shell uses the red enamel"), Gun->WeaponMesh->GetMaterial(Shell)->GetName(), FString(TEXT("MI_CometCherry")));
+    TestTrue(TEXT("Equipped red trail uses distinct magenta beads"), !Gun->Visuals.bSmoothSpiral
+        && Gun->Visuals.Color.R > .9f && Gun->Visuals.Color.B < .04f && Gun->Visuals.SpiralColor.B > .5f);
     const FVector LocalMuzzle=Gun->WeaponMesh->GetSocketTransform(TEXT("Muzzle"),RTS_Component).GetLocation();
     TestTrue(TEXT("Muzzle is on the barrel face"),LocalMuzzle.Y>55 && LocalMuzzle.Y<60 && LocalMuzzle.Z>8 && LocalMuzzle.Z<14);
     for(int32 I=0;I<8;++I)
@@ -97,23 +101,23 @@ bool FPurpleRailgunTest::RunTest(const FString&)
     Target->GetCharacterMovement()->DisableMovement();Target->SetActorTickEnabled(false);Gun->Damage=25;
     Key(EKeys::LeftMouseButton);Key(EKeys::LeftMouseButton,IE_Released);
     TestEqual(TEXT("Primary fire shoots exactly once"),Gun->ShotsFired,1);
-    TestEqual(TEXT("Purple rail hits instantly"),Target->GetCurrentHealth(),75.f);
+    TestEqual(TEXT("Red rail hits instantly"),Target->GetCurrentHealth(),75.f);
     TestTrue(TEXT("HUD charge starts empty"),Gun->GetRailgunCharge()<.01f);
     for(TActorIterator<ARailgunBeam> It(World);It;++It)
     {
-        TestTrue(TEXT("Purple core settings reach beam"),It->Visuals.Color.Equals(Player->PurpleRailgunVisuals.Color));
+        TestTrue(TEXT("Red core settings reach beam"),It->Visuals.Color.Equals(Player->PurpleRailgunVisuals.Color));
         auto* MID=Cast<UMaterialInstanceDynamic>(It->Trail->GetMaterial(0));
-        if(TestNotNull(TEXT("Beam renderer material"),MID))TestTrue(TEXT("Rendered laser tint is purple"),MID->K2_GetVectorParameterValue(TEXT("Tint")).Equals(Player->PurpleRailgunVisuals.Color));
+        if(TestNotNull(TEXT("Beam renderer material"),MID))TestTrue(TEXT("Rendered laser has the configured color"),MID->K2_GetVectorParameterValue(TEXT("Tint")).Equals(Player->PurpleRailgunVisuals.Color));
         auto* SpiralMID=Cast<UMaterialInstanceDynamic>(It->Spiral->GetMaterial(0));
-        if(TestNotNull(TEXT("Spiral renderer material"),SpiralMID))TestTrue(TEXT("Spiral tint is purple"),SpiralMID->K2_GetVectorParameterValue(TEXT("Tint")).Equals(Player->PurpleRailgunVisuals.SpiralColor));
+        if(TestNotNull(TEXT("Spiral renderer material"),SpiralMID))TestTrue(TEXT("Spiral has the configured color"),SpiralMID->K2_GetVectorParameterValue(TEXT("Tint")).Equals(Player->PurpleRailgunVisuals.SpiralColor));
     }
     Key(EKeys::MiddleMouseButton);TestEqual(TEXT("Middle and primary share cooldown"),Gun->ShotsFired,1);
     Player->EquipRailgun();TestTrue(TEXT("Blue railgun retains its blue tint"),Gun->Visuals.Color.Equals(Player->RailgunVisuals.Color));
     TestFalse(TEXT("Switching railgun cannot reset cooldown"),Gun->Fire());
-    Key(EKeys::Seven);TestTrue(TEXT("Switching back restores purple"),Gun->Visuals.Color.Equals(Player->PurpleRailgunVisuals.Color));
-    Advance(1.6f);Key(EKeys::MiddleMouseButton);TestEqual(TEXT("Middle fires the selected purple weapon"),Gun->ShotsFired,2);
+    Key(EKeys::Seven);TestTrue(TEXT("Switching back restores red"),Gun->Visuals.Color.Equals(Player->PurpleRailgunVisuals.Color));
+    Advance(1.6f);Key(EKeys::MiddleMouseButton);TestEqual(TEXT("Middle fires the selected red weapon"),Gun->ShotsFired,2);
     Key(EKeys::MouseScrollUp);TestEqual(TEXT("Wheel wraps from seventh slot"),Player->GetActiveWeapon(),EPlayerWeapon::Default);
-    Key(EKeys::MouseScrollDown);TestEqual(TEXT("Wheel selects owned purple railgun"),Player->GetActiveWeapon(),EPlayerWeapon::PurpleRailgun);
+    Key(EKeys::MouseScrollDown);TestEqual(TEXT("Wheel selects owned red railgun"),Player->GetActiveWeapon(),EPlayerWeapon::PurpleRailgun);
     Advance(1.6f);TestTrue(TEXT("Charge returns to ready"),Gun->GetRailgunCharge()>.99f);
     if(!GUsingNullRHI)
     {

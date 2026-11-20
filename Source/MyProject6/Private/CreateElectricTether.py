@@ -24,6 +24,14 @@ def ring(name,loc,radius,tube,mat):
  bpy.ops.mesh.primitive_torus_add(major_radius=radius,minor_radius=tube,major_segments=48,minor_segments=8,location=loc,rotation=(math.pi/2,0,0));return finish(bpy.context.object,name,mat,0)
 box('Rear receiver',(0,.095,.105),(.16,.29,.14),'ArcGraphite')
 box('Ceramic spine',(0,.15,.18),(.10,.35,.022),'ArcCeramic')
+# The back of the spine is in frame while holding the device. A gauge of
+# angled ceramic ribs exposes alternating strips of dark and luminous enamel.
+box('Crown recess',(0,.085,.192),(.072,.178,.007),'ArcGraphite')
+for i in range(5):
+ y=.018+i*.032
+ for side in [-1,1]:
+  box('Field meter',(side*.016,y,.198),(.031,.009,.006),
+      'ArcCyan' if i<3 else 'ArcCopper',(0,0,side*.45))
 box('Pistol grip',(0,-.012,-.045),(.058,.084,.15),'ArcRubber',(-.2,0,0))
 box('Grip heel',(0,-.028,-.115),(.074,.085,.022),'ArcCeramic')
 box('Foregrip',(0,.34,.022),(.075,.14,.10),'ArcRubber')
@@ -38,6 +46,8 @@ for side in [-1,1]:
  box('Twin electrode rail',(side*.105,.55,.125),(.043,.26,.05),'ArcGraphite')
  box('Cyan conductor',(side*.078,.553,.126),(.007,.225,.026),'ArcCyan')
  box('Electrode nose',(side*.096,.68,.125),(.055,.055,.07),'ArcCeramic')
+ for i in range(3):
+  box('Insulator band',(side*.105,.48+i*.055,.128),(.047,.013,.057),'ArcCopper')
  box('Violet terminal',(side*.067,.69,.125),(.013,.03,.045),'ArcViolet')
  for i in range(4):
   box('Cooling vent',(side*.082,.015+i*.046,.115),(.005,.022,.063),'ArcRubber')
