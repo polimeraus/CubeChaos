@@ -209,6 +209,8 @@ bool FBFGTest::RunTest(const FString&)
     };
     const int32 Before=Gun->BFGShotsFired;
     Player->TogglePerspective();
+    Player->TogglePerspective();
+    Advance(.8f);
     TestTrue(TEXT("BFG uses primary fire binding"),Key(IE_Pressed));Advance(.55f);
     TestEqual(TEXT("Held BFG respects the faster cooldown"),Gun->BFGShotsFired,Before+3);
     if (ShakeModifier)
@@ -219,6 +221,7 @@ bool FBFGTest::RunTest(const FString&)
     }
     TestTrue(TEXT("BFG release binding"),Key(IE_Released));Advance(.3f);
     Player->TogglePerspective();
+    Advance(.8f);
     TestEqual(TEXT("Release stops firing"),Gun->BFGShotsFired,Before+3);
     int32 Balls=0;for(TActorIterator<ABallProjectile> It(World);It;++It)++Balls;
     TestEqual(TEXT("BFG never also fires the old ball projectile"),Balls,0);

@@ -45,16 +45,63 @@ bool FPlayerPerspectiveTest::RunTest(const FString&)
 	auto* Rig = Player->Railgun.Get();
 	if (!TestNotNull(TEXT("Equipped weapon"), Rig)) return false;
 	TestTrue(TEXT("Starts in first person"), Player->GetFirstPersonCameraComponent()->IsActive() && !Player->IsThirdPerson());
-	Binding->KeyDelegate.Execute(EKeys::V);
-	Tick();
 	FMinimalViewInfo View;
 	Player->CalcCamera(0.f, View);
+	const FVector EyeLocation = View.Location;
+	const FVector Start = Player->GetActorLocation();
+	auto Press = [&] { Binding->KeyDelegate.Execute(EKeys::V); Player->CalcCamera(0.f, View); };
+	auto Step = [&](int32 Count) { for (int32 I = 0; I < Count; ++I) Tick(); Player->CalcCamera(0.f, View); };
+	auto Settle = [&] { Step(24); };
+	auto Cycle = [&] { Press(); Settle(); };
+	Press();
+	TestTrue(TEXT("The first V starts at the current eye position"), Player->IsCameraTransitioning() && View.Location.Equals(EyeLocation, 1.));
+	Step(1);
+	const double FirstStep = FVector::Distance(View.Location, EyeLocation);
+	Step(9);
+	const FVector Midpoint = View.Location;
+	TestTrue(TEXT("Camera eases out of the eyes and travels through intermediate positions"),
+		FirstStep < 12. && FVector::Distance(Midpoint, EyeLocation) > 95. && FVector::Distance(Midpoint, EyeLocation) < 370.);
+	const FVector AimOrigin = Player->GetWeaponEye();
+	const FVector VisibleAim = (View.Location + View.Rotation.Vector() * 100000. - AimOrigin).GetSafeNormal();
+	TestTrue(TEXT("Aim follows the moving viewpoint"), Player->GetWeaponAim(AimOrigin).Equals(VisibleAim, .001));
+	Settle();
 	auto* Arm = Player->FindComponentByClass<USpringArmComponent>();
 	if (!TestNotNull(TEXT("Third-person spring arm"), Arm)) return false;
-	TestTrue(TEXT("View behind the body"), View.Location.X < Player->GetActorLocation().X - 200.f);
+	TestTrue(TEXT("First V lands directly at the previous wide preset"),
+		!Player->IsCameraTransitioning() && FMath::IsNearlyEqual(View.Location.X - Start.X, -545., 1.)
+		&& FMath::IsNearlyEqual(View.Location.Z - Start.Z, 121., 1.) && FMath::IsNearlyEqual(View.Rotation.Pitch, -5., .1));
 	TestTrue(TEXT("Full body visible"), !Player->GetMesh()->bOwnerNoSee && Player->GetMesh()->FirstPersonPrimitiveType == EFirstPersonPrimitiveType::None);
 	TestTrue(TEXT("Weapon hold layered over locomotion"), IsValid(Cast<UThirdPersonWeaponPose>(Player->GetMesh()->GetPostProcessInstance())));
 	TestTrue(TEXT("Only one set of arms"), Rig->Arms->bHiddenInGame);
+	const FVector WideLocation = View.Location;
+	const FRotator WideRotation = View.Rotation;
+	Press();
+	TestTrue(TEXT("The second V keeps the previous pose on the first frame"), View.Location.Equals(WideLocation, 1.));
+	Step(10);
+	TestTrue(TEXT("Pullback interpolates height, distance and pitch"), View.Location.X < WideLocation.X - 45.
+		&& View.Location.X > WideLocation.X - 240. && View.Location.Z > WideLocation.Z + 20. && View.Rotation.Pitch < WideRotation.Pitch - 1.);
+	Settle();
+	const FVector PanoramicLocation = View.Location;
+	TestTrue(TEXT("Second V settles at the panoramic preset"), Player->IsThirdPerson()
+		&& PanoramicLocation.X < WideLocation.X - 250. && PanoramicLocation.Z > WideLocation.Z + 130. && View.Rotation.Pitch < WideRotation.Pitch - 6.);
+	Press();
+	Step(10);
+	TestTrue(TEXT("Return to the eyes also passes through an intermediate position"),
+		Player->IsCameraTransitioning() && View.Location.X > PanoramicLocation.X + 120. && View.Location.X < EyeLocation.X - 200.);
+	Settle();
+	TestTrue(TEXT("Third V returns to first person and stops probing"),
+		!Player->IsThirdPerson() && Player->GetFirstPersonCameraComponent()->IsActive() && !Arm->IsComponentTickEnabled());
+	Press(); Step(7);
+	const FVector BeforeRetarget = View.Location;
+	Press();
+	TestTrue(TEXT("Rapid V starts the new move at the displayed pose"), View.Location.Equals(BeforeRetarget, 1.));
+	Step(5);
+	const FVector BeforeReverse = View.Location;
+	Press();
+	TestTrue(TEXT("Interrupting a pullback preserves position"), View.Location.Equals(BeforeReverse, 1.));
+	Settle();
+	TestTrue(TEXT("Rapid cycling reaches first person"), !Player->IsThirdPerson() && View.Location.Equals(EyeLocation, 2.));
+	Cycle();
 
 	auto* Wall = World->SpawnActor<AActor>();
 	auto* Box = NewObject<UBoxComponent>(Wall);
@@ -62,13 +109,49 @@ bool FPlayerPerspectiveTest::RunTest(const FString&)
 	Box->SetBoxExtent(FVector(8.f, 200.f, 200.f));
 	Box->SetCollisionProfileName(TEXT("BlockAll"));
 	Box->RegisterComponent();
-	Wall->SetActorLocation(Player->GetActorLocation() - FVector(115.f, 0, 0));
+	Wall->SetActorLocation(Start - FVector(430.f, 0, 0));
 	Tick();
 	Player->CalcCamera(0.f, View);
-	TestTrue(TEXT("Camera retracts in front of wall"), Arm->IsCollisionFixApplied() && View.Location.X > Wall->GetActorLocation().X);
+	TestTrue(TEXT("With useful clearance the outside camera retracts in front of a wall"),
+		Player->IsThirdPerson() && Arm->IsCollisionFixApplied() && View.Location.X > Wall->GetActorLocation().X);
+	Wall->SetActorLocation(Start - FVector(115.f, 0, 0));
+	Step(1);
+	TestTrue(TEXT("The travelling lens stays on the player's side of the wall"),
+		Player->IsCameraTransitioning() && View.Location.X > Wall->GetActorLocation().X + Box->GetScaledBoxExtent().X);
+	Settle();
+	TestTrue(TEXT("Tight clearance restores the eye camera and first-person presentation"),
+		!Player->IsThirdPerson() && Player->GetFirstPersonCameraComponent()->IsActive() && Player->GetMesh()->bOwnerNoSee
+		&& !Rig->Arms->bHiddenInGame && Rig->WeaponMesh->GetAttachParent() == Rig->Arms.Get() && Arm->IsComponentTickEnabled());
+	Wall->SetActorLocation(Start - FVector(385.f, 0, 0));
+	Tick();
+	TestFalse(TEXT("Small changes at a doorway do not repeatedly flip the camera"), Player->IsThirdPerson());
+	Player->SetActorLocation(Start + FVector(600, 0, 0));
+	Step(8);
+	TestTrue(TEXT("Automatic return outside is animated"), Player->IsCameraTransitioning() &&
+		View.Location.X > WideLocation.X + 600. + 100. && View.Location.X < EyeLocation.X + 600. - 35.);
+	Settle();
+	TestTrue(TEXT("Leaving the wall automatically restores the wide view"),
+		Player->IsThirdPerson() && View.Location.Equals(WideLocation + FVector(600, 0, 0), 1.));
+
+	Wall->SetActorLocation(Start - FVector(115.f, 0, 0));
+	Player->SetActorLocation(Start);
+	Tick();
+	Cycle();
+	TestFalse(TEXT("Selecting panoramic indoors keeps the camera at the eyes"), Player->IsThirdPerson());
+	Player->SetActorLocation(Start + FVector(600, 0, 0));
+	Settle();
+	TestTrue(TEXT("Leaving restores the panoramic view selected indoors"),
+		Player->IsThirdPerson() && View.Location.Equals(PanoramicLocation + FVector(600, 0, 0), 1.));
+	Player->SetActorLocation(Start);
+	Settle();
+	TestFalse(TEXT("Panoramic also falls back on re-entry"), Player->IsThirdPerson());
+	Cycle();
 	Wall->SetActorEnableCollision(false);
 	Tick();
-	Tick();
+	TestTrue(TEXT("First person chosen indoors remains selected outside"),
+		!Player->IsThirdPerson() && !Arm->IsComponentTickEnabled());
+	Cycle();
+	Cycle();
 	Player->CalcCamera(0.f, View);
 	TestTrue(TEXT("Camera extends after obstruction clears"), !Arm->IsCollisionFixApplied()
 		&& View.Location.Equals(Arm->GetUnfixedCameraPosition(), 1.f)
@@ -80,7 +163,7 @@ bool FPlayerPerspectiveTest::RunTest(const FString&)
 	Player->EquipRailgun();
 	Tick();
 	Player->CalcCamera(0.f, View);
-	TestTrue(TEXT("Railgun fires from third person"), Rig->Fire());
+	TestTrue(TEXT("Railgun fires from wide third person"), Rig->Fire());
 	FHitResult Crosshair;
 	FCollisionQueryParams Query(SCENE_QUERY_STAT(PerspectiveTestAim), false, Player);
 	TestTrue(TEXT("Crosshair sees the target"), World->LineTraceSingleByChannel(Crosshair,
@@ -118,8 +201,7 @@ bool FPlayerPerspectiveTest::RunTest(const FString&)
 			Controller->SetControlRotation(FRotator::ZeroRotator);
 		}
 	}
-	Binding->KeyDelegate.Execute(EKeys::V);
-	Tick();
+	Cycle();
 	TestTrue(TEXT("First-person rig restored with same item"), Player->GetFirstPersonCameraComponent()->IsActive()
 		&& !Player->IsThirdPerson() && Player->GetMesh()->bOwnerNoSee && !Rig->Arms->bHiddenInGame
 		&& Player->GetActiveWeapon() == EPlayerWeapon::Bomb && Rig->WeaponMesh->GetAttachParent() == Rig->GetRootComponent());

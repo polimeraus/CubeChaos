@@ -85,7 +85,8 @@ void AElectricTetherWeapon::Tick(float Delta)
         SetActorTickEnabled(false);Field->SetComponentTickEnabled(false);return;
     }
     const FVector Eye=Wielder->GetWeaponEye();
-    const FVector Aim=!Wielder->IsThirdPerson() && Wielder->GetController() ? Wielder->GetControlRotation().Vector() : Wielder->GetWeaponAim(Eye);
+    const FVector Aim=!Wielder->IsThirdPerson() && !Wielder->IsCameraTransitioning() && Wielder->GetController()
+        ? Wielder->GetControlRotation().Vector() : Wielder->GetWeaponAim(Eye);
     SetActorLocation(Eye);
     FCollisionQueryParams Q(SCENE_QUERY_STAT(ElectricTether),false,Wielder);Q.AddIgnoredActor(this);Q.AddIgnoredActor(Wielder->Railgun);
     if(bFiring)

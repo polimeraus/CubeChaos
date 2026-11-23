@@ -258,7 +258,7 @@ bool FPlayerMovementBoostTest::RunTest(const FString& Parameters)
 	UCharacterMovementComponent* Movement = Player->GetCharacterMovement();
 	for (bool ThirdPerson : {false, true})
 	{
-		if (ThirdPerson) Player->TogglePerspective();
+		if (ThirdPerson) { Player->TogglePerspective(); Scene.Advance(.8f); }
 		TestEqual(TEXT("Requested camera mode is active"), Player->IsThirdPerson(), ThirdPerson);
 		TestEqual(TEXT("Player jump impulse"), Movement->JumpZVelocity, 660.0f);
 		for (int32 Frame = 0; Frame < 60; ++Frame)
