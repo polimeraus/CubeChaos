@@ -25,7 +25,7 @@ AParametricSpiralRamp::AParametricSpiralRamp(const FObjectInitializer& ObjectIni
 	}
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> DefaultRoadMaterialFinder(
-		TEXT("/Game/LevelPrototyping/Materials/MI_PrototypeGrid_Gray.MI_PrototypeGrid_Gray"));
+		TEXT("/Game/Materials/Prototyping/MI_PrototypeGrid_Gray.MI_PrototypeGrid_Gray"));
 	if (DefaultRoadMaterialFinder.Succeeded())
 	{
 		RoadMaterial = DefaultRoadMaterialFinder.Object;

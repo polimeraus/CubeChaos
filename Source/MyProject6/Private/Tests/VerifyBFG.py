@@ -34,7 +34,7 @@ gun_cdo=unreal.get_default_object(unreal.RailgunWeapon)
 assert gun_cdo.damage==200
 assert abs(gun_cdo.bfg_fire_interval-.22)<.001
 assert gun_cdo.bfg_damage==100 and gun_cdo.bfg_splash_damage==100 and gun_cdo.bfg_splash_radius==300
-pickup_class=unreal.load_class(None,'/Game/GameplayActors/Pickups/BFG/BP_BFGPickup.BP_BFGPickup_C')
+pickup_class=unreal.load_class(None,'/Game/Weapons/BFG/Pickups/BP_BFGPickup.BP_BFGPickup_C')
 assert unreal.get_default_object(pickup_class).weapon_reward==unreal.PickupWeapon.BFG
 level=unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
@@ -60,7 +60,7 @@ if '-BFGPreviewOnly' not in unreal.SystemLibrary.get_command_line():
     unreal.log('BFG_PERSISTENCE_OK')
 
 world=unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
-cls=unreal.load_class(None,'/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
+cls=unreal.load_class(None,'/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
 player=actors.spawn_actor_from_class(cls,unreal.Vector(0,0,100))
 camera=player.get_component_by_class(unreal.CameraComponent)
 camera.detach_from_component(unreal.DetachmentRule.KEEP_WORLD,unreal.DetachmentRule.KEEP_WORLD,unreal.DetachmentRule.KEEP_WORLD)
@@ -83,7 +83,7 @@ sky_light.set_intensity(8.)
 cube=unreal.load_asset('/Engine/BasicShapes/Cube')
 for pos,scale in [(unreal.Vector(1000,0,-5),unreal.Vector(35,30,.1)),(unreal.Vector(1700,0,250),unreal.Vector(.3,20,5))]:
     block=actors.spawn_actor_from_class(unreal.StaticMeshActor,pos);block.static_mesh_component.set_static_mesh(cube);block.set_actor_scale3d(scale)
-    material=block.static_mesh_component.create_dynamic_material_instance(0,unreal.load_asset('/Game/LevelPrototyping/Materials/M_FlatCol'))
+    material=block.static_mesh_component.create_dynamic_material_instance(0,unreal.load_asset('/Game/Materials/Prototyping/M_FlatCol'))
     material.set_vector_parameter_value('Base Color',unreal.LinearColor(.045,.05,.06,1))
 orb=actors.spawn_actor_from_class(unreal.BFGProjectile,unreal.Vector(280,0,170))
 capture_actor=actors.spawn_actor_from_class(unreal.SceneCapture2D,camera.get_world_location(),camera.get_world_rotation())

@@ -103,7 +103,7 @@ bool FBombAirburstTest::RunTest(const FString&)
     CheckCone(World->SpawnActor<AQuadPanelConeStructure>(AQuadPanelConeStructure::StaticClass(),FTransform::Identity,Spawn));
 
     const FVector Origin(0,0,10000);
-    auto* PlayerClass = LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+    auto* PlayerClass = LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
     if (!TestNotNull(TEXT("Saved player class loads in a fresh process"),PlayerClass)) return false;
     auto* Player = World->SpawnActor<AMyProject6Character>(PlayerClass,Origin+FVector(180,0,0),FRotator::ZeroRotator);
     auto* NPC = World->SpawnActor<AChasingNPC>(Origin+FVector(-180,0,0),FRotator::ZeroRotator);

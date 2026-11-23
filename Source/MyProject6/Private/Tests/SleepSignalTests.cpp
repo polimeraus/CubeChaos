@@ -176,8 +176,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSleepDeviceInventoryTest,"MyProject6.SleepSign
 bool FSleepDeviceInventoryTest::RunTest(const FString&)
 {
     SleepTests::FScene Scene;
-    auto* Class=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
-    auto* PickupClass=LoadClass<AParametricPickup>(nullptr,TEXT("/Game/GameplayActors/Pickups/SleepSignal/BP_SleepSignalPickup.BP_SleepSignalPickup_C"));
+    auto* Class=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+    auto* PickupClass=LoadClass<AParametricPickup>(nullptr,TEXT("/Game/Weapons/SleepSignal/Pickups/BP_SleepSignalPickup.BP_SleepSignalPickup_C"));
     if(!TestNotNull(TEXT("Player Blueprint"),Class)||!TestNotNull(TEXT("Saved pickup Blueprint"),PickupClass))return false;
     auto* Player=Scene.World->SpawnActor<AMyProject6Character>(Class,FVector(0,0,100),FRotator::ZeroRotator);
     auto* Controller=Scene.World->SpawnActor<AGameOverMenuTestController>();Controller->InitializeTestMenu();Controller->Possess(Player);Player->PawnClientRestart();
@@ -235,7 +235,7 @@ bool FSleepContactTest::RunTest(const FString&)
         auto* Sleep=NPC->FindComponentByClass<UNPCSleepComponent>();auto* Source=Scene.World->SpawnActor<AActor>();
         Sleep->ReceiveSignal(Source,4);Scene.Advance(2);
         FActorSpawnParameters Params;Params.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-        auto* PlayerClass=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+        auto* PlayerClass=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
         if (!TestNotNull(TEXT("Concrete player class"),PlayerClass)) return false;
         auto* Player=Scene.World->SpawnActor<AMyProject6Character>(PlayerClass,FVector(1500,0,100),FRotator::ZeroRotator,Params);
         if (!TestNotNull(TEXT("Contact test player"),Player)) return false;

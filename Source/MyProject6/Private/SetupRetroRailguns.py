@@ -17,8 +17,8 @@ shader.set_editor_property('code', (here / 'RailgunSpiral.ush').read_text())
 edit.recompile_material(spiral)
 assert lib.save_loaded_asset(spiral, False)
 
-player_bp = unreal.load_asset('/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter')
-pickup_bp = unreal.load_asset('/Game/GameplayActors/Pickups/PurpleRailgun/BP_PurpleRailgunPickup')
+player_bp = unreal.load_asset('/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter')
+pickup_bp = unreal.load_asset('/Game/Weapons/PurpleRailgun/Pickups/BP_PurpleRailgunPickup')
 native = unreal.get_default_object(unreal.MyProject6Character)
 player_values = {p: native.get_editor_property(p) for p in ('railgun_visuals', 'purple_railgun_visuals')}
 pickup_values = {'body_color': unreal.LinearColor(.065, .012, .019, 1),

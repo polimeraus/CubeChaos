@@ -140,8 +140,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMusicReactionBakeTest,
 bool FMusicReactionBakeTest::RunTest(const FString& Parameters)
 {
 	auto* Track = NewObject<UMusicReactionTrack>();
-	Track->Sound = LoadObject<USoundWave>(nullptr, TEXT("/Game/Musics/nuriOp.nuriOp"));
-	Track->SourceAnalysis = LoadObject<UOnsetNRT>(nullptr, TEXT("/Game/Musics/nuriOp_OnsetNRT.nuriOp_OnsetNRT"));
+	Track->Sound = LoadObject<USoundWave>(nullptr, TEXT("/Game/Audio/Music/nuriOp.nuriOp"));
+	Track->SourceAnalysis = LoadObject<UOnsetNRT>(nullptr, TEXT("/Game/Audio/Music/nuriOp_OnsetNRT.nuriOp_OnsetNRT"));
 	if (!TestNotNull(TEXT("Sound available"), Track->Sound.Get()) || !TestNotNull(TEXT("NRT analysis available"), Track->SourceAnalysis.Get())) { return false; }
 	FMusicReactionEvent Authored;
 	Authored.Name = TEXT("AuthoredChorus");

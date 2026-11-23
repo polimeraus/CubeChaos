@@ -142,10 +142,10 @@ AParametricPickup::AParametricPickup()
     CollectionTrigger->SetCanEverAffectNavigation(false);
     CollectionTrigger->OnComponentBeginOverlap.AddDynamic(this, &AParametricPickup::OnOverlap);
     // Optional while the setup script is creating the material for the first time.
-    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> DefaultMaterial(TEXT("/Game/GameplayActors/Pickups/Shared/Materials/M_PickupSurface.M_PickupSurface"));
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> DefaultMaterial(TEXT("/Game/Materials/Pickups/M_PickupSurface.M_PickupSurface"));
     SurfaceMaterial = DefaultMaterial.Get();
     static ConstructorHelpers::FObjectFinder<USoundBase> DefaultSound(
-        TEXT("/Game/Musics/SoundFx/Free_Sounds_Pack/wav/Special_Collectible_9-1.Special_Collectible_9-1"));
+        TEXT("/Game/Audio/SFX/Free_Sounds_Pack/wav/Special_Collectible_9-1.Special_Collectible_9-1"));
     CollectionSound = DefaultSound.Object;
 }
 

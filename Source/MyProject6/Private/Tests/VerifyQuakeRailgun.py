@@ -7,7 +7,7 @@ out.mkdir(parents=True,exist_ok=True)
 base='/Game/Weapons/Railgun/'
 for name in ['SM_QuakeRailgun','M_RailTrail','M_RailSpiral','S_RailFire','A_RailgunHold']:
     assert unreal.load_asset(base+({'SM':'Meshes','M':'Materials','S':'Audio','A':'Animations'}[name.split('_',1)[0]])+'/'+name), name
-cls=unreal.load_class(None,'/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
+cls=unreal.load_class(None,'/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
 cdo=unreal.get_default_object(cls)
 visuals=cdo.get_editor_property('railgun_visuals')
 assert visuals.get_editor_property('spiral')
@@ -51,7 +51,7 @@ cube=unreal.load_asset('/Engine/BasicShapes/Cube')
 for pos,scale in [(unreal.Vector(1000,0,-5),unreal.Vector(35,30,.1)),(unreal.Vector(1700,0,250),unreal.Vector(.3,20,5))]:
     block=actors.spawn_actor_from_class(unreal.StaticMeshActor,pos)
     block.static_mesh_component.set_static_mesh(cube);block.set_actor_scale3d(scale)
-    material=block.static_mesh_component.create_dynamic_material_instance(0,unreal.load_asset('/Game/LevelPrototyping/Materials/M_FlatCol'))
+    material=block.static_mesh_component.create_dynamic_material_instance(0,unreal.load_asset('/Game/Materials/Prototyping/M_FlatCol'))
     material.set_vector_parameter_value('Base Color',unreal.LinearColor(.045,.05,.06,1))
 beam=actors.spawn_actor_from_class(unreal.RailgunBeam,unreal.Vector(0,0,0))
 beam.set_editor_property('visuals',visuals)

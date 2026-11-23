@@ -9,8 +9,11 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/PoseableMeshComponent.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 #if WITH_EDITOR
+#include "ThirdPersonWeaponPose.h"
 #include "Animation/AnimBlueprint.h"
 #include "AnimGraphNode_LinkedInputPose.h"
 #include "AnimGraphNode_Root.h"
@@ -30,6 +33,11 @@ namespace
 		TArray<FQuat> ComponentRotations;
 		FVector BendAxis = FVector::RightVector;
 		float BendRadians = 0.f;
+		TSharedPtr<const TArray<FTransform>, ESPMode::ThreadSafe> TransitionPose;
+		float TransitionWeight = 0.f;
+		FVector PreviousVelocity = FVector::ZeroVector;
+		FVector Lean = FVector::ZeroVector;
+		bool bSampledVelocity = false;
 		float SleepAlpha = 0.f, Curl = 0.f, Nod = 0.f, Breath = 0.f;
         float ElectricAlpha=0.f,ElectricTime=0.f;
         FVector ElectricRight=FVector::RightVector,ElectricUp=FVector::UpVector,ElectricForward=FVector::ForwardVector;
@@ -47,9 +55,27 @@ namespace
 			FAnimInstanceProxy::PreUpdate(Instance, DeltaSeconds);
 			InputPose = Instance->GetLinkedInputPoseNode();
 			BendRadians = 0.f;
+			TransitionWeight = 0.f;
 			SleepAlpha = Curl = Nod = Breath = 0.f;ElectricAlpha=0;
 			if (AActor* Actor = Instance->GetOwningActor())
 			{
+				if (const auto* Character = Cast<ACharacter>(Actor))
+				{
+					const FVector Velocity = Character->GetVelocity();
+					const auto* Movement = Character->GetCharacterMovement();
+					FVector TargetLean = FVector::ZeroVector;
+					if (Movement && Movement->IsMovingOnGround() && bSampledVelocity && DeltaSeconds > SMALL_NUMBER && DeltaSeconds < .15f)
+					{
+						// Tip the torso into acceleration and turns, easing back as the feet brake.
+						const FVector Acceleration = FVector::VectorPlaneProject((Velocity - PreviousVelocity) / DeltaSeconds, FVector::UpVector);
+						const FVector Axis = FVector::CrossProduct(FVector::UpVector, Acceleration);
+						TargetLean = Instance->GetSkelMeshComponent()->GetComponentQuat().UnrotateVector(Axis)
+							.GetClampedToMaxSize(1800.f) * (FMath::DegreesToRadians(8.f) / 1800.f);
+					}
+					Lean = FMath::Lerp(Lean, TargetLean, 1.f - FMath::Exp(-12.f * FMath::Max(0.f, DeltaSeconds)));
+					PreviousVelocity = Velocity;
+					bSampledVelocity = true;
+				}
 				if(const auto* T=Actor->FindComponentByClass<UNPCElectricTetherComponent>(); T && T->PoseAlpha > 0.f)
                 {
                     ElectricAlpha=T->PoseAlpha;ElectricTime=T->StruggleTime;
@@ -63,8 +89,9 @@ namespace
 					GroundRotation=Sleep->GroundRotation;
 					GroundPoint=Sleep->GroundPoint;GroundUp=Sleep->GroundUp;
 				}
-				if (const auto* Reaction = Actor->FindComponentByClass<UNPCHitReactionComponent>())
+				if (auto* Reaction = Actor->FindComponentByClass<UNPCHitReactionComponent>())
 				{
+					TransitionPose = Reaction->GetTransitionPose(TransitionWeight);
 					BendRadians = FMath::DegreesToRadians(Reaction->GetCurrentForwardBendAngle());
 					// Imported meshes face different local axes. Actor right consistently bends
 					// the torso forwards, including shots from behind or from the side.
@@ -163,10 +190,26 @@ namespace
 		{
 			if (!InputPose) return false;
 			InputPose->Evaluate_AnyThread(Output);
-			if ((FMath::IsNearlyZero(BendRadians) && SleepAlpha <= 0.f && ElectricAlpha <= 0.f) || SpineWeights.Num() != Output.Pose.GetNumBones()) return true;
+			if (TransitionPose && TransitionWeight > 0.f && SleepAlpha <= 0.f && ElectricAlpha <= 0.f)
+			{
+				const FBoneContainer& Bones = Output.Pose.GetBoneContainer();
+				for (const auto Bone : Output.Pose.ForEachBoneIndex())
+				{
+					const int32 MeshIndex = Bones.MakeMeshPoseIndex(Bone).GetInt();
+					if (TransitionPose->IsValidIndex(MeshIndex))
+						Output.Pose[Bone].BlendWith((*TransitionPose)[MeshIndex], TransitionWeight);
+				}
+			}
+			const float LeanAngle = SleepAlpha <= 0.f && ElectricAlpha <= 0.f && FMath::IsNearlyZero(BendRadians) ? Lean.Size() : 0.f;
+			if ((LeanAngle < .001f && FMath::IsNearlyZero(BendRadians) && SleepAlpha <= 0.f && ElectricAlpha <= 0.f) || SpineWeights.Num() != Output.Pose.GetNumBones()) return true;
 			auto BendSpine = [&](FCompactPoseBoneIndex Bone, const FQuat& ParentRotation, FTransform& Local)
 			{
 				const float Weight = SpineWeights[Bone.GetInt()];
+				if (Weight > 0.f && LeanAngle >= .001f)
+				{
+					const FVector LocalAxis = ParentRotation.UnrotateVector(Lean / LeanAngle);
+					Local.SetRotation((FQuat(LocalAxis, LeanAngle * Weight) * Local.GetRotation()).GetNormalized());
+				}
 				if (Weight > 0.f && BendRadians != 0.f)
 				{
 					const FVector LocalAxis = ParentRotation.UnrotateVector(BendAxis);
@@ -321,7 +364,8 @@ bool UNPCHitBendAnimInstance::ConfigureInputPose(UObject* AnimationBlueprint)
 {
 #if WITH_EDITOR
 	UAnimBlueprint* Blueprint = Cast<UAnimBlueprint>(AnimationBlueprint);
-	if (!Blueprint || !Blueprint->ParentClass->IsChildOf(StaticClass())) return false;
+	if (!Blueprint || !(Blueprint->ParentClass->IsChildOf(StaticClass())
+		|| Blueprint->ParentClass->IsChildOf(UThirdPersonWeaponPose::StaticClass()))) return false;
 	TArray<UEdGraph*> Graphs;
 	Blueprint->GetAllGraphs(Graphs);
 	for (UEdGraph* Graph : Graphs)

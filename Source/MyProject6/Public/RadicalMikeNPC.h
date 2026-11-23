@@ -42,6 +42,8 @@ public:
 	TObjectPtr<UAnimSequence> ArmedIdleAnimation;
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "RadicalMike|Animation")
 	TObjectPtr<UAnimSequence> RunAnimation;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "RadicalMike|Animation")
+	TObjectPtr<UAnimSequence> WalkAnimation;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RadicalMike|Weapon")
 	TObjectPtr<USoundBase> FireSound;
 

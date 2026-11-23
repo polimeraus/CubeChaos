@@ -38,7 +38,7 @@ bool FWeaponInventoryTest::RunTest(const FString&)
     World->SetGameMode(FURL(nullptr,TEXT("/Engine/Maps/Entry?game=/Script/Engine.GameModeBase"),TRAVEL_Absolute));
     World->InitializeActorsForPlay(FURL());World->BeginPlay();
     ON_SCOPE_EXIT { World->EndPlay(EEndPlayReason::Quit);World->DestroyWorld(false);GEngine->DestroyWorldContext(World); };
-    auto* Class=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+    auto* Class=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
     if(!TestNotNull(TEXT("Saved player class"),Class))return false;
     auto* Player=World->SpawnActor<AMyProject6Character>(Class,FVector(0,0,500),FRotator::ZeroRotator);
     Player->GetCharacterMovement()->DisableMovement();

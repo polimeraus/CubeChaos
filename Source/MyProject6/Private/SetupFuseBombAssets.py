@@ -12,7 +12,7 @@ def create(name, folder, cls, factory):
     return unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else assets.create_asset(name,folder,cls,factory)
 
 if '-BombPresentationOnly' not in unreal.SystemLibrary.get_command_line():
-    surface=unreal.load_asset('/Game/Weapons/Railgun/Materials/M_RailMetal');assert surface
+    surface=unreal.load_asset('/Game/Materials/Weapons/M_RailMetal');assert surface
     materials={}
     for name,(color,metal,rough,emission) in json.loads((root/'ContentSource/FuseBomb/Palette.json').read_text()).items():
         mi=create('MI_'+name,base+'/Materials',unreal.MaterialInstanceConstant,unreal.MaterialInstanceConstantFactoryNew())
@@ -56,7 +56,7 @@ runpy.run_path(str(Path(__file__).with_name('SetupNeonWeaponEffects.py')))
 # Match the existing native rig transform exactly, then solve both arms in its frame.
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
-player=actors.spawn_actor_from_class(unreal.load_class(None,'/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C'),unreal.Vector())
+player=actors.spawn_actor_from_class(unreal.load_class(None,'/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C'),unreal.Vector())
 gun=actors.spawn_actor_from_class(unreal.RailgunWeapon,unreal.Vector());gun.equip(player)
 arm_frame=gun.arms.get_relative_transform()
 

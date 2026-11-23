@@ -16,7 +16,7 @@ assert next(s for s in mesh.get_editor_property('static_materials') if str(s.mat
 level=unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 world=unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
-cls=unreal.load_class(None,'/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
+cls=unreal.load_class(None,'/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
 player=actors.spawn_actor_from_class(cls,unreal.Vector(0,0,100))
 camera=player.get_component_by_class(unreal.CameraComponent)
 camera.detach_from_component(unreal.DetachmentRule.KEEP_WORLD,unreal.DetachmentRule.KEEP_WORLD,unreal.DetachmentRule.KEEP_WORLD)

@@ -35,8 +35,9 @@ bool FBFGNPCPowerTest::RunTest(const FString&)
         const FString Name=FPaths::GetBaseFilename(File);
         if (!Name.Contains(TEXT("NPC")) && !Name.Contains(TEXT("Follower"))) continue;
         const FString ClassPath=FPackageName::FilenameToLongPackageName(File)+TEXT(".")+Name+TEXT("_C");
-        UClass* Class=LoadClass<ACharacter>(nullptr,*ClassPath);
+        UClass* Class=LoadClass<AActor>(nullptr,*ClassPath);
         if (!TestNotNull(*ClassPath,Class)) continue;
+        if (!Class->IsChildOf(ACharacter::StaticClass())) continue;
         const bool bChasing=Class->IsChildOf(AChasingNPC::StaticClass());
         const bool bFollower=Class->IsChildOf(AWhisperFollower::StaticClass());
         if (!TestTrue(*(Name+TEXT(" uses a supported NPC health system")),bChasing||bFollower)) continue;
@@ -98,12 +99,12 @@ bool FBFGCameraShakeTest::RunTest(const FString&)
                 && View.Location.Size()<1.f && FMath::Abs(View.Rotation.Pitch)<1.1f);
             if (Frame>FPS/4) TestTrue(TEXT("Camera returns to rest after the discharge"),View.Location.IsNearlyZero() && View.Rotation.IsNearlyZero());
         }
-        TestTrue(TEXT("Firing visibly shakes the rendered camera"),PeakPitch>.5f);
-        TestTrue(TEXT("Shake finishes within the 300ms firing interval"),Shake->IsFinished());
+        TestTrue(TEXT("The shared bomb blast shake produces a visible impulse"),PeakPitch>.5f);
+        TestTrue(TEXT("Blast shake finishes"),Shake->IsFinished());
         Shake->StartShake(nullptr,1.f,ECameraShakePlaySpace::CameraLocal);
         FMinimalViewInfo Restarted;
         Shake->UpdateAndApplyCameraShake(1.f/60,1.f,Restarted);
-        TestTrue(TEXT("Reused single-instance shake restarts for later shots"),Restarted.Rotation.Pitch>.1f);
+        TestTrue(TEXT("Reused single-instance shake restarts for later blasts"),Restarted.Rotation.Pitch>.1f);
         Shake->StopShake(true);
         TestTrue(TEXT("An interrupted shake can stop immediately"),Shake->IsFinished());
         Shake->TeardownShake();

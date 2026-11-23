@@ -53,7 +53,7 @@ bool FRadicalMikeCombatTest::RunTest(const FString& Parameters)
 	FActorSpawnParameters Spawn;
 	Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	UClass* PlayerClass = LoadClass<AMyProject6Character>(nullptr,
-		TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+		TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
 	if (!TestNotNull(TEXT("Player blueprint loads"), PlayerClass)) { return false; }
 	AMyProject6Character* Player = World->SpawnActor<AMyProject6Character>(PlayerClass, FVector(800, 0, 100), FRotator::ZeroRotator, Spawn);
 	if (!TestNotNull(TEXT("Player spawns"), Player)) { return false; }

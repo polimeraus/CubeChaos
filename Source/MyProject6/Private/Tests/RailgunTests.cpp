@@ -45,7 +45,7 @@ bool FRailgunTest::RunTest(const FString& Parameters)
         { ++GFrameCounter; World->Tick(LEVELTICK_All, Seconds / N); }
     };
     UClass* PlayerClass = LoadClass<AMyProject6Character>(nullptr,
-        TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+        TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
     if (!TestNotNull(TEXT("Existing player Blueprint loads"), PlayerClass)) return false;
     auto* Player = World->SpawnActor<AMyProject6Character>(PlayerClass, FVector(0, 0, 500), FRotator::ZeroRotator);
     if (!TestNotNull(TEXT("Player spawns"), Player)) return false;
@@ -257,7 +257,7 @@ bool FRailgunWorldRangeTest::RunTest(const FString& Parameters)
         for (int32 I = 0; I < 96; ++I) { ++GFrameCounter; World->Tick(LEVELTICK_All, 1.f / 60.f); }
     };
     UClass* PlayerClass = LoadClass<AMyProject6Character>(nullptr,
-        TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+        TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
     if (!TestNotNull(TEXT("Saved player Blueprint loads in the range regression"), PlayerClass)) return false;
     FActorSpawnParameters Spawn;
     Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;

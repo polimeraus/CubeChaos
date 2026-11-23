@@ -84,8 +84,8 @@ void AElectricTetherWeapon::Tick(float Delta)
         Field->SetVisibility(false);Light->SetIntensity(0);
         SetActorTickEnabled(false);Field->SetComponentTickEnabled(false);return;
     }
-    const FVector Eye=Wielder->GetFirstPersonCameraComponent()->GetComponentLocation();
-    const FVector Aim=Wielder->GetController()?Wielder->GetControlRotation().Vector():Wielder->GetFirstPersonCameraComponent()->GetForwardVector();
+    const FVector Eye=Wielder->GetWeaponEye();
+    const FVector Aim=!Wielder->IsThirdPerson() && Wielder->GetController() ? Wielder->GetControlRotation().Vector() : Wielder->GetWeaponAim(Eye);
     SetActorLocation(Eye);
     FCollisionQueryParams Q(SCENE_QUERY_STAT(ElectricTether),false,Wielder);Q.AddIgnoredActor(this);Q.AddIgnoredActor(Wielder->Railgun);
     if(bFiring)
@@ -129,7 +129,7 @@ void AElectricTetherWeapon::DrawField(float Delta)
     {Field->SetVisibility(false);Light->SetIntensity(0);return;}
     const bool bVisible=bFiring||ReleaseFade>0;Field->SetVisibility(bVisible);Light->SetIntensity(bFiring?(HasTarget()?1700.f:650.f):0);
     if(!bVisible)return;
-    SetActorLocation(Wielder->GetFirstPersonCameraComponent()->GetComponentLocation());
+    SetActorLocation(Wielder->GetWeaponEye());
     if(HasTarget())BeamEnd=Captive->GetOwner()->GetActorLocation();
     const FVector Eye=GetActorLocation(),Start=Wielder->Railgun?Wielder->Railgun->GetVisualMuzzleLocation():Eye;
     const FTransform FieldToWorld=Field->GetComponentTransform();

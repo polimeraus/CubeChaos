@@ -16,7 +16,7 @@ def check(condition, message):
 
 
 cls = unreal.load_class(None, ROOT + '/BP_ClownMonster_NPC.BP_ClownMonster_NPC_C')
-spawn_cls = unreal.load_class(None, '/Game/GameplayActors/NPCSpawner/BP_NPCSpawnPoint.BP_NPCSpawnPoint_C')
+spawn_cls = unreal.load_class(None, '/Game/NPC/Spawner/BP_NPCSpawnPoint.BP_NPCSpawnPoint_C')
 check(cls is not None, 'Clown NPC Blueprint loads')
 check(unreal.get_default_object(spawn_cls).get_editor_property('npc_types').get('ClownMonster') == cls,
       'Reusable spawn point contains ClownMonster alias')

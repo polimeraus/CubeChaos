@@ -43,7 +43,7 @@ if '-NullRHI' in unreal.SystemLibrary.get_command_line():
     raise SystemExit
 
 world=unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
-cls=unreal.load_class(None,'/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
+cls=unreal.load_class(None,'/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
 player=actors.spawn_actor_from_class(cls,unreal.Vector(0,0,100))
 camera=player.get_component_by_class(unreal.CameraComponent)
 camera.detach_from_component(unreal.DetachmentRule.KEEP_WORLD,unreal.DetachmentRule.KEEP_WORLD,unreal.DetachmentRule.KEEP_WORLD)
@@ -65,7 +65,7 @@ for pos,scale in [(unreal.Vector(350,0,-5),unreal.Vector(12,10,.1)),
                   (unreal.Vector(350,280,100),unreal.Vector(12,.15,2))]:
     block=actors.spawn_actor_from_class(unreal.StaticMeshActor,pos)
     block.static_mesh_component.set_static_mesh(cube);block.set_actor_scale3d(scale)
-    surface=block.static_mesh_component.create_dynamic_material_instance(0,unreal.load_asset('/Game/LevelPrototyping/Materials/M_FlatCol'))
+    surface=block.static_mesh_component.create_dynamic_material_instance(0,unreal.load_asset('/Game/Materials/Prototyping/M_FlatCol'))
     surface.set_vector_parameter_value('Base Color',unreal.LinearColor(.22,.24,.27,1))
 capture_actor=actors.spawn_actor_from_class(unreal.SceneCapture2D,camera.get_world_location(),camera.get_world_rotation())
 capture=capture_actor.get_component_by_class(unreal.SceneCaptureComponent2D)

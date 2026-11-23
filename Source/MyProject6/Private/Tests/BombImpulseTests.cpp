@@ -55,7 +55,7 @@ bool FBombPressureTest::RunTest(const FString&)
         auto* B=World->SpawnActorDeferred<ABombProjectile>(ABombProjectile::StaticClass(),T,Owner);
         B->BlastDamage=Damage;B->LaunchVelocity=FVector::ZeroVector;B->FinishSpawning(T);B->Movement->Deactivate();return B;
     };
-    auto* PlayerClass=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+    auto* PlayerClass=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
     if (!TestNotNull(TEXT("Saved player Blueprint"),PlayerClass)) return false;
     auto* Player=Character(PlayerClass,FVector(180,0,0));
     auto* Near=Character(AChasingNPC::StaticClass(),FVector(-180,0,0));

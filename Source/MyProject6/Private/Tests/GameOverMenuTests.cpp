@@ -67,7 +67,7 @@ namespace
 			Controller = World->SpawnActor<AGameOverMenuTestController>();
 			Controller->InitializeTestMenu();
 			UClass* CharacterClass = LoadClass<AMyProject6Character>(nullptr,
-				TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+				TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
 			Character = CharacterClass ? World->SpawnActor<AMyProject6Character>(CharacterClass) : nullptr;
 			if (Character) { Controller->Possess(Character); }
 		}

@@ -77,7 +77,7 @@ struct FScene
     }
     AMyProject6Character* Player(FRotator SpawnRotation=FRotator::ZeroRotator)
     {
-        auto* C=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+        auto* C=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
         auto* P=World->SpawnActor<AMyProject6Character>(C,FVector(0,0,400),SpawnRotation);
         auto* PC=World->SpawnActor<AGameOverMenuTestController>();PC->InitializeTestMenu();PC->Possess(P);P->PawnClientRestart();P->GetCharacterMovement()->DisableMovement();return P;
     }

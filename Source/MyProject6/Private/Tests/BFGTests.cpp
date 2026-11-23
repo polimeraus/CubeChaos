@@ -1,6 +1,5 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 #include "BFGProjectile.h"
-#include "BFGCameraShake.h"
 #include "Camera/CameraModifier_CameraShake.h"
 #include "Camera/PlayerCameraManager.h"
 #include "RailgunWeapon.h"
@@ -48,8 +47,8 @@ bool FBFGTest::RunTest(const FString&)
         for(int32 I=0,N=FMath::CeilToInt(Seconds*60);I<N;++I)
         { ++GFrameCounter;World->Tick(LEVELTICK_All,Seconds/N); }
     };
-    auto* PlayerClass=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
-    auto* BFGPickupClass=LoadClass<AParametricPickup>(nullptr,TEXT("/Game/GameplayActors/Pickups/BFG/BP_BFGPickup.BP_BFGPickup_C"));
+    auto* PlayerClass=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+    auto* BFGPickupClass=LoadClass<AParametricPickup>(nullptr,TEXT("/Game/Weapons/BFG/Pickups/BP_BFGPickup.BP_BFGPickup_C"));
     auto* RailPickupClass=LoadClass<AParametricPickup>(nullptr,TEXT("/Game/GameplayActors/Pickups/ParametricPickup/BP_ParametricPickup.BP_ParametricPickup_C"));
     if(!TestNotNull(TEXT("Player BP"),PlayerClass)||!TestNotNull(TEXT("BFG pickup BP"),BFGPickupClass)||!TestNotNull(TEXT("Rail pickup BP"),RailPickupClass))return false;
     auto* Player=World->SpawnActor<AMyProject6Character>(PlayerClass,FVector(0,0,500),FRotator::ZeroRotator);
@@ -104,6 +103,15 @@ bool FBFGTest::RunTest(const FString&)
     auto* Protected=SpawnTarget(FVector(1000,-180,600));
     auto* SplashCover=Wall(FVector(1000,-90,600),FVector(200,8,160));
     const FTransform AimBefore=Camera->GetComponentTransform();
+    // Both rigs track the same pawn and camera so breathing and falling cancel out.
+    auto* Unfired=World->SpawnActor<ARailgunWeapon>();
+    if (!TestNotNull(TEXT("Unfired reference rig"),Unfired)) return false;
+    for (auto* Rig : {Gun, Unfired})
+    {
+        Rig->Equip(Player);
+        Rig->ActivateBFG();
+    }
+    Advance(.016f);
     FString Samples(TEXT("time,x,y,z,pitch,yaw,roll,light,camera_x,camera_y,camera_z,camera_pitch,camera_yaw,camera_roll\n"));
     auto Sample=[&](float Time)
     {
@@ -127,8 +135,7 @@ bool FBFGTest::RunTest(const FString&)
     if (TestNotNull(TEXT("Player has a camera shake modifier"),ShakeModifier))
     {
         ShakeModifier->GetActiveCameraShakes(Shakes);
-        TestTrue(TEXT("Successful fire starts exactly one BFG shake; cooldown does not add one"),
-            Shakes.Num()==1 && Shakes[0].ShakeInstance->IsA<UBFGCameraShake>());
+        TestEqual(TEXT("Discharge starts zero camera shakes"), Shakes.Num(), 0);
     }
     TestEqual(TEXT("BFG is a travelling projectile, not instant damage"),Direct->GetCurrentHealth(),500.f);
     TWeakObjectPtr<ABFGProjectile> Shot;
@@ -139,27 +146,32 @@ bool FBFGTest::RunTest(const FString&)
     TestEqual(TEXT("Weapon forwards the balanced sculpture cell damage"),Shot->SculptureDamageMultiplier,1.5f);
     TestTrue(TEXT("Projectile illuminates nearby geometry"),Shot->PlasmaLight->Intensity>3000 && Shot->PlasmaLight->AttenuationRadius>=420);
     Sample(0.f);
-    float PeakPitch=0.f;
+    double PeakExtraAngle=0., PeakExtraTravel=0.;
     float PeakCameraPitch=0.f;
     for(int32 Frame=1;Frame<=15;++Frame)
     {
         Advance(.016f);
-        PeakPitch=FMath::Max(PeakPitch,float(Gun->GetRootComponent()->GetRelativeRotation().Pitch));
+        const FTransform Fired=Gun->GetRootComponent()->GetRelativeTransform();
+        const FTransform Resting=Unfired->GetRootComponent()->GetRelativeTransform();
+        PeakExtraAngle=FMath::Max(PeakExtraAngle,FMath::RadiansToDegrees(Fired.GetRotation().AngularDistance(Resting.GetRotation())));
+        PeakExtraTravel=FMath::Max(PeakExtraTravel,FVector::Distance(Fired.GetLocation(),Resting.GetLocation()));
         PeakCameraPitch=FMath::Max(PeakCameraPitch,float(FMath::Abs(Controller->PlayerCameraManager->GetCameraRotation().Pitch)));
         Sample(Frame*.016f);
-        if(Frame==3) TestTrue(TEXT("Flash decays quickly but remains visible through recoil"),
+        if(Frame==3) TestTrue(TEXT("Flash decays quickly after discharge"),
             Gun->BFGMuzzleLight->Intensity>4000 && Gun->BFGMuzzleLight->Intensity<18000);
     }
-    TestTrue(TEXT("Stronger BFG discharge lifts the weapon by over 4.7 degrees"),PeakPitch>4.7f);
-    TestTrue(TEXT("Real firing also shakes the player camera"),PeakCameraPitch>.5f && PeakCameraPitch<1.1f);
-    TestTrue(TEXT("Presentation shake does not permanently change the aim component"),Camera->GetComponentTransform().Equals(AimBefore,.001f));
+    TestTrue(TEXT("Fired weapon follows the unfired rig throughout discharge"),PeakExtraAngle < .01 && PeakExtraTravel < .01);
+    TestTrue(TEXT("Player camera pitch stays steady throughout discharge"),PeakCameraPitch < .01f);
+    TestTrue(TEXT("Discharge preserves the aim component"),Camera->GetComponentTransform().Equals(AimBefore,.001f));
     if (ShakeModifier)
     {
         Shakes.Reset();
         ShakeModifier->GetActiveCameraShakes(Shakes);
-        TestEqual(TEXT("Firing shake finishes before the next shot"),Shakes.Num(),0);
+        TestEqual(TEXT("No outstanding recoil before the next shot"),Shakes.Num(),0);
     }
-    AddInfo(FString::Printf(TEXT("BFG peak weapon recoil: %.3f degrees"),PeakPitch));
+    AddInfo(FString::Printf(TEXT("Additional weapon rotation %.3f degrees, travel %.3f cm, peak camera pitch %.3f degrees"),
+        PeakExtraAngle,PeakExtraTravel,PeakCameraPitch));
+    Unfired->Destroy();
     const FString PreviewDir=FPaths::ProjectSavedDir()/TEXT("BFGFeedback");
     IFileManager::Get().MakeDirectory(*PreviewDir,true);
     TestTrue(TEXT("Actual firing presentation samples saved"),FFileHelper::SaveStringToFile(Samples,*(PreviewDir/TEXT("Samples.csv"))));
@@ -196,9 +208,17 @@ bool FBFGTest::RunTest(const FString&)
         return false;
     };
     const int32 Before=Gun->BFGShotsFired;
+    Player->TogglePerspective();
     TestTrue(TEXT("BFG uses primary fire binding"),Key(IE_Pressed));Advance(.55f);
     TestEqual(TEXT("Held BFG respects the faster cooldown"),Gun->BFGShotsFired,Before+3);
+    if (ShakeModifier)
+    {
+        Shakes.Reset();
+        ShakeModifier->GetActiveCameraShakes(Shakes);
+        TestEqual(TEXT("Holding primary fire adds zero camera shakes"),Shakes.Num(),0);
+    }
     TestTrue(TEXT("BFG release binding"),Key(IE_Released));Advance(.3f);
+    Player->TogglePerspective();
     TestEqual(TEXT("Release stops firing"),Gun->BFGShotsFired,Before+3);
     int32 Balls=0;for(TActorIterator<ABallProjectile> It(World);It;++It)++Balls;
     TestEqual(TEXT("BFG never also fires the old ball projectile"),Balls,0);

@@ -4,9 +4,6 @@
 #include "BombProjectile.h"
 #include "SleepSignalDevice.h"
 #include "ElectricTetherWeapon.h"
-#include "BFGCameraShake.h"
-#include "Camera/PlayerCameraManager.h"
-#include "GameFramework/PlayerController.h"
 #include "MyProject6Character.h"
 #include "ChunkedDestructibleConeStructure.h"
 #include "QuadPanelConeStructure.h"
@@ -129,6 +126,31 @@ void ARailgunWeapon::Equip(AMyProject6Character* Character)
     PreviousVelocity = Character->GetVelocity();
     PreviousAim = Character->GetBaseAimRotation();
     AddTickPrerequisiteComponent(Character->GetCharacterMovement());
+}
+
+void ARailgunWeapon::UpdatePerspective()
+{
+    if (!Wielder) return;
+    const bool bThirdPerson = Wielder->IsThirdPerson();
+    const EPlayerWeapon Slot = Wielder->GetActiveWeapon();
+    const bool bThrowable = Slot == EPlayerWeapon::Bomb || Slot == EPlayerWeapon::SleepSignal;
+    // Keep the first-person rig animating for throw timing and the full body's arm pose.
+    Arms->SetHiddenInGame(bThirdPerson);
+    WeaponMesh->SetFirstPersonPrimitiveType(bThirdPerson ? EFirstPersonPrimitiveType::None : EFirstPersonPrimitiveType::FirstPerson);
+    WeaponMesh->SetCastShadow(bThirdPerson);
+    if (!bThirdPerson && bThrowable)
+    {
+        WeaponMesh->AttachToComponent(RootComponent, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+        WeaponMesh->SetRelativeLocationAndRotation(FVector(54, 0, -23), FRotator::ZeroRotator);
+        return;
+    }
+    auto* Body = bThirdPerson ? Wielder->GetMesh() : Arms.Get();
+    WeaponMesh->AttachToComponent(Body, FAttachmentTransformRules::SnapToTargetNotIncludingScale, TEXT("HandGrip_R"));
+    // The two open palms straddle the sphere; the emitter's graspable rim sits below its mesh origin.
+    FVector GripOffset = FVector::ZeroVector;
+    if (Slot == EPlayerWeapon::Bomb) GripOffset = FVector(10.3, 4.5, 2.5);
+    if (Slot == EPlayerWeapon::SleepSignal) GripOffset = FVector(10.3, 4.5, 8.3);
+    WeaponMesh->SetRelativeLocationAndRotation(GripOffset, FRotator::ZeroRotator);
 }
 
 void ARailgunWeapon::ActivateElectricTether()
@@ -295,10 +317,9 @@ bool ARailgunWeapon::FireSleepSignal()
 void ARailgunWeapon::ReleaseSleepDevice()
 {
     bSleepThrowPending = false;
-    const auto* Camera = Wielder->GetFirstPersonCameraComponent();
-    FVector Forward = Camera->GetForwardVector().GetSafeNormal2D();
+    const FVector Eye = Wielder->GetWeaponEye();
+    FVector Forward = Wielder->GetWeaponAim(Eye).GetSafeNormal2D();
     if (Forward.IsNearlyZero()) Forward = Wielder->GetActorForwardVector().GetSafeNormal2D();
-    const FVector Eye = Camera->GetComponentLocation();
     FVector Start = Eye + Forward*50.f + FVector(0,0,-50.f);
     FHitResult Cover;
     FCollisionQueryParams Query(SCENE_QUERY_STAT(SleepSignalThrow),false,Wielder);
@@ -322,8 +343,7 @@ bool ARailgunWeapon::FireBomb()
     if (!World || !Wielder || Wielder->GetActiveWeapon() != EPlayerWeapon::Bomb || !HasAuthority()
         || Wielder->IsEnergyDepleted() || UGameplayStatics::IsGamePaused(this)
         || World->GetTimeSeconds() + .0001 < NextBombFireTime) return false;
-    const UCameraComponent* Camera = Wielder->GetFirstPersonCameraComponent();
-    const FVector Eye = Camera->GetComponentLocation();
+    const FVector Eye = Wielder->GetWeaponEye();
     FVector Start = GetVisualMuzzleLocation();
     FCollisionQueryParams Query(SCENE_QUERY_STAT(BombThrow), false, Wielder);
     Query.AddIgnoredActor(this);
@@ -339,7 +359,7 @@ bool ARailgunWeapon::FireBomb()
     Bomb->SculptureRadiusMultiplier = BFGSculptureRadiusMultiplier;
     Bomb->SculptureDamageMultiplier = BFGSculptureDamageMultiplier;
     Bomb->FuseSeconds = FMath::Max(.1f, BombFuseSeconds);
-    Bomb->LaunchVelocity = Camera->GetForwardVector()*FMath::Max(100.f, BombThrowSpeed)
+    Bomb->LaunchVelocity = Wielder->GetWeaponAim(Start)*FMath::Max(100.f, BombThrowSpeed)
         + FVector(0,0,220) + Wielder->GetVelocity()*.35f;
     Bomb->FinishSpawning(Transform);
     LastBombThrowTime = World->GetTimeSeconds();
@@ -355,10 +375,10 @@ bool ARailgunWeapon::FireBFG()
     UWorld* World = GetWorld();
     if (!World || !Wielder || !Wielder->bBFGEquipped || !HasAuthority() || Wielder->IsEnergyDepleted()
         || UGameplayStatics::IsGamePaused(this) || World->GetTimeSeconds() + .0001 < NextBFGFireTime) return false;
-    UCameraComponent* Camera = Wielder->GetFirstPersonCameraComponent();
-    const FVector Eye = Camera->GetComponentLocation();
+    const FVector Eye = Wielder->GetWeaponEye();
+    const FVector Aim = Wielder->GetWeaponAim(Eye);
     FVector Start = GetVisualMuzzleLocation();
-    FVector End = Eye + Camera->GetForwardVector() * 50000.f;
+    FVector End = Eye + Aim * 50000.f;
     FCollisionQueryParams Query(SCENE_QUERY_STAT(BFGAim), false, Wielder);
     Query.AddIgnoredActor(this);
     FHitResult AimHit, CoverHit;
@@ -366,7 +386,7 @@ bool ARailgunWeapon::FireBFG()
     const bool bMuzzleBlocked = World->SweepSingleByChannel(CoverHit, Eye, Start, FQuat::Identity,
         ECC_GameTraceChannel1, FCollisionShape::MakeSphere(3.f), Query);
     if (bMuzzleBlocked) Start = Eye;
-    const FVector Direction = (End - Start).GetSafeNormal(UE_SMALL_NUMBER, Camera->GetForwardVector());
+    const FVector Direction = (End - Start).GetSafeNormal(UE_SMALL_NUMBER, Aim);
     const FTransform Transform(Direction.Rotation(), Start);
     auto* Projectile = World->SpawnActorDeferred<ABFGProjectile>(ABFGProjectile::StaticClass(), Transform,
         Wielder, Wielder, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
@@ -388,12 +408,6 @@ bool ARailgunWeapon::FireBFG()
     BFGMuzzleLight->SetLightColor(BFGMuzzleFlashColor);
     BFGMuzzleLight->SetAttenuationRadius(FMath::Max(1.f, BFGMuzzleFlashRadius));
     BFGMuzzleLight->SetIntensity(FMath::Max(0.f, BFGMuzzleFlashIntensity));
-    ViewMotion.AddShot(BFGRecoilStrength, true);
-    if (APlayerController* Controller = Cast<APlayerController>(Wielder->GetController());
-        Controller && Controller->IsLocalController() && Controller->PlayerCameraManager && BFGCameraShakeScale > 0.f)
-    {
-        Controller->PlayerCameraManager->StartCameraShake(UBFGCameraShake::StaticClass(), FMath::Clamp(BFGCameraShakeScale, 0.f, 3.f));
-    }
     return true;
 }
 
@@ -402,9 +416,10 @@ bool ARailgunWeapon::Fire()
     UWorld* World = GetWorld();
     if (!World || !Wielder || !Wielder->bRailgunEquipped || !HasAuthority() || Wielder->IsEnergyDepleted()
         || UGameplayStatics::IsGamePaused(this) || World->GetTimeSeconds() < NextFireTime) return false;
-    UCameraComponent* Camera = Wielder->GetFirstPersonCameraComponent();
-    const FVector Start = Camera->GetComponentLocation();
-    const FVector Direction = Camera->GetForwardVector();
+    const FVector Eye = Wielder->GetWeaponEye();
+    FVector BeamStart = GetVisualMuzzleLocation();
+    const FVector Start = Wielder->IsThirdPerson() ? BeamStart : Eye;
+    const FVector Direction = Wielder->GetWeaponAim(Start);
     // Extend past every loaded collidable actor instead of imposing a weapon range.
     // Recompute on each shot so streaming, newly spawned targets and moving actors are covered.
     // Project the whole bounds, not just actor origins (large platforms can extend past them).
@@ -434,16 +449,15 @@ bool ARailgunWeapon::Fire()
         if (APawn* Pawn = Cast<APawn>(Hit.GetActor())) AimQuery.AddIgnoredActor(Pawn);
         else { End = Hit.ImpactPoint; break; }
     }
-    FVector BeamStart = GetVisualMuzzleLocation();
     // Check camera-to-muzzle too, so a barrel protruding into cover cannot shoot through it.
     FHitResult CoverHit;
     bool bHit = false;
     TArray<FHitResult> ShotHits;
-    if (World->LineTraceSingleByChannel(CoverHit, Start, BeamStart, ECC_GameTraceChannel1, Query))
+    if (World->LineTraceSingleByChannel(CoverHit, Eye, BeamStart, ECC_GameTraceChannel1, Query))
     {
         Hit = CoverHit;
         End = Hit.ImpactPoint;
-        BeamStart = Start;
+        BeamStart = Eye;
         bHit = true;
         ShotHits.Add(Hit);
     }
@@ -483,7 +497,7 @@ bool ARailgunWeapon::Fire()
 
 FVector ARailgunWeapon::GetVisualMuzzleLocation() const
 {
-    if (!Wielder) return Muzzle->GetComponentLocation();
+    if (!Wielder || Wielder->IsThirdPerson()) return Muzzle->GetComponentLocation();
     FMinimalViewInfo View;
     Wielder->GetFirstPersonCameraComponent()->GetCameraView(0.f, View);
     return UGameplayStatics::TransformWorldToFirstPerson(View, Muzzle->GetComponentLocation(), false);
@@ -559,14 +573,15 @@ void ARailgunWeapon::Tick(float DeltaSeconds)
         if (bSleepThrowPending)
         {
             const FVector Grip = Arms->GetSocketTransform(TEXT("hand_r"),RTS_Actor).GetLocation();
-            WeaponMesh->SetRelativeLocation(FVector(54,0,-23)+Grip-SleepGripRest);
+            if (!Wielder->IsThirdPerson()) WeaponMesh->SetRelativeLocation(FVector(54,0,-23)+Grip-SleepGripRest);
             if (Age >= .30f) ReleaseSleepDevice();
         }
         if (Age >= 1.05f)
         {
             bSleepThrowAnimating = false;
             ApplyHoldPose(SleepHoldAnimation ? SleepHoldAnimation.Get() : BombHoldAnimation.Get());
-            WeaponMesh->SetRelativeLocation(FVector(54,0,-23)); WeaponMesh->SetVisibility(true);
+            if (!Wielder->IsThirdPerson()) WeaponMesh->SetRelativeLocation(FVector(54,0,-23));
+            WeaponMesh->SetVisibility(true);
         }
     }
     if(Wielder->GetActiveWeapon()==EPlayerWeapon::ElectricTether && Wielder->ElectricWeapon)

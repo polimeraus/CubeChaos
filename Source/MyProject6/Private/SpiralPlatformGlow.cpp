@@ -42,7 +42,7 @@ void USpiralPlatformGlow::Start(AActor* InOwner, const FSpiralPlatformGlowSettin
 	if (!Material) { Release(); return; }
 	const float Intensity = FMath::IsFinite(Settings.GlowIntensity) ? FMath::Clamp(Settings.GlowIntensity, 0.f, 1000.f) : 8.f;
 	const bool bSimpleGlow = Material->GetMaterial()->GetPathName() ==
-		TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow");
+		TEXT("/Game/Materials/Effects/M_SimpleGlow.M_SimpleGlow");
 	FName IntensityParameter = NAME_None;
 	float PreviousIntensity = 0;
 	if (!Settings.IntensityParameterName.IsNone())

@@ -2,7 +2,7 @@
 import unreal
 
 folder = '/Game/Weapons/PurpleRailgun/Materials'
-parent = unreal.load_asset('/Game/Weapons/Railgun/Materials/M_RailMetal')
+parent = unreal.load_asset('/Game/Materials/Weapons/M_RailMetal')
 edit = unreal.MaterialEditingLibrary
 lib = unreal.EditorAssetLibrary
 assets = unreal.AssetToolsHelpers.get_asset_tools()

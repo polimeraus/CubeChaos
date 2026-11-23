@@ -10,13 +10,13 @@ import unreal
 
 folder = '/Game/GameplayActors/Pickups/ParametricPickup'
 name = 'M_PickupSurface'
-material_folder = '/Game/GameplayActors/Pickups/Shared/Materials'
+material_folder = '/Game/Materials/Pickups'
 path = material_folder + '/' + name
 edit = unreal.MaterialEditingLibrary
 assets = unreal.EditorAssetLibrary
 material = unreal.load_asset(path) if assets.does_asset_exist(path) else None
 if material:
-    source = Path(unreal.Paths.project_content_dir()) / 'GameplayActors/Pickups/Shared/Materials/M_PickupSurface.uasset'
+    source = Path(unreal.Paths.project_content_dir()) / 'Materials/Pickups/M_PickupSurface.uasset'
     if source.exists():
         backup = Path(unreal.Paths.project_saved_dir()) / 'Pickups/Backups' / datetime.now().strftime('%Y%m%d_%H%M%S')
         backup.mkdir(parents=True, exist_ok=True)

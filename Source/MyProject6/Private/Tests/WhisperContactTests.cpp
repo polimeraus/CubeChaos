@@ -43,7 +43,7 @@ bool FWhisperContactTest::RunTest(const FString& Parameters)
 	Shape->RegisterComponent();
 	Floor->SetActorLocation(FVector(0, 0, -50));
 	UClass* PlayerClass = LoadClass<AMyProject6Character>(nullptr,
-		TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+		TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
 	UClass* WhisperClass = LoadClass<AWhisperFollower>(nullptr,
 		TEXT("/Game/NPC/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C"));
 	FActorSpawnParameters Spawn;

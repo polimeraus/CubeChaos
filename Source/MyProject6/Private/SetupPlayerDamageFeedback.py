@@ -7,7 +7,7 @@ for index in (1,2,3):
     name=f'S_PlayerHurt_{index:02}'
     task=unreal.AssetImportTask()
     for key,value in {'filename':str(root/'ContentSource/PlayerFeedback'/(name+'.wav')),
-        'destination_path':'/Game/Player/Feedback/Audio','destination_name':name,
+        'destination_path':'/Game/Characters/FirstPerson/Feedback/Audio','destination_name':name,
         'automated':True,'replace_existing':True,'save':True}.items(): task.set_editor_property(key,value)
     tasks.append(task)
 unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks(tasks)

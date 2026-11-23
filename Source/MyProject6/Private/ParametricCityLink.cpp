@@ -51,7 +51,7 @@ AParametricCityLink::AParametricCityLink(const FObjectInitializer& I):Super(I)
     PrimaryActorTick.bCanEverTick=false;bEnableComputeMeshPool=false;
     Points={{0,0,0},{1800,0,0}};
     GetDynamicMeshComponent()->bUseAsyncCooking=false;GetDynamicMeshComponent()->SetCanEverAffectNavigation(true);
-    static ConstructorHelpers::FObjectFinder<UMaterialInterface> M(TEXT("/Game/GameplayActors/LobbyPlatform/Materials/M_LobbyTrim"));
+    static ConstructorHelpers::FObjectFinder<UMaterialInterface> M(TEXT("/Game/Materials/Platforms/M_LobbyTrim"));
     if (M.Succeeded()) SurfaceMaterial=M.Object;
 }
 void AParametricCityLink::OnConstruction(const FTransform& T){Super::OnConstruction(T);RebuildLink();}

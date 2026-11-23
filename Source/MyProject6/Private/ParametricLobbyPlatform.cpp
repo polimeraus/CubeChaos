@@ -63,9 +63,9 @@ AParametricLobbyPlatform::AParametricLobbyPlatform(const FObjectInitializer& Obj
 	GetDynamicMeshComponent()->SetCanEverAffectNavigation(true);
 	GetDynamicMeshComponent()->bUseAsyncCooking = false;
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> Surface(
-		TEXT("/Game/GameplayActors/LobbyPlatform/Materials/M_LobbySurface.M_LobbySurface"));
+		TEXT("/Game/Materials/Platforms/M_LobbySurface.M_LobbySurface"));
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> Trim(
-		TEXT("/Game/GameplayActors/LobbyPlatform/Materials/M_LobbyTrim.M_LobbyTrim"));
+		TEXT("/Game/Materials/Platforms/M_LobbyTrim.M_LobbyTrim"));
 	if (Surface.Succeeded()) { SurfaceMaterial = Surface.Object; }
 	if (Trim.Succeeded()) { TrimMaterial = Trim.Object; }
 	ResetReferenceLayout();

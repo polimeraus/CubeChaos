@@ -198,7 +198,7 @@ AChunkedDestructibleConeStructure::AChunkedDestructibleConeStructure()
 	ApexDecorationComponent->SetCanEverAffectNavigation(false);
 	GlowWaveMaterial = FlashMaterial;
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> CrispSpiralMaterialFinder(
-		TEXT("/Game/LevelPrototyping/Materials/M_FlatCol.M_FlatCol"));
+		TEXT("/Game/Materials/Prototyping/M_FlatCol.M_FlatCol"));
 	if (CrispSpiralMaterialFinder.Succeeded())
 	{
 		CrispSpiralMaterial = CrispSpiralMaterialFinder.Object;

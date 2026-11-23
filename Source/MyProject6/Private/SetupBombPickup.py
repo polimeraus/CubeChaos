@@ -9,7 +9,7 @@ source=root/'Content/FirstPerson/Lvl_FirstPerson.umap'
 backup=out/'Before/Lvl_FirstPerson.umap';backup.parent.mkdir(parents=True,exist_ok=True)
 if not backup.exists():shutil.copy2(source,backup)
 assets=unreal.AssetToolsHelpers.get_asset_tools()
-path='/Game/GameplayActors/Pickups/FuseBomb/BP_BombPickup'
+path='/Game/Weapons/FuseBomb/Pickups/BP_BombPickup'
 factory=unreal.BlueprintFactory();factory.set_editor_property('parent_class',unreal.ParametricPickup)
 bp=unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else assets.create_asset('BP_BombPickup',str(Path(path).parent).replace('\\','/'),unreal.Blueprint,factory)
 cdo=unreal.get_default_object(bp.generated_class())

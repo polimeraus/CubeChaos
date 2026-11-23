@@ -67,8 +67,9 @@ for spec in SPECS:
     parameters[0].set_editor_property('grid_num', 6)
     blend.set_editor_property('blend_parameters', parameters)
     samples = []
+    walk = require(source + '/Animations/Walk_Fwd') if spec['hero'] == 'FengMao' else None
     for anim, speed, rate in [(animations['idle'], 0., 1.),
-                              (animations['run'], spec['speed'] * .5, .5),
+                              (walk or animations['run'], spec['speed'] * .5, 1. if walk else .5),
                               (animations['run'], spec['speed'], 1.)]:
         sample = unreal.BlendSample()
         sample.set_editor_property('animation', anim)

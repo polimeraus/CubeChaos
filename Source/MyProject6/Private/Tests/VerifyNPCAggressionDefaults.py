@@ -49,7 +49,7 @@ for obj in actors.get_all_level_actors():
 # The saved gameplay map has Ghoul, Clown and Whisper. BlackMonster remains
 # covered by its saved class defaults and the fresh-spawn checks below.
 check({'ghoul', 'clown', 'whisper'}.issubset(placed_types), 'All authored aggression NPC placements checked')
-spawn_defaults = unreal.get_default_object(unreal.load_asset('/Game/GameplayActors/NPCSpawner/BP_NPCSpawnPoint').generated_class())
+spawn_defaults = unreal.get_default_object(unreal.load_asset('/Game/NPC/Spawner/BP_NPCSpawnPoint').generated_class())
 check(spawn_defaults.get_editor_property('npc_types').get('ClownMonster') == classes['clown'], 'Portal uses the tuned Clown class')
 unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
 for i, (k, cls) in enumerate(classes.items()):

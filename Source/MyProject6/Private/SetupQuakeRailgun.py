@@ -9,9 +9,9 @@ edit = unreal.MaterialEditingLibrary
 out = root / 'Saved/Railgun/Quake'
 out.mkdir(parents=True, exist_ok=True)
 
-def make_material(name, code, inputs, additive=False):
-    path = base + '/Materials/' + name
-    m = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else assets.create_asset(name, base+'/Materials', unreal.Material, unreal.MaterialFactoryNew())
+def make_material(name, code, inputs, additive=False, folder=base + '/Materials'):
+    path = folder + '/' + name
+    m = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else assets.create_asset(name, folder, unreal.Material, unreal.MaterialFactoryNew())
     # Reuse existing nodes when rerun: constructor-loaded expressions can be rooted.
     expressions = list(edit.get_material_expressions(m))
     def node(cls, parameter=None):
@@ -61,7 +61,7 @@ make_material('M_RailSpiral', Path(__file__).with_name('RailgunSpiral.ush').read
 surface=make_material('M_RailMetal','''
 float grain=frac(sin(dot(floor(UV*170.0),float2(12.9898,78.233)))*43758.5453);
 return Tint*(.91+grain*.18);
-''', {'UV':0,'Tint':(.39,.43,.45),'Metallic':.82,'Roughness':.3,'Emission':0})
+''', {'UV':0,'Tint':(.39,.43,.45),'Metallic':.82,'Roughness':.3,'Emission':0}, folder='/Game/Materials/Weapons')
 palette={
  'RailSilver':((.39,.43,.45),.82,.3,0),
  'RailGunmetal':((.045,.06,.065),.75,.4,0),
@@ -98,7 +98,7 @@ runpy.run_path(str(Path(__file__).with_name('SetupRailgunEnergy.py')))['build_ma
 
 runpy.run_path(str(Path(__file__).with_name('SetupRailgunTrail.py')),run_name='__main__')
 
-bp=unreal.load_asset('/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter')
+bp=unreal.load_asset('/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter')
 defaults=unreal.get_default_object(bp.generated_class())
 visuals=unreal.RailgunVisualSettings()
 defaults.set_editor_property('railgun_visuals',visuals)

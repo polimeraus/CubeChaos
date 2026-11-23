@@ -5,7 +5,7 @@ import json, runpy, unreal
 root=Path(unreal.Paths.project_dir()).resolve();out=root/'Saved/PurpleRailgun'
 assets=unreal.AssetToolsHelpers.get_asset_tools();lib=unreal.EditorAssetLibrary
 runpy.run_path(str(Path(__file__).with_name('UpdatePickupMotifMaterial.py')),run_name='__main__')
-path='/Game/GameplayActors/Pickups/PurpleRailgun/BP_PurpleRailgunPickup'
+path='/Game/Weapons/PurpleRailgun/Pickups/BP_PurpleRailgunPickup'
 factory=unreal.BlueprintFactory();factory.set_editor_property('parent_class',unreal.ParametricPickup)
 bp=unreal.load_asset(path) if lib.does_asset_exist(path) else assets.create_asset('BP_PurpleRailgunPickup',path.rsplit('/',1)[0],unreal.Blueprint,factory)
 cdo=unreal.get_default_object(bp.generated_class())
@@ -15,13 +15,13 @@ settings={'weapon_reward':unreal.PickupWeapon.PURPLE_RAILGUN,'icon':unreal.Picku
     'icon_scale':.83,'minimum_glow':1.8,'maximum_glow':4.,'pulse_period':2.4,
     'motion':unreal.PickupMotion.SPIN_AND_BOB,'spin_speed':35.,'bob_height':18.,'bob_period':2.4,
     'auto_collect':True,'player_only':True,
-    'surface_material':unreal.load_asset('/Game/GameplayActors/Pickups/Shared/Materials/M_PickupSurface')}
+    'surface_material':unreal.load_asset('/Game/Materials/Pickups/M_PickupSurface')}
 for k,v in settings.items():cdo.set_editor_property(k,v)
 # Reuse the project's established pickup sound.
 existing_cdo=unreal.get_default_object(unreal.load_class(None,'/Game/GameplayActors/Pickups/ParametricPickup/BP_ParametricPickup.BP_ParametricPickup_C'))
 cdo.collection_sound=existing_cdo.collection_sound
 unreal.BlueprintEditorLibrary.compile_blueprint(bp);assert lib.save_loaded_asset(bp,False)
-player_bp=unreal.load_asset('/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter')
+player_bp=unreal.load_asset('/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter')
 player_defaults=unreal.get_default_object(player_bp.generated_class())
 visuals=unreal.get_default_object(unreal.MyProject6Character).purple_railgun_visuals
 player_defaults.set_editor_property('purple_railgun_visuals',visuals)

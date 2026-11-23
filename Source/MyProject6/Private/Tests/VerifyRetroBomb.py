@@ -34,7 +34,7 @@ for path in sorted(classes):
     verified.append(path)
 assert len(verified)>=23
 unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
-player=actors.spawn_actor_from_class(unreal.load_class(None,'/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C'),unreal.Vector())
+player=actors.spawn_actor_from_class(unreal.load_class(None,'/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C'),unreal.Vector())
 gun=actors.spawn_actor_from_class(unreal.RailgunWeapon,unreal.Vector())
 gun.equip(player);gun.activate_bomb()
 options=unreal.AnimPoseEvaluationOptions()

@@ -98,14 +98,14 @@ def upgrade_trim(m):
 
 
 def material(name, surface=False):
-    path = ROOT + '/Materials/' + name
+    path = '/Game/Materials/Platforms/' + name
     # CDO references root the existing graph. Update it in place, never delete it.
     if unreal.EditorAssetLibrary.does_asset_exist(path):
         m = unreal.load_asset(path)
         if surface:
             upgrade_surface(m)
         return m
-    m = assets.create_asset(name, ROOT + '/Materials', unreal.Material, unreal.MaterialFactoryNew())
+    m = assets.create_asset(name, '/Game/Materials/Platforms', unreal.Material, unreal.MaterialFactoryNew())
     assert m
     edit.delete_all_material_expressions(m)
     m.set_editor_property('blend_mode', unreal.BlendMode.BLEND_OPAQUE)
@@ -248,9 +248,9 @@ if cls:
         volume.set_editor_property('settings', post)
         volume.set_folder_path('Preview Lighting')
         # Background plane uses a separate instance, not the platform's class settings.
-        backdrop_mat_path = ROOT + '/Materials/MI_PreviewBackdrop'
+        backdrop_mat_path = '/Game/Materials/Platforms/MI_PreviewBackdrop'
         backdrop_mat = unreal.load_asset(backdrop_mat_path) if unreal.EditorAssetLibrary.does_asset_exist(backdrop_mat_path) else assets.create_asset(
-            'MI_PreviewBackdrop', ROOT + '/Materials', unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+            'MI_PreviewBackdrop', '/Game/Materials/Platforms', unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
         edit.set_material_instance_parent(backdrop_mat, trim)
         edit.set_material_instance_vector_parameter_value(backdrop_mat, 'Color', unreal.LinearColor(.033, .0015, .10, 1))
         for name, value in [('Emission', .6), ('Roughness', .8), ('Metallic', 0)]:

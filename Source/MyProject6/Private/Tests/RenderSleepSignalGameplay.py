@@ -6,7 +6,7 @@ out=Path(unreal.Paths.project_saved_dir()).resolve()/'SleepSignal/Gameplay';out.
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem);editor=unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem);level=unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
 world=unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
 floor=actors.spawn_actor_from_class(unreal.StaticMeshActor,unreal.Vector(0,0,-10));floor.static_mesh_component.set_static_mesh(unreal.load_asset('/Engine/BasicShapes/Cube'));floor.set_actor_scale3d(unreal.Vector(100,100,.2))
-surface=floor.static_mesh_component.create_dynamic_material_instance(0,unreal.load_asset('/Game/LevelPrototyping/Materials/M_FlatCol'));surface.set_vector_parameter_value('Base Color',unreal.LinearColor(.075,.09,.12,1))
+surface=floor.static_mesh_component.create_dynamic_material_instance(0,unreal.load_asset('/Game/Materials/Prototyping/M_FlatCol'));surface.set_vector_parameter_value('Base Color',unreal.LinearColor(.075,.09,.12,1))
 npc=actors.spawn_actor_from_class(unreal.ChasingNPC,unreal.Vector(350,100,100));npc.set_editor_property('spawn_replacements_on_death',False);npc.set_editor_property('contact_energy_drain_per_second',0.);npc.set_editor_property('auto_possess_ai',unreal.AutoPossessAI.DISABLED)
 for rot,intensity in [(unreal.Rotator(pitch=-45,yaw=-30),12.),(unreal.Rotator(pitch=-25,yaw=150),5.)]:
     light=actors.spawn_actor_from_class(unreal.DirectionalLight,unreal.Vector(0,0,600),rot);light.light_component.set_editor_property('intensity',intensity)

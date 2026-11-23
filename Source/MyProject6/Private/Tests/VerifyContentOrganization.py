@@ -130,7 +130,7 @@ for row in before:
         check((asset.get_path_name() if asset else None)==(remap(row['mesh']) if row['mesh'] else None),'NPC mesh '+row['label'])
         check(transform_equal(mesh.get_relative_transform(),row['mesh_relative']),'NPC mesh placement '+row['label'])
 
-portal=unreal.load_asset('/Game/GameplayActors/NPCSpawner/BP_NPCSpawnPoint')
+portal=unreal.load_asset('/Game/NPC/Spawner/BP_NPCSpawnPoint')
 types=unreal.get_default_object(portal.generated_class()).get_editor_property('npc_types')
 for name,cls in types.items():
     check(cls is not None,'Portal class '+str(name))

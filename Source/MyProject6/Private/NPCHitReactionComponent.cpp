@@ -42,6 +42,27 @@ bool UNPCHitReactionComponent::IsUsingForwardBend() const
 	return Character && Cast<UNPCHitBendAnimInstance>(Character->GetMesh()->GetPostProcessInstance());
 }
 
+void UNPCHitReactionComponent::CaptureTransitionPose(float Duration)
+{
+	auto* Character = Cast<ACharacter>(GetOwner());
+	if (!Character || !IsUsingForwardBend() || !Character->GetMesh()->WasRecentlyRendered(.25f)) return;
+	TransitionPose = MakeShared<TArray<FTransform>, ESPMode::ThreadSafe>(Character->GetMesh()->GetBoneSpaceTransforms());
+	TransitionStart = GetWorld()->GetTimeSeconds();
+	TransitionDuration = Duration;
+}
+
+TSharedPtr<const TArray<FTransform>, ESPMode::ThreadSafe> UNPCHitReactionComponent::GetTransitionPose(float& OutWeight)
+{
+	OutWeight = 0.f;
+	if (TransitionPose)
+	{
+		const float Elapsed = GetWorld()->GetTimeSeconds() - TransitionStart;
+		OutWeight = 1.f - FMath::SmoothStep(0.f, TransitionDuration, Elapsed);
+		if (OutWeight <= 0.f) TransitionPose.Reset();
+	}
+	return TransitionPose;
+}
+
 FVector UNPCHitReactionComponent::ResolveImpactDirection(const ACharacter& Victim,
 	const FDamageEvent& Event, const AController* Instigator, const AActor* Causer)
 {

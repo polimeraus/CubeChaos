@@ -8,10 +8,10 @@ actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem);editor=unreal.ge
 world=unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
 def box(loc,scale,color):
  a=actors.spawn_actor_from_class(unreal.StaticMeshActor,unreal.Vector(*loc));a.static_mesh_component.set_static_mesh(unreal.load_asset('/Engine/BasicShapes/Cube'));a.set_actor_scale3d(unreal.Vector(*scale))
- m=a.static_mesh_component.create_dynamic_material_instance(0,unreal.load_asset('/Game/LevelPrototyping/Materials/M_FlatCol'));m.set_vector_parameter_value('Base Color',unreal.LinearColor(*color,1));return a
+ m=a.static_mesh_component.create_dynamic_material_instance(0,unreal.load_asset('/Game/Materials/Prototyping/M_FlatCol'));m.set_vector_parameter_value('Base Color',unreal.LinearColor(*color,1));return a
 box((0,0,-10),(60,60,.2),(.065,.085,.11));box((650,1100,300),(16,.2,6),(.17,.2,.26))
 npc=actors.spawn_actor_from_class(unreal.ChasingNPC,unreal.Vector(650,0,100));npc.set_editor_property('spawn_replacements_on_death',False);npc.set_editor_property('contact_energy_drain_per_second',0.);npc.set_editor_property('auto_possess_ai',unreal.AutoPossessAI.DISABLED)
-pickup=actors.spawn_actor_from_class(unreal.load_class(None,'/Game/GameplayActors/Pickups/ElectricTether/BP_ArcCagePickup.BP_ArcCagePickup_C'),unreal.Vector(250,-190,0));pickup.set_editor_property('auto_collect',False)
+pickup=actors.spawn_actor_from_class(unreal.load_class(None,'/Game/Weapons/ElectricTether/Pickups/BP_ArcCagePickup.BP_ArcCagePickup_C'),unreal.Vector(250,-190,0));pickup.set_editor_property('auto_collect',False)
 for rot,intensity in [(unreal.Rotator(pitch=-45,yaw=-30),8.),(unreal.Rotator(pitch=-25,yaw=150),3.)]:
  light=actors.spawn_actor_from_class(unreal.DirectionalLight,unreal.Vector(0,0,600),rot);light.light_component.set_editor_property('intensity',intensity)
 sky=actors.spawn_actor_from_class(unreal.SkyLight,unreal.Vector(0,0,500));sky.light_component.set_editor_property('source_type',unreal.SkyLightSourceType.SLS_SPECIFIED_CUBEMAP);sky.light_component.set_editor_property('cubemap',unreal.load_asset('/Engine/MapTemplates/Sky/DaylightAmbientCubemap'));sky.light_component.set_editor_property('intensity',1.5)

@@ -167,7 +167,7 @@ bool FBombSphereTest::RunTest(const FString&)
     // native behavior reaches future spawns without changing per-instance data.
     const FVector CharacterOrigin(24000,0,5000);
     auto* PlayerClass = LoadClass<AMyProject6Character>(nullptr,
-        TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+        TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
     auto* NPCClass = LoadClass<ACharacter>(nullptr, TEXT("/Game/NPC/Whisper/BP_Whisper_Follower.BP_Whisper_Follower_C"));
     if (!TestNotNull(TEXT("Saved player class loads"), PlayerClass) || !TestNotNull(TEXT("Saved NPC class loads"), NPCClass)) return false;
     auto* Player = World->SpawnActor<AMyProject6Character>(PlayerClass, CharacterOrigin+FVector(0,0,200), FRotator::ZeroRotator);

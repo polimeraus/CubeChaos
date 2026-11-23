@@ -263,9 +263,9 @@ AChunkedDestructibleFloor::AChunkedDestructibleFloor()
 	}
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> PrimaryMaterialFinder(
-		TEXT("/Game/LevelPrototyping/Materials/MI_PrototypeGrid_Gray.MI_PrototypeGrid_Gray"));
+		TEXT("/Game/Materials/Prototyping/MI_PrototypeGrid_Gray.MI_PrototypeGrid_Gray"));
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> SecondaryMaterialFinder(
-		TEXT("/Game/LevelPrototyping/Materials/MI_PrototypeGrid_TopDark.MI_PrototypeGrid_TopDark"));
+		TEXT("/Game/Materials/Prototyping/MI_PrototypeGrid_TopDark.MI_PrototypeGrid_TopDark"));
 	if (PrimaryMaterialFinder.Succeeded())
 	{
 		FloorMaterials.Add(PrimaryMaterialFinder.Object);
@@ -276,7 +276,7 @@ AChunkedDestructibleFloor::AChunkedDestructibleFloor()
 	}
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> FlashMaterialFinder(
-		TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+		TEXT("/Game/Materials/Effects/M_SimpleGlow.M_SimpleGlow"));
 	if (FlashMaterialFinder.Succeeded())
 	{
 		FlashMaterial = FlashMaterialFinder.Object;
@@ -284,7 +284,7 @@ AChunkedDestructibleFloor::AChunkedDestructibleFloor()
 	GlowWaveMaterial = FlashMaterial;
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> CrispAnimationMaterialFinder(
-		TEXT("/Game/LevelPrototyping/Materials/M_FlatCol.M_FlatCol"));
+		TEXT("/Game/Materials/Prototyping/M_FlatCol.M_FlatCol"));
 	if (CrispAnimationMaterialFinder.Succeeded())
 	{
 		CrispSpiralMaterial = CrispAnimationMaterialFinder.Object;
@@ -2713,7 +2713,7 @@ void AChunkedDestructibleFloor::RefreshMusicReactionMaterial()
 	{
 		ParentMaterial = LoadObject<UMaterialInterface>(
 			nullptr,
-			TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+			TEXT("/Game/Materials/Effects/M_SimpleGlow.M_SimpleGlow"));
 	}
 	if (!ParentMaterial)
 	{
@@ -2920,7 +2920,7 @@ void AChunkedDestructibleFloor::RefreshFlashMaterial()
 		{
 			CompatibleFlashMaterial = LoadObject<UMaterialInterface>(
 				nullptr,
-				TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+				TEXT("/Game/Materials/Effects/M_SimpleGlow.M_SimpleGlow"));
 		}
 		if (CompatibleFlashMaterial.IsValid() &&
 			CompatibleFlashMaterial->GetUsageByFlag(MATUSAGE_InstancedStaticMeshes))

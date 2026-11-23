@@ -3,12 +3,12 @@ import json
 from pathlib import Path
 import unreal
 
-path = '/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter'
+path = '/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter'
 blueprint = unreal.load_asset(path)
 player = unreal.get_default_object(unreal.load_class(None, path + '.BP_FirstPersonCharacter_C'))
 movement = player.get_component_by_class(unreal.CharacterMovementComponent)
-movement.set_editor_property('max_walk_speed', 900.0)
-movement.set_editor_property('jump_z_velocity', 600.0)
+movement.set_editor_property('max_walk_speed', 1000.0)
+movement.set_editor_property('jump_z_velocity', 660.0)
 unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
 assert unreal.EditorAssetLibrary.save_loaded_asset(blueprint, only_if_is_dirty=False)
 
@@ -20,7 +20,7 @@ assert actor, 'Player Blueprint could not be spawned'
 try:
     actual = actor.get_component_by_class(unreal.CharacterMovementComponent)
     values = {name: actual.get_editor_property(name) for name in ['max_walk_speed', 'jump_z_velocity']}
-    assert values == {'max_walk_speed': 900.0, 'jump_z_velocity': 600.0}, values
+    assert values == {'max_walk_speed': 1000.0, 'jump_z_velocity': 660.0}, values
     output = Path(unreal.Paths.project_saved_dir(), 'Analysis')
     output.mkdir(parents=True, exist_ok=True)
     (output / 'PlayerMovementAfter.json').write_text(json.dumps(values, indent=2))

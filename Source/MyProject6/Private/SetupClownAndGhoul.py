@@ -174,8 +174,8 @@ assert E.get_bone_pose(end, 'head', unreal.AnimPoseSpaces.WORLD).translation.z <
 assert E.get_bone_pose(end, 'pelvis', unreal.AnimPoseSpaces.WORLD).translation.z < 30
 
 # Add a selectable spawn alias without changing the current default or existing aliases.
-spawn_bp = require('/Game/GameplayActors/NPCSpawner/BP_NPCSpawnPoint')
-backup('/Game/GameplayActors/NPCSpawner/BP_NPCSpawnPoint')
+spawn_bp = require('/Game/NPC/Spawner/BP_NPCSpawnPoint')
+backup('/Game/NPC/Spawner/BP_NPCSpawnPoint')
 spawn_defaults = unreal.get_default_object(spawn_bp.generated_class())
 types = dict(spawn_defaults.get_editor_property('npc_types'))
 types['ClownMonster'] = bp.generated_class()

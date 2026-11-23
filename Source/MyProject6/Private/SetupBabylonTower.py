@@ -127,9 +127,9 @@ if changed:
 
 # Quiet sand stage and a self-contained sky keep the asset readable even when
 # the project's atmospheric rendering is disabled. These belong to the preview only.
-stage=load(folder+'/Materials/M_BabylonPreviewSand')
+stage=load('/Game/Materials/Prototyping/M_BabylonPreviewSand')
 if not stage:
-    stage=assets.create_asset('M_BabylonPreviewSand',folder+'/Materials',unreal.Material,unreal.MaterialFactoryNew())
+    stage=assets.create_asset('M_BabylonPreviewSand','/Game/Materials/Prototyping',unreal.Material,unreal.MaterialFactoryNew())
     color=edit.create_material_expression(stage,unreal.MaterialExpressionConstant3Vector)
     color.set_editor_property('constant',unreal.LinearColor(.30,.25,.18,1))
     rough=edit.create_material_expression(stage,unreal.MaterialExpressionConstant)
@@ -138,9 +138,9 @@ if not stage:
     edit.connect_material_property(rough,'',unreal.MaterialProperty.MP_ROUGHNESS)
     edit.recompile_material(stage)
     assert unreal.EditorAssetLibrary.save_loaded_asset(stage,False)
-sky_material=load(folder+'/Materials/M_BabylonPreviewSky')
+sky_material=load('/Game/Materials/Prototyping/M_BabylonPreviewSky')
 if not sky_material:
-    sky_material=assets.create_asset('M_BabylonPreviewSky',folder+'/Materials',unreal.Material,unreal.MaterialFactoryNew())
+    sky_material=assets.create_asset('M_BabylonPreviewSky','/Game/Materials/Prototyping',unreal.Material,unreal.MaterialFactoryNew())
     sky_material.set_editor_property('shading_model',unreal.MaterialShadingModel.MSM_UNLIT)
     sky_material.set_editor_property('two_sided',True)
     sky_material.set_editor_property('is_sky',True)

@@ -15,7 +15,7 @@ settings=unreal.SimpleHouseFloorWindowSettings()
 for key,value in {'has_windows':True,'window_count':1,'window_width':120,'window_height':140,
     'window_border_style':unreal.SimpleHouseWindowBorderStyle.PAINT_SPLATTER,
     'paint_spread':55,'paint_splatter_amount':85,'paint_splatter_seed':1337}.items():settings.set_editor_property(key,value)
-parent=unreal.load_asset('/Game/LevelPrototyping/Materials/M_FlatCol')
+parent=unreal.load_asset('/Game/Materials/Prototyping/M_FlatCol')
 wall=house.front_wall_component.create_dynamic_material_instance(0,parent)
 wall.set_vector_parameter_value('Base Color',unreal.LinearColor(.62,.59,.49,1))
 wall.set_scalar_parameter_value('Roughness',.9)

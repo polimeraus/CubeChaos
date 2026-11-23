@@ -21,7 +21,7 @@ for index in range(6):
 floor=actors.spawn_actor_from_class(unreal.StaticMeshActor,unreal.Vector(0,0,-20))
 floor.static_mesh_component.set_static_mesh(unreal.load_asset('/Engine/BasicShapes/Cube'))
 floor.set_actor_scale3d(unreal.Vector(40,40,.4))
-surface=floor.static_mesh_component.create_dynamic_material_instance(0,unreal.load_asset('/Game/LevelPrototyping/Materials/M_FlatCol'))
+surface=floor.static_mesh_component.create_dynamic_material_instance(0,unreal.load_asset('/Game/Materials/Prototyping/M_FlatCol'))
 surface.set_vector_parameter_value('Base Color',unreal.LinearColor(.018,.022,.035,1))
 lamp=actors.spawn_actor_from_class(unreal.DirectionalLight,unreal.Vector(0,0,1000),unreal.Rotator(-55,-30,0))
 lamp.light_component.set_editor_property('intensity',2.)

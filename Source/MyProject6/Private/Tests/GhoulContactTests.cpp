@@ -43,7 +43,7 @@ bool FGhoulContactTest::RunTest(const FString& Parameters)
 	Shape->RegisterComponent();
 	Floor->SetActorLocation(FVector(0, 0, -50));
 	UClass* PlayerClass = LoadClass<AMyProject6Character>(nullptr,
-		TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+		TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
 	FActorSpawnParameters Spawn;
 	Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	AMyProject6Character* Player = World->SpawnActor<AMyProject6Character>(PlayerClass, FVector(600, 0, 100), FRotator::ZeroRotator, Spawn);

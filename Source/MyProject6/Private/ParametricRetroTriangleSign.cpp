@@ -125,7 +125,7 @@ AParametricRetroTriangleSign::AParametricRetroTriangleSign()
 	ConfigureSafeTextRenderer(SubtitleShadowComponent);
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> GlowMaterialFinder(
-		TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+		TEXT("/Game/Materials/Effects/M_SimpleGlow.M_SimpleGlow"));
 	if (GlowMaterialFinder.Succeeded())
 	{
 		MaterialAssignments.PanelMaterial = GlowMaterialFinder.Object;
@@ -502,7 +502,7 @@ UMaterialInstanceDynamic* AParametricRetroTriangleSign::CreateTintedMaterial(
 	{
 		ParentMaterial = LoadObject<UMaterialInterface>(
 			nullptr,
-			TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+			TEXT("/Game/Materials/Effects/M_SimpleGlow.M_SimpleGlow"));
 	}
 	if (!ParentMaterial)
 	{

@@ -249,21 +249,37 @@ bool FPlayerMovementBoostTest::RunTest(const FString& Parameters)
 {
 	FHitReactionWorld Scene;
 	UClass* Class = LoadClass<AMyProject6Character>(nullptr,
-		TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+		TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
 	if (!TestNotNull(TEXT("Actual player Blueprint loads"), Class)) { return false; }
-	ACharacter* Player = Scene.Spawn(Class);
+	auto* Player = CastChecked<AMyProject6Character>(Scene.Spawn(Class));
 	APlayerController* Controller = Scene.World->SpawnActor<APlayerController>();
 	Controller->SetAsLocalPlayerController();
 	Controller->Possess(Player);
 	UCharacterMovementComponent* Movement = Player->GetCharacterMovement();
-	TestEqual(TEXT("Player run speed increases from 600 to 900"), Movement->MaxWalkSpeed, 900.0f);
-	TestEqual(TEXT("Player jump impulse increases from 420 to 600"), Movement->JumpZVelocity, 600.0f);
-	const double GroundZ = Player->GetActorLocation().Z;
-	Player->Jump();
-	Scene.Advance(0.45f);
-	AddInfo(FString::Printf(TEXT("Player jump: ground Z %.1f, current Z %.1f, velocity %s, movement %d"),
-		GroundZ, Player->GetActorLocation().Z, *Movement->Velocity.ToString(), int32(Movement->MovementMode)));
-	TestTrue(TEXT("Actual jump rises over 1.5 metres"), Player->GetActorLocation().Z > GroundZ + 150);
+	for (bool ThirdPerson : {false, true})
+	{
+		if (ThirdPerson) Player->TogglePerspective();
+		TestEqual(TEXT("Requested camera mode is active"), Player->IsThirdPerson(), ThirdPerson);
+		TestEqual(TEXT("Player jump impulse"), Movement->JumpZVelocity, 660.0f);
+		for (int32 Frame = 0; Frame < 60; ++Frame)
+		{
+			Player->AddMovementInput(FVector::ForwardVector);
+			Scene.Advance(1.f / 60.f);
+		}
+		TestTrue(TEXT("Holding forward reaches the new run speed"), FMath::IsNearlyEqual(Movement->Velocity.Size2D(), 1000., 1.));
+		const double GroundZ = Player->GetActorLocation().Z;
+		double PeakZ = GroundZ;
+		Player->Jump();
+		for (int32 Frame = 0; Frame < 100; ++Frame)
+		{
+			Scene.Advance(1.f / 60.f);
+			PeakZ = FMath::Max(PeakZ, Player->GetActorLocation().Z);
+		}
+		Player->StopJumping();
+		AddInfo(FString::Printf(TEXT("%s jump height %.1f cm"), ThirdPerson ? TEXT("Third-person") : TEXT("First-person"), PeakZ - GroundZ));
+		TestTrue(TEXT("Actual jump reaches 2.2 metres"), PeakZ > GroundZ + 218 && PeakZ < GroundZ + 226);
+		TestTrue(TEXT("Player landed"), Movement->IsMovingOnGround());
+	}
 	return true;
 }
 
@@ -342,7 +358,7 @@ bool FClownAggressiveApproachTest::RunTest(const FString& Parameters)
 		TEXT("/Game/NPC/ClownMonster/BP_ClownMonster_NPC.BP_ClownMonster_NPC_C"));
 	if (!TestNotNull(TEXT("Clown class loads"), Class)) return false;
 	UClass* PlayerClass = LoadClass<AMyProject6Character>(nullptr,
-		TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+		TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
 	if (!TestNotNull(TEXT("Playable character class loads"), PlayerClass)) return false;
 	for (int32 FPS : {30, 60, 120})
 	{

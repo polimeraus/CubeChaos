@@ -12,12 +12,12 @@ mesh=unreal.load_asset(base+'/Meshes/SM_PurpleRailgun');assert mesh
 assert mesh.get_bounds().origin.y>15, 'Barrel must face +Y in grip space'
 assert mesh.find_socket('Muzzle') and mesh.find_socket('SupportHand')
 animation=unreal.load_asset(base+'/Animations/A_PurpleRailgunHold');assert animation
-player_class=unreal.load_class(None,'/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
+player_class=unreal.load_class(None,'/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
 cdo=unreal.get_default_object(player_class);visuals=cdo.get_editor_property('purple_railgun_visuals')
 assert visuals.color.r>.7 and visuals.color.g<.05 and visuals.color.b<.04
 assert not visuals.smooth_spiral and visuals.spiral_color.r>.9 and visuals.spiral_color.b>.5
 assert cdo.railgun_visuals.color.b>.9 and cdo.railgun_visuals.color.r<.05
-pickup_class=unreal.load_class(None,'/Game/GameplayActors/Pickups/PurpleRailgun/BP_PurpleRailgunPickup.BP_PurpleRailgunPickup_C')
+pickup_class=unreal.load_class(None,'/Game/Weapons/PurpleRailgun/Pickups/BP_PurpleRailgunPickup.BP_PurpleRailgunPickup_C')
 pd=unreal.get_default_object(pickup_class)
 assert pd.weapon_reward==unreal.PickupWeapon.PURPLE_RAILGUN and pd.icon==unreal.PickupMotif.PURPLE_RAILGUN
 assert level.load_level('/Game/FirstPerson/Lvl_FirstPerson')
@@ -67,7 +67,7 @@ sky.light_component.set_editor_property('intensity',.45 if dark_preview else 1.5
 cube=unreal.load_asset('/Engine/BasicShapes/Cube')
 for position,scale in [(unreal.Vector(900,0,-5),unreal.Vector(35,30,.1)),(unreal.Vector(1700,0,250),unreal.Vector(.3,20,5))]:
     block=actors.spawn_actor_from_class(unreal.StaticMeshActor,position);block.static_mesh_component.set_static_mesh(cube);block.set_actor_scale3d(scale)
-    mat=block.static_mesh_component.create_dynamic_material_instance(0,unreal.load_asset('/Game/LevelPrototyping/Materials/M_FlatCol'))
+    mat=block.static_mesh_component.create_dynamic_material_instance(0,unreal.load_asset('/Game/Materials/Prototyping/M_FlatCol'))
     mat.set_vector_parameter_value('Base Color',unreal.LinearColor(.045,.05,.06,1))
 capture_actor=actors.spawn_actor_from_class(unreal.SceneCapture2D,camera.get_world_location(),camera.get_world_rotation())
 capture=capture_actor.get_component_by_class(unreal.SceneCaptureComponent2D)

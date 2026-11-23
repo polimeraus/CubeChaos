@@ -43,8 +43,8 @@ bool FFuseBombTest::RunTest(const FString&)
         auto* A=World->SpawnActor<AActor>();auto* B=NewObject<UBoxComponent>(A);A->SetRootComponent(B);
         B->SetBoxExtent(Extent);B->SetCollisionProfileName(TEXT("BlockAll"));B->RegisterComponent();A->SetActorLocation(Location);return A;
     };
-    auto* PlayerClass=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
-    auto* PickupClass=LoadClass<AParametricPickup>(nullptr,TEXT("/Game/GameplayActors/Pickups/FuseBomb/BP_BombPickup.BP_BombPickup_C"));
+    auto* PlayerClass=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+    auto* PickupClass=LoadClass<AParametricPickup>(nullptr,TEXT("/Game/Weapons/FuseBomb/Pickups/BP_BombPickup.BP_BombPickup_C"));
     if(!TestNotNull(TEXT("Saved player class"),PlayerClass)||!TestNotNull(TEXT("Saved bomb pickup class"),PickupClass))return false;
     auto* Player=World->SpawnActor<AMyProject6Character>(PlayerClass,FVector(0,0,500),FRotator::ZeroRotator);
     Player->GetCharacterMovement()->DisableMovement();

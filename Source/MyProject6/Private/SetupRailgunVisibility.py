@@ -7,7 +7,7 @@ import unreal
 root = Path(unreal.Paths.project_dir())
 out = root / 'Saved/Railgun/Visibility'
 out.mkdir(parents=True, exist_ok=True)
-source = root / 'Content/FirstPerson/Blueprints/BP_FirstPersonCharacter.uasset'
+source = root / 'Content/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.uasset'
 backup = out / 'BP_FirstPersonCharacter.before.uasset'
 if not backup.exists():
     shutil.copy2(source, backup)
@@ -25,7 +25,7 @@ def update_visuals(obj, property_name):
     obj.set_editor_property(property_name, visuals)
     return True
 
-bp = unreal.load_asset('/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter')
+bp = unreal.load_asset('/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter')
 assert bp
 cdo = unreal.get_default_object(bp.generated_class())
 update_visuals(cdo, 'railgun_visuals')

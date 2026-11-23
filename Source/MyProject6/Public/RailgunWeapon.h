@@ -26,6 +26,7 @@ public:
     virtual void Tick(float DeltaSeconds) override;
     UFUNCTION(BlueprintCallable, Category="Railgun")
     void Equip(AMyProject6Character* Character);
+    void UpdatePerspective();
 
     UFUNCTION(BlueprintCallable, Category="Railgun")
     void ActivateRailgun();
@@ -103,12 +104,6 @@ public:
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="BFG")
     int32 BFGShotsFired = 0;
 
-    /** Weapon and hands recoil; does not rotate the camera or change the aim ray. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Feedback", meta=(ClampMin="0", ClampMax="3"))
-    float BFGRecoilStrength = 3.f;
-    /** Short firing shake. Zero disables camera movement. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Feedback", meta=(ClampMin="0", ClampMax="3"))
-    float BFGCameraShakeScale = 1.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Feedback", meta=(ClampMin="0", Units="lm"))
     float BFGMuzzleFlashIntensity = 18000.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="BFG|Feedback", meta=(ClampMin="1", Units="cm"))

@@ -52,8 +52,8 @@ namespace LobbyDestructable
 
 AParametricLobbyPlatformDestructable::AParametricLobbyPlatformDestructable()
 {
-    static ConstructorHelpers::FObjectFinder<UMaterialInterface> Surface(TEXT("/Game/GameplayActors/LobbyPlatform/Materials/M_LobbySurface.M_LobbySurface"));
-    static ConstructorHelpers::FObjectFinder<UMaterialInterface> Trim(TEXT("/Game/GameplayActors/LobbyPlatform/Materials/M_LobbyTrim.M_LobbyTrim"));
+    static ConstructorHelpers::FObjectFinder<UMaterialInterface> Surface(TEXT("/Game/Materials/Platforms/M_LobbySurface.M_LobbySurface"));
+    static ConstructorHelpers::FObjectFinder<UMaterialInterface> Trim(TEXT("/Game/Materials/Platforms/M_LobbyTrim.M_LobbyTrim"));
     SurfaceMaterial=Surface.Object; TrimMaterial=Trim.Object;
     ChunkSideLength=8;
     DefaultCellHealth=25;

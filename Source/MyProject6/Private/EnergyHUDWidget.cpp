@@ -1,22 +1,63 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "EnergyHUDWidget.h"
+#include "MyProject6Character.h"
 #include "MyProject6PlayerController.h"
 #include "SWeaponHUD.h"
 #include "SPlayerDamageFeedback.h"
 
 #include "Brushes/SlateRoundedBoxBrush.h"
+#include "Rendering/DrawElements.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScaleBox.h"
+#include "Widgets/Layout/SWidgetSwitcher.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/SOverlay.h"
 #include "Widgets/Layout/SSeparator.h"
 #include "Widgets/Notifications/SProgressBar.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
+#include "Widgets/SLeafWidget.h"
+
+namespace
+{
+	class SThirdPersonCrosshair : public SLeafWidget
+	{
+	public:
+		SLATE_BEGIN_ARGS(SThirdPersonCrosshair) {}
+		SLATE_END_ARGS()
+
+		void Construct(const FArguments&) {}
+		virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D(28, 28); }
+
+		virtual int32 OnPaint(const FPaintArgs&, const FGeometry& Geometry, const FSlateRect&,
+			FSlateWindowElementList& Out, int32 Layer, const FWidgetStyle& Style, bool) const override
+		{
+			const FVector2f Center = FVector2f(Geometry.GetLocalSize()) * 0.5f;
+			const auto* Brush = FCoreStyle::Get().GetBrush(TEXT("WhiteBrush"));
+			const FLinearColor Tint = Style.GetColorAndOpacityTint();
+			auto Mark = [&](FVector2f Offset, FVector2f Size)
+			{
+				const FVector2f Corner = Center + Offset - Size * 0.5f;
+				const FVector2f Border(1.f, 1.f);
+				FSlateDrawElement::MakeBox(Out, Layer,
+					Geometry.ToPaintGeometry(Size + 2.f * Border, FSlateLayoutTransform(Corner - Border)),
+					Brush, ESlateDrawEffect::None, Tint * FLinearColor(0.015f, 0.02f, 0.025f, 0.9f));
+				FSlateDrawElement::MakeBox(Out, Layer + 1, Geometry.ToPaintGeometry(Size, FSlateLayoutTransform(Corner)),
+					Brush, ESlateDrawEffect::None, Tint);
+			};
+			Mark({-9, 0}, {8, 2});
+			Mark({ 9, 0}, {8, 2});
+			Mark({0, -9}, {2, 8});
+			Mark({0,  9}, {2, 8});
+			Mark({0,  0}, {2, 2});
+			return Layer + 1;
+		}
+	};
+}
 
 UEnergyHUDWidget::UEnergyHUDWidget(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -50,16 +91,29 @@ TSharedRef<SWidget> UEnergyHUDWidget::RebuildWidget()
 
 		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
 		[
-			SNew(STextBlock)
-			.Text(FText::FromString(TEXT("+")))
-			.Font(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 16))
-			.ColorAndOpacity_Lambda([this]()
+			SNew(SWidgetSwitcher)
+			.Visibility_Lambda([this]() { return bGameOverVisible ? EVisibility::Collapsed : EVisibility::HitTestInvisible; })
+			.WidgetIndex_Lambda([this]()
 			{
 				const auto* Pawn = Cast<AMyProject6Character>(GetOwningPlayerPawn());
-				return FSlateColor(Pawn && Pawn->GetActiveWeapon() == EPlayerWeapon::PurpleRailgun
-					? FLinearColor(.85f, .3f, 1.f, .95f) : FLinearColor(.65f, .95f, 1.f, .85f));
+				return Pawn && Pawn->IsThirdPerson() ? 1 : 0;
 			})
-			.Visibility(EVisibility::HitTestInvisible)
+			+ SWidgetSwitcher::Slot()
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(TEXT("+")))
+				.Font(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 16))
+				.ColorAndOpacity_Lambda([this]()
+				{
+					const auto* Pawn = Cast<AMyProject6Character>(GetOwningPlayerPawn());
+					return FSlateColor(Pawn && Pawn->GetActiveWeapon() == EPlayerWeapon::PurpleRailgun
+						? FLinearColor(.85f, .3f, 1.f, .95f) : FLinearColor(.65f, .95f, 1.f, .85f));
+				})
+			]
+			+ SWidgetSwitcher::Slot()
+			[
+				SNew(SThirdPersonCrosshair)
+			]
 		]
 
 		+ SOverlay::Slot()

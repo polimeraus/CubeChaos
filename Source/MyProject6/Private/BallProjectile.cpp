@@ -45,7 +45,7 @@ ABallProjectile::ABallProjectile()
 	}
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> BasicProjectileMaterial(
-		TEXT("/Game/LevelPrototyping/Materials/M_FlatCol.M_FlatCol"));
+		TEXT("/Game/Materials/Prototyping/M_FlatCol.M_FlatCol"));
 	if (BasicProjectileMaterial.Succeeded())
 	{
 		ProjectileMaterial = BasicProjectileMaterial.Object;
@@ -78,7 +78,7 @@ void ABallProjectile::BeginPlay()
 	{
 		ParentMaterial = LoadObject<UMaterialInterface>(
 			nullptr,
-			TEXT("/Game/LevelPrototyping/Materials/M_FlatCol.M_FlatCol"));
+			TEXT("/Game/Materials/Prototyping/M_FlatCol.M_FlatCol"));
 	}
 	if (!ParentMaterial)
 	{

@@ -8,7 +8,7 @@ import unreal
 
 
 def main():
-    package = "/Game/GameplayActors/NPCSpawner"
+    package = "/Game/NPC/Spawner"
     name = "BP_NPCSpawnPoint"
     path = f"{package}/{name}"
     existing = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None

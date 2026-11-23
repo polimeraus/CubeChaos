@@ -1,7 +1,7 @@
 from pathlib import Path
 import unreal,json
 out=Path(unreal.Paths.project_saved_dir())/'RailTowerUpgrade';out.mkdir(parents=True,exist_ok=True)
-player=unreal.get_default_object(unreal.load_class(None,'/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C'))
+player=unreal.get_default_object(unreal.load_class(None,'/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C'))
 capsule=player.get_component_by_class(unreal.CapsuleComponent)
 bp=unreal.load_asset('/Game/Structures/Destructible/BabylonTower/BP_ChunkedDestructibleBabylonTower')
 keys=['entrance_width','entrance_height','window_width','window_height','tier_window_widths','tier_window_counts']

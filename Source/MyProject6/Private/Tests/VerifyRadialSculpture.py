@@ -152,7 +152,7 @@ def tick(delta):
             marker.static_mesh_component.set_static_mesh(unreal.load_asset('/Engine/BasicShapes/Cube'))
             marker.set_actor_scale3d(unreal.Vector(.25,.25,.25))
             marker.static_mesh_component.set_collision_profile_name('BlockAll')
-            surface = marker.static_mesh_component.create_dynamic_material_instance(0, unreal.load_asset('/Game/LevelPrototyping/Materials/M_FlatCol'))
+            surface = marker.static_mesh_component.create_dynamic_material_instance(0, unreal.load_asset('/Game/Materials/Prototyping/M_FlatCol'))
             surface.set_vector_parameter_value('Base Color', unreal.LinearColor(.025,.45,1.,1.))
             assert sculpture.try_get_sphere_spawn_transform(25.) is None
             state['contents'] = marker

@@ -8,10 +8,8 @@ import unreal
 out = Path(unreal.Paths.project_saved_dir()).resolve() / 'BFGFeedback'
 with (out / 'Samples.csv').open(encoding='utf-8-sig') as stream:
     samples = list(csv.DictReader(stream))
-frames = [('Idle', '-1.000'), ('Flash', '0.016'), ('Recoil', '0.048'), ('Recovered', '0.240')]
+frames = [('Idle', '-1.000'), ('Flash', '0.016'), ('FlashDecay', '0.048'), ('Ready', '0.240')]
 defaults = unreal.get_default_object(unreal.RailgunWeapon)
-assert defaults.bfg_recoil_strength == 3.
-assert defaults.bfg_camera_shake_scale == 1.
 assert defaults.bfg_sculpture_radius_multiplier == 1.5
 assert defaults.bfg_sculpture_damage_multiplier == 1.5
 assert defaults.bfg_muzzle_flash_intensity == 18000
@@ -20,7 +18,7 @@ assert abs(defaults.bfg_muzzle_flash_duration - .12) < .001
 assert defaults.bfg_muzzle_flash_color.g > .99
 actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 world = unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
-player_class = unreal.load_class(None, '/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
+player_class = unreal.load_class(None, '/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
 player = actors.spawn_actor_from_class(player_class, unreal.Vector(0, 0, 100))
 camera = player.get_component_by_class(unreal.CameraComponent)
 camera.detach_from_component(unreal.DetachmentRule.KEEP_WORLD, unreal.DetachmentRule.KEEP_WORLD, unreal.DetachmentRule.KEEP_WORLD)
@@ -45,7 +43,7 @@ for pos, scale in [(unreal.Vector(350, 0, -5), unreal.Vector(12, 10, .1)),
     block = actors.spawn_actor_from_class(unreal.StaticMeshActor, pos)
     block.static_mesh_component.set_static_mesh(cube)
     block.set_actor_scale3d(scale)
-    surface = block.static_mesh_component.create_dynamic_material_instance(0, unreal.load_asset('/Game/LevelPrototyping/Materials/M_FlatCol'))
+    surface = block.static_mesh_component.create_dynamic_material_instance(0, unreal.load_asset('/Game/Materials/Prototyping/M_FlatCol'))
     surface.set_vector_parameter_value('Base Color', unreal.LinearColor(.22, .24, .27, 1))
 capture_actor = actors.spawn_actor_from_class(unreal.SceneCapture2D, camera.get_world_location(), camera.get_world_rotation())
 capture = capture_actor.get_component_by_class(unreal.SceneCaptureComponent2D)
@@ -79,8 +77,6 @@ def tick(delta):
             if state['index'] == len(frames):
                 (out / 'Verification.json').write_text(json.dumps({
                     'fresh_process_defaults_verified': True,
-                    'recoil_strength': defaults.bfg_recoil_strength,
-                    'camera_shake_scale': defaults.bfg_camera_shake_scale,
                     'sculpture_radius_multiplier': defaults.bfg_sculpture_radius_multiplier,
                     'sculpture_damage_multiplier': defaults.bfg_sculpture_damage_multiplier,
                     'flash_lumens': defaults.bfg_muzzle_flash_intensity,

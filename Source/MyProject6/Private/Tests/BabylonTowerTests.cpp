@@ -59,7 +59,7 @@ bool FBabylonTowerTest::RunTest(const FString& Parameters)
         if (!TestTrue(TEXT("Convex containment includes fragment centroid"),P.Contains(Center,.001))) return false;
     }
     TestFalse(TEXT("Base door is open"),Trace({0,-1950,100},{0,-1700,100}));
-    const auto* PlayerClass=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+    const auto* PlayerClass=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
     if (!TestNotNull(TEXT("Saved player class loads for doorway clearance"),PlayerClass)) return false;
     const auto* Capsule=PlayerClass->GetDefaultObject<AMyProject6Character>()->GetCapsuleComponent();
     const FCollisionShape StandingPlayer = FCollisionShape::MakeCapsule(Capsule->GetUnscaledCapsuleRadius(),Capsule->GetUnscaledCapsuleHalfHeight());

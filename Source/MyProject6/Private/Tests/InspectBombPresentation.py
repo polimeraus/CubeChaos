@@ -10,7 +10,7 @@ for name in names:
     task.automated=True;task.prompt=False;task.replace_identical=True;task.exporter=unreal.TextureExporterPNG()
     report['textures'].append({'path':tex.get_path_name(),'exported':unreal.Exporter.run_asset_export_task(task),'srgb':tex.srgb,'compression':str(tex.compression_settings)})
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem);unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
-player=actors.spawn_actor_from_class(unreal.load_class(None,'/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C'),unreal.Vector())
+player=actors.spawn_actor_from_class(unreal.load_class(None,'/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C'),unreal.Vector())
 gun=actors.spawn_actor_from_class(unreal.RailgunWeapon,unreal.Vector());gun.equip(player)
 frame=gun.arms.get_relative_transform()
 report['arms_frame']=str(frame)

@@ -117,6 +117,7 @@ float AWhisperFollower::TakeDamage(float DamageAmount, const FDamageEvent& Damag
 		{
 			GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 			GetMesh()->bEnableUpdateRateOptimizations = false;
+			HitReaction->CaptureTransitionPose(.14f);
 			GetMesh()->PlayAnimation(DeathAnimation, false);
 			const float RateScale = DeathAnimation->RateScale;
 			GetMesh()->SetPlayRate(FMath::IsNearlyZero(RateScale) ? 1.0f : 1.0f / RateScale);
@@ -197,13 +198,19 @@ void AWhisperFollower::Tick(float DeltaSeconds)
 			if (GetController()) { GetController()->StopMovement(); }
 			GetCharacterMovement()->StopMovementImmediately();
 			ConsumeMovementInputVector();
+			HitReaction->CaptureTransitionPose(.10f);
 			GetMesh()->PlayAnimation(ContactAttackAnimation, true);
 			GetMesh()->SetPlayRate(FMath::Clamp(ContactAttackPlayRate, 0.1f, 4.0f));
 		}
 		if (bContactAttackActive)
 		{
 			const FVector Direction = Player->GetActorLocation() - GetActorLocation();
-			SetActorRotation(FRotator(0.0f, Direction.Rotation().Yaw, 0.0f));
+			if (Direction.SizeSquared2D() > 1.f)
+			{
+				const float Yaw = FMath::FixedTurn(GetActorRotation().Yaw, Direction.Rotation().Yaw,
+					GetCharacterMovement()->RotationRate.Yaw * DeltaSeconds);
+				SetActorRotation(FRotator(0.f, Yaw, 0.f));
+			}
 			return;
 		}
 	}
@@ -245,6 +252,7 @@ void AWhisperFollower::StopContactInteraction()
 		bContactAttackActive = false;
 		if (!bIsDead && LocomotionBlendSpace)
 		{
+			HitReaction->CaptureTransitionPose(.16f);
 			GetMesh()->PlayAnimation(LocomotionBlendSpace, true);
 			GetMesh()->SetPlayRate(1.0f);
 		}

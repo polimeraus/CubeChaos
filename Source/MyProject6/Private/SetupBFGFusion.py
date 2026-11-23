@@ -5,7 +5,7 @@ root=Path(unreal.Paths.project_dir()).resolve()
 base='/Game/Weapons/BFG/Fusion'
 out=root/'Saved/BFGRework';out.mkdir(parents=True,exist_ok=True)
 assets=unreal.AssetToolsHelpers.get_asset_tools();edit=unreal.MaterialEditingLibrary
-surface=unreal.load_asset('/Game/Weapons/Railgun/Materials/M_RailMetal');assert surface
+surface=unreal.load_asset('/Game/Materials/Weapons/M_RailMetal');assert surface
 palette={'FusionSteel':((.15,.20,.21),.78,.32,0),'FusionBronze':((.40,.235,.085),.72,.36,0),
          'FusionDark':((.018,.025,.03),.6,.42,0),'FusionEdge':((.42,.48,.48),.83,.24,0),
          'FusionEnergy':((.025,.85,.58),.22,.24,3.8),'FusionRubber':((.012,.016,.02),.05,.72,0),

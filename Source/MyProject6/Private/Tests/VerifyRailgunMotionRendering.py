@@ -16,7 +16,7 @@ if '-RailgunMotionQuick' in unreal.SystemLibrary.get_command_line():
     samples = [samples[index] for index in (0, 46, 66, 86, 106, 126, 146, 162)]
 world = unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
 actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-player_cls = unreal.load_class(None, '/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
+player_cls = unreal.load_class(None, '/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
 player = actors.spawn_actor_from_class(player_cls, unreal.Vector(0, 0, 100))
 camera = player.get_component_by_class(unreal.CameraComponent)
 camera.detach_from_component(unreal.DetachmentRule.KEEP_WORLD, unreal.DetachmentRule.KEEP_WORLD, unreal.DetachmentRule.KEEP_WORLD)
@@ -48,7 +48,7 @@ for pos, scale in [(unreal.Vector(1000, 0, -5), unreal.Vector(35, 30, .1)),
     block = actors.spawn_actor_from_class(unreal.StaticMeshActor, pos)
     block.static_mesh_component.set_static_mesh(cube)
     block.set_actor_scale3d(scale)
-    surface = block.static_mesh_component.create_dynamic_material_instance(0, unreal.load_asset('/Game/LevelPrototyping/Materials/M_FlatCol'))
+    surface = block.static_mesh_component.create_dynamic_material_instance(0, unreal.load_asset('/Game/Materials/Prototyping/M_FlatCol'))
     surface.set_vector_parameter_value('Base Color', unreal.LinearColor(.045, .05, .06, 1))
 capture_actor = actors.spawn_actor_from_class(unreal.SceneCapture2D, camera.get_world_location(), camera.get_world_rotation())
 capture = capture_actor.get_component_by_class(unreal.SceneCaptureComponent2D)

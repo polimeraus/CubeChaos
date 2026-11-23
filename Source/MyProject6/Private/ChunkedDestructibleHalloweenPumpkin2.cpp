@@ -66,13 +66,13 @@ AChunkedDestructibleHalloweenPumpkin2::AChunkedDestructibleHalloweenPumpkin2()
 	FaceGlowSurface->SetCanEverAffectNavigation(false);
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> FlatMaterialFinder(
-		TEXT("/Game/LevelPrototyping/Materials/M_FlatCol.M_FlatCol"));
+		TEXT("/Game/Materials/Prototyping/M_FlatCol.M_FlatCol"));
 	if (FlatMaterialFinder.Succeeded())
 	{
 		DefaultFlatMaterial = FlatMaterialFinder.Object;
 	}
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> FaceGlowMaterialFinder(
-		TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+		TEXT("/Game/Materials/Effects/M_SimpleGlow.M_SimpleGlow"));
 	if (FaceGlowMaterialFinder.Succeeded())
 	{
 		DefaultFaceGlowMaterial = FaceGlowMaterialFinder.Object;

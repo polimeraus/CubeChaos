@@ -49,14 +49,14 @@ AChunkedDestructibleHalloweenPumpkin::AChunkedDestructibleHalloweenPumpkin()
 	FlashColor = FLinearColor(1.0f, 0.18f, 0.01f, 1.0f);
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> FlatMaterialFinder(
-		TEXT("/Game/LevelPrototyping/Materials/M_FlatCol.M_FlatCol"));
+		TEXT("/Game/Materials/Prototyping/M_FlatCol.M_FlatCol"));
 	if (FlatMaterialFinder.Succeeded())
 	{
 		DefaultFlatMaterial = FlatMaterialFinder.Object;
 	}
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> GlowMaterialFinder(
-		TEXT("/Game/GameplayActors/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+		TEXT("/Game/Materials/Effects/M_SimpleGlow.M_SimpleGlow"));
 	if (GlowMaterialFinder.Succeeded())
 	{
 		DefaultGlowMaterial = GlowMaterialFinder.Object;

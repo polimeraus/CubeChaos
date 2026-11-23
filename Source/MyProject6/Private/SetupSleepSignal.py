@@ -10,7 +10,7 @@ def save(asset):assert unreal.EditorAssetLibrary.save_loaded_asset(asset,False),
 materials={}
 for name,(color,metal,rough,emission) in json.loads((root/'ContentSource/SleepSignal/Palette.json').read_text()).items():
     mi=create('MI_'+name,base+'/Materials',unreal.MaterialInstanceConstant,unreal.MaterialInstanceConstantFactoryNew())
-    edit.set_material_instance_parent(mi,unreal.load_asset('/Game/Weapons/Railgun/Materials/M_RailMetal'))
+    edit.set_material_instance_parent(mi,unreal.load_asset('/Game/Materials/Weapons/M_RailMetal'))
     edit.set_material_instance_vector_parameter_value(mi,'Tint',unreal.LinearColor(*color,1))
     for key,value in [('Metallic',metal),('Roughness',rough),('Emission',emission)]:edit.set_material_instance_scalar_parameter_value(mi,key,value)
     save(mi);materials[name]=mi
@@ -57,7 +57,7 @@ runpy.run_path(str(Path(__file__).with_name('UpdatePickupMotifMaterial.py')))
 # Skeleton-preserving two-bone IK: a short crouched underhand delivery, release, and recovery.
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem);level=unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
 unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
-player=actors.spawn_actor_from_class(unreal.load_class(None,'/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C'),unreal.Vector())
+player=actors.spawn_actor_from_class(unreal.load_class(None,'/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C'),unreal.Vector())
 gun=actors.spawn_actor_from_class(unreal.RailgunWeapon,unreal.Vector());gun.equip(player)
 frame=gun.arms.get_relative_transform()
 source=unreal.load_asset('/Game/Weapons/FuseBomb/Animations/A_BombHold');assert source
@@ -130,7 +130,7 @@ cdo.device_mesh.set_static_mesh(mesh)
 for key,value in {'signal_sphere_diameter':1000.,'signal_duration':12.,'pulse_interval':1.1,'wake_delay':1.5}.items():cdo.set_editor_property(key,value)
 unreal.BlueprintEditorLibrary.compile_blueprint(bp);save(bp)
 factory=unreal.BlueprintFactory();factory.set_editor_property('parent_class',unreal.ParametricPickup)
-pickup_path='/Game/GameplayActors/Pickups/SleepSignal/BP_SleepSignalPickup'
+pickup_path='/Game/Weapons/SleepSignal/Pickups/BP_SleepSignalPickup'
 pickup_bp=create('BP_SleepSignalPickup',pickup_path.rsplit('/',1)[0],unreal.Blueprint,factory)
 settings={'weapon_reward':unreal.PickupWeapon.SLEEP_SIGNAL,'icon':unreal.PickupMotif.SLEEP_SIGNAL,'shape':unreal.PickupShape.ROUNDED_CUBE,'size':60.,'corner_radius':10.,'body_color':unreal.LinearColor(.018,.025,.06,1),'icon_color':unreal.LinearColor(.1,.75,1,1),'icon_scale':.8,'minimum_glow':1.7,'maximum_glow':3.5,'motion':unreal.PickupMotion.SPIN_AND_BOB,'spin_speed':30.,'bob_height':16.,'bob_period':2.6,'auto_collect':True,'player_only':True}
 for k,value in settings.items():unreal.get_default_object(pickup_bp.generated_class()).set_editor_property(k,value)

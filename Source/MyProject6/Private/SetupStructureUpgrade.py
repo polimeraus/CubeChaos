@@ -40,7 +40,7 @@ for name,color in {'Stone':(.55,.52,.46),'Cornice':(.68,.65,.58),'Floor':(.70,.6
     m=load(path)
     if not m:
         m=tools.create_asset('MI_Polygon'+name,folder+'/Materials',unreal.MaterialInstanceConstant,unreal.MaterialInstanceConstantFactoryNew())
-        unreal.MaterialEditingLibrary.set_material_instance_parent(m,load('/Game/Structures/Destructible/BabylonTower/Materials/M_BabylonSandstone'))
+        unreal.MaterialEditingLibrary.set_material_instance_parent(m,load('/Game/Materials/Structures/M_BabylonSandstone'))
         unreal.MaterialEditingLibrary.set_material_instance_vector_parameter_value(m,'SandstoneColor',unreal.LinearColor(*color,1))
         assert unreal.EditorAssetLibrary.save_loaded_asset(m,False)
     palette[name.lower()+'_material']=m

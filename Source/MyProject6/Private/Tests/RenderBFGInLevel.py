@@ -13,7 +13,7 @@ for a in actors.get_all_level_actors():
     if isinstance(a,unreal.Pawn):a.set_is_temporarily_hidden_in_editor(True)
 pos=unreal.Vector(-2470,-800,60)
 rot=unreal.Rotator(pitch=0,yaw=90,roll=0)
-cls=unreal.load_class(None,'/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
+cls=unreal.load_class(None,'/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
 player=actors.spawn_actor_from_class(cls,start.get_actor_location(),rot)
 camera=player.get_component_by_class(unreal.CameraComponent)
 camera.detach_from_component(unreal.DetachmentRule.KEEP_WORLD,unreal.DetachmentRule.KEEP_WORLD,unreal.DetachmentRule.KEEP_WORLD)

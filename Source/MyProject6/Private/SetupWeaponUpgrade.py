@@ -38,7 +38,7 @@ unreal.BlueprintEditorLibrary.compile_blueprint(bp)
 assert unreal.EditorAssetLibrary.save_loaded_asset(bp,False)
 
 # Reusable pickup class for the original weapon; preserve existing enum ordinals.
-default_path='/Game/GameplayActors/Pickups/DefaultWeapon/BP_DefaultWeaponPickup'
+default_path='/Game/Weapons/DefaultWeapon/Pickups/BP_DefaultWeaponPickup'
 factory=unreal.BlueprintFactory();factory.set_editor_property('parent_class',unreal.ParametricPickup)
 default_bp=unreal.load_asset(default_path) if unreal.EditorAssetLibrary.does_asset_exist(default_path) else unreal.AssetToolsHelpers.get_asset_tools().create_asset('BP_DefaultWeaponPickup',default_path.rsplit('/',1)[0],unreal.Blueprint,factory)
 default_settings={'weapon_reward':unreal.PickupWeapon.DEFAULT_WEAPON,'icon':unreal.PickupMotif.ROCKET,'icon_color':unreal.LinearColor(1,.48,.045,1)}

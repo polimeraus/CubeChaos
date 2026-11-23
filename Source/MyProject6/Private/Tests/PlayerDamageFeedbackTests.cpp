@@ -36,7 +36,7 @@ struct FWorld
         World->InitializeActorsForPlay(FURL()); World->BeginPlay();
         Controller=World->SpawnActor<AGameOverMenuTestController>();
         Controller->InitializeTestMenu();
-        auto* Class=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+        auto* Class=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
         Player=World->SpawnActor<AMyProject6Character>(Class);
         Controller->Possess(Player);
         Player->SetActorTickEnabled(false);
@@ -65,7 +65,7 @@ bool FPlayerDamageFeedbackTest::RunTest(const FString&)
     TestFalse(TEXT("Idle HUD has no feedback timer"),Feedback.bTimerActive);
     TestEqual(TEXT("Three saved human hurt clips are available"),T.Controller->PainSounds.Num(),3);
     auto* SavedControllerClass=LoadClass<AMyProject6PlayerController>(nullptr,
-        TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonPlayerController.BP_FirstPersonPlayerController_C"));
+        TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonPlayerController.BP_FirstPersonPlayerController_C"));
     if (TestNotNull(TEXT("Saved player controller loads in a fresh process"),SavedControllerClass))
         TestEqual(TEXT("Saved Blueprint inherits the native hurt audio defaults"),SavedControllerClass->GetDefaultObject<AMyProject6PlayerController>()->PainSounds.Num(),3);
     for (USoundBase* Sound : T.Controller->PainSounds)

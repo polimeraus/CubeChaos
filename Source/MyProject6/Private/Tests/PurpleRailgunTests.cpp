@@ -47,7 +47,7 @@ bool FPurpleRailgunTest::RunTest(const FString&)
         for(int32 I=0,N=FMath::CeilToInt(Seconds*60);I<N;++I)
         { ++GFrameCounter;World->Tick(LEVELTICK_All,Seconds/N); }
     };
-    UClass* PlayerClass=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+    UClass* PlayerClass=LoadClass<AMyProject6Character>(nullptr,TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
     if(!TestNotNull(TEXT("Saved player Blueprint loads"),PlayerClass))return false;
     auto* Player=World->SpawnActor<AMyProject6Character>(PlayerClass,FVector(0,0,500),FRotator::ZeroRotator);
     Player->GetCharacterMovement()->DisableMovement();
@@ -64,7 +64,7 @@ bool FPurpleRailgunTest::RunTest(const FString&)
     TestFalse(TEXT("Red weapon starts locked"),Player->HasWeapon(EPlayerWeapon::PurpleRailgun));
     Key(EKeys::Seven);
     TestEqual(TEXT("Hotkey cannot grant an uncollected weapon"),Player->GetActiveWeapon(),EPlayerWeapon::Default);
-    UClass* PickupClass=LoadClass<AParametricPickup>(nullptr,TEXT("/Game/GameplayActors/Pickups/PurpleRailgun/BP_PurpleRailgunPickup.BP_PurpleRailgunPickup_C"));
+    UClass* PickupClass=LoadClass<AParametricPickup>(nullptr,TEXT("/Game/Weapons/PurpleRailgun/Pickups/BP_PurpleRailgunPickup.BP_PurpleRailgunPickup_C"));
     if(!TestNotNull(TEXT("Saved red pickup loads"),PickupClass))return false;
     auto* Pickup=World->SpawnActor<AParametricPickup>(PickupClass,FVector(1200,0,500),FRotator::ZeroRotator);
     TestEqual(TEXT("New pickup inherits reward"),Pickup->WeaponReward,EPickupWeapon::PurpleRailgun);

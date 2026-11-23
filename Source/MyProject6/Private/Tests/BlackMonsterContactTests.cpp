@@ -49,7 +49,7 @@ bool FBlackMonsterContactTest::RunTest(const FString& Parameters)
 	FActorSpawnParameters Spawn;
 	Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	UClass* PlayerClass = LoadClass<AMyProject6Character>(nullptr,
-		TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+		TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
 	AMyProject6Character* Player = World->SpawnActor<AMyProject6Character>(
 		PlayerClass, FVector(750, 0, 100), FRotator::ZeroRotator, Spawn);
 	if (!TestNotNull(TEXT("Playable character spawns"), Player)) { return false; }

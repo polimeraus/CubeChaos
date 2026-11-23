@@ -361,6 +361,7 @@ void AChasingNPC::UpdateContactAttack(const AMyProject6Character* Target)
 		if (GetController()) { GetController()->StopMovement(); }
 		GetCharacterMovement()->StopMovementImmediately();
 		ConsumeMovementInputVector();
+		HitReaction->CaptureTransitionPose(.10f);
 		CharacterMesh->PlayAnimation(ContactAttackAnimation, true);
 		CharacterMesh->SetPlayRate(FMath::Clamp(ContactAttackPlayRate, 0.1f, 4.0f));
 	}
@@ -374,6 +375,7 @@ void AChasingNPC::StopContactAttack()
 	bContactAttackActive = false;
 	if (!bIsDead)
 	{
+		HitReaction->CaptureTransitionPose(.16f);
 		GetMesh()->SetAnimInstanceClass(ContactLocomotionClass);
 		GetMesh()->SetAnimationMode(EAnimationMode::AnimationBlueprint);
 	}
@@ -515,6 +517,7 @@ void AChasingNPC::Die(const bool bShouldSpawnReplacements, const FVector& Impact
 		CharacterMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 		CharacterMesh->bEnableUpdateRateOptimizations = false;
 		CharacterMesh->bPauseAnims = false;
+		HitReaction->CaptureTransitionPose(.14f);
 		CharacterMesh->PlayAnimation(DeathAnimation, false);
 		const float PlayRate = FMath::Clamp(DeathAnimationPlayRate, 0.1f, 4.0f);
 		// Compensate for the asset's rate scale so the exposed rate controls actual duration.

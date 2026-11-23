@@ -113,7 +113,7 @@ if not unreal.EditorAssetLibrary.does_asset_exist(root + '/Audio/S_RailFire'):
     unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
     assert unreal.load_asset(root + '/Audio/S_RailFire')
 
-player_cls = unreal.load_class(None, '/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
+player_cls = unreal.load_class(None, '/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C')
 player = unreal.get_default_object(player_cls)
 report = []
 for comp in player.get_components_by_class(unreal.SkeletalMeshComponent):

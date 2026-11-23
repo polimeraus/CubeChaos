@@ -58,8 +58,10 @@ ARadicalMikeNPC::ARadicalMikeNPC()
 		TEXT("/Game/NPC/RadicalMike/Animations/Anim_ZMIKE_BusterIdle_R.Anim_ZMIKE_BusterIdle_R"));
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> Run(
 		TEXT("/Game/NPC/RadicalMike/Animations/Anim_ZMIKE_RunChase.Anim_ZMIKE_RunChase"));
+	static ConstructorHelpers::FObjectFinder<UAnimSequence> Walk(
+		TEXT("/Game/NPC/RadicalMike/Animations/Anim_ZMIKE_Walk.Anim_ZMIKE_Walk"));
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> Death(
-		TEXT("/Game/NPC/RadicalMike/Animations/Anim_ZMIKE_DeathState.Anim_ZMIKE_DeathState"));
+		TEXT("/Game/NPC/RadicalMike/Animations/Anim_ZMIKE_HitRegisterFront_Death.Anim_ZMIKE_HitRegisterFront_Death"));
 	static ConstructorHelpers::FObjectFinder<USoundBase> Sound(
 		TEXT("/Game/Weapons/GrenadeLauncher/Audio/FirstPersonTemplateWeaponFire02.FirstPersonTemplateWeaponFire02"));
 	if (Weapon.Succeeded()) { BusterWeapon->SetStaticMesh(Weapon.Object); }
@@ -67,6 +69,7 @@ ARadicalMikeNPC::ARadicalMikeNPC()
 	if (Fire.Succeeded()) { FireAnimation = Fire.Object; }
 	if (Idle.Succeeded()) { ArmedIdleAnimation = Idle.Object; }
 	if (Run.Succeeded()) { RunAnimation = Run.Object; }
+	WalkAnimation = Walk.Object;
 	if (Death.Succeeded()) { DeathAnimation = Death.Object; }
 	if (Sound.Succeeded()) { FireSound = Sound.Object; }
 	GetMesh()->SetAnimationMode(EAnimationMode::AnimationSingleNode);
@@ -128,6 +131,7 @@ void ARadicalMikeNPC::TryStartAttack()
 	FaceTarget(Target);
 	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 	GetMesh()->bEnableUpdateRateOptimizations = false;
+	HitReaction->CaptureTransitionPose(.12f);
 	if (ArmedIdleAnimation) { GetMesh()->PlayAnimation(ArmedIdleAnimation, true); }
 	const float Duration = FireAnimation ? FireAnimation->GetPlayLength() / FMath::Max(0.01f, FireAnimation->RateScale) : 0.65f;
 	GetWorldTimerManager().SetTimer(ShotTimer, this, &ARadicalMikeNPC::FireAtPlayer,
@@ -170,6 +174,7 @@ void ARadicalMikeNPC::FinishAttack()
 	if (IsDead() || IsStaggering()) { return; }
 	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::OnlyTickPoseWhenRendered;
 	GetMesh()->bEnableUpdateRateOptimizations = true;
+	HitReaction->CaptureTransitionPose(.16f);
 	if (ArmedIdleAnimation) { GetMesh()->PlayAnimation(ArmedIdleAnimation, true); }
 }
 
@@ -200,7 +205,20 @@ void ARadicalMikeNPC::Tick(float DeltaSeconds)
 	if (IsDead() || IsStaggering()) { return; }
 	BusterWeapon->SetWorldScale3D(GetMesh()->GetComponentScale());
 	if (bAttackInProgress) { return; }
-	UAnimSequence* Desired = GetVelocity().SizeSquared2D() > 100.0f ? RunAnimation.Get() : ArmedIdleAnimation.Get();
 	UAnimSingleNodeInstance* Instance = GetMesh()->GetSingleNodeInstance();
-	if (Desired && (!Instance || Instance->GetCurrentAsset() != Desired)) { GetMesh()->PlayAnimation(Desired, true); }
+	const float Speed = GetVelocity().Size2D();
+	const bool bWasRunning = Instance && Instance->GetCurrentAsset() == RunAnimation;
+	const bool bMoving = Speed > (Instance && Instance->GetCurrentAsset() != ArmedIdleAnimation ? 12.f : 32.f);
+	const bool bRunning = bMoving && (!WalkAnimation || Speed > (bWasRunning ? 175.f : 215.f));
+	UAnimSequence* Desired = bRunning ? RunAnimation.Get() : bMoving ? WalkAnimation.Get() : ArmedIdleAnimation.Get();
+	if (Desired && (!Instance || Instance->GetCurrentAsset() != Desired))
+	{
+		HitReaction->CaptureTransitionPose(.15f);
+		GetMesh()->PlayAnimation(Desired, true);
+	}
+	if (Desired && bMoving)
+	{
+		const float Cadence = FMath::Clamp(Speed / (bRunning ? 360.f : 150.f), .52f, 1.35f);
+		GetMesh()->SetPlayRate(Cadence);
+	}
 }

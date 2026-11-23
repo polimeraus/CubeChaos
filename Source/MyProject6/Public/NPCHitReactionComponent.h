@@ -35,6 +35,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Hit Reaction")
 	float GetCurrentForwardBendAngle() const { return CurrentBendAngle; }
 	bool IsUsingForwardBend() const;
+	/** Blend from the last displayed pose when a single-node clip or anim class changes. */
+	void CaptureTransitionPose(float Duration);
+	TSharedPtr<const TArray<FTransform>, ESPMode::ThreadSafe> GetTransitionPose(float& OutWeight);
 	virtual void BeginPlay() override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* TickFunction) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -75,6 +78,9 @@ public:
 	float BlastTumbleSpeed = 285.f;
 
 private:
+	TSharedPtr<const TArray<FTransform>, ESPMode::ThreadSafe> TransitionPose;
+	double TransitionStart = 0.;
+	float TransitionDuration = 0.f;
 	void ResetStagger();
 	void FinishFlash();
 	void RefreshTickEnabled();

@@ -10,7 +10,7 @@ def save(a):assert unreal.EditorAssetLibrary.save_loaded_asset(a,False),a
 materials={}
 for name,(color,metal,rough,emission) in json.loads((source/'Palette.json').read_text()).items():
  mi=create('MI_'+name,base+'/Materials',unreal.MaterialInstanceConstant,unreal.MaterialInstanceConstantFactoryNew())
- edit.set_material_instance_parent(mi,unreal.load_asset('/Game/Weapons/Railgun/Materials/M_RailMetal'))
+ edit.set_material_instance_parent(mi,unreal.load_asset('/Game/Materials/Weapons/M_RailMetal'))
  edit.set_material_instance_vector_parameter_value(mi,'Tint',unreal.LinearColor(*color,1))
  for k,v in [('Metallic',metal),('Roughness',rough),('Emission',emission)]:edit.set_material_instance_scalar_parameter_value(mi,k,v)
  save(mi);materials[name]=mi
@@ -48,7 +48,7 @@ try:
 finally:ctrl.close_bracket(False)
 hold.set_editor_property('enable_root_motion',False);save(hold)
 factory=unreal.BlueprintFactory();factory.set_editor_property('parent_class',unreal.ParametricPickup)
-pickup_path='/Game/GameplayActors/Pickups/ElectricTether/BP_ArcCagePickup'
+pickup_path='/Game/Weapons/ElectricTether/Pickups/BP_ArcCagePickup'
 bp=create('BP_ArcCagePickup',pickup_path.rsplit('/',1)[0],unreal.Blueprint,factory)
 settings={'weapon_reward':unreal.PickupWeapon.ELECTRIC_TETHER,'icon':unreal.PickupMotif.ELECTRIC_TETHER,'shape':unreal.PickupShape.ROUNDED_CUBE,'size':60.,'corner_radius':10.,'body_color':unreal.LinearColor(.015,.02,.045,1),'icon_color':unreal.LinearColor(.22,.7,1,1),'icon_scale':.8,'minimum_glow':1.8,'maximum_glow':4.,'motion':unreal.PickupMotion.SPIN_AND_BOB,'spin_speed':28.,'bob_height':16.,'bob_period':2.4,'auto_collect':True,'player_only':True}
 for k,v in settings.items():unreal.get_default_object(bp.generated_class()).set_editor_property(k,v)

@@ -40,7 +40,7 @@ edit.connect_material_property(opacity,'',unreal.MaterialProperty.MP_OPACITY)
 edit.layout_material_expressions(plasma);edit.recompile_material(plasma)
 assert unreal.EditorAssetLibrary.save_loaded_asset(plasma,False)
 
-surface=unreal.load_asset('/Game/Weapons/Railgun/Materials/M_RailMetal');assert surface
+surface=unreal.load_asset('/Game/Materials/Weapons/M_RailMetal');assert surface
 palette={'BFGSteel':((.27,.30,.25),.8,.38,0),'BFGBronze':((.35,.16,.048),.7,.4,0),
          'BFGDark':((.022,.029,.024),.45,.5,0),'BFGEnergy':((.03,1,.12),.25,.28,2.4),
          'BFGRubber':((.012,.016,.013),.05,.68,0)}
@@ -90,7 +90,7 @@ for name,duration,impact in [('S_BFGFire',.23,False),('S_BFGImpact',.48,True)]:
     assets.import_asset_tasks([task]);assert unreal.load_asset(base+'/Audio/'+name)
 
 factory=unreal.BlueprintFactory();factory.set_editor_property('parent_class',unreal.ParametricPickup)
-bp=load_or_create('BP_BFGPickup',unreal.Blueprint,factory,'/Game/GameplayActors/Pickups/BFG')
+bp=load_or_create('BP_BFGPickup',unreal.Blueprint,factory,'/Game/Weapons/BFG/Pickups')
 cdo=unreal.get_default_object(bp.generated_class())
 settings={'weapon_reward':unreal.PickupWeapon.BFG,'icon':unreal.PickupMotif.RADIATION_BOMB,
           'icon_color':unreal.LinearColor(.03,1,.12,1),'body_color':unreal.LinearColor(.02,.055,.025,1)}

@@ -25,7 +25,7 @@ namespace
 			World->InitializeActorsForPlay(FURL());
 			World->BeginPlay();
 			UClass* PlayerClass = LoadClass<AMyProject6Character>(nullptr,
-				TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
+				TEXT("/Game/Characters/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"));
 			Player = PlayerClass ? World->SpawnActor<AMyProject6Character>(PlayerClass, FVector(0, 0, 10000), FRotator::ZeroRotator) : nullptr;
 			if (Player)
 			{
