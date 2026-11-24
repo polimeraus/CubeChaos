@@ -12,7 +12,7 @@ class UStaticMeshComponent;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 
-/** A visible spherical projectile fired by the first-person character. */
+/** Shared projectile impacts and movement for SOL's laser bolt and the solid cannonball. */
 UCLASS()
 class MYPROJECT6_API ABallProjectile : public AActor
 {
@@ -20,9 +20,12 @@ class MYPROJECT6_API ABallProjectile : public AActor
 
 public:
 	ABallProjectile();
+	/** Grow the finite streak out of the visible muzzle and bring it onto the gameplay trajectory. */
+	void StartMuzzlePresentation(const FVector& MuzzleLocation);
+	virtual void Tick(float DeltaSeconds) override;
 
 protected:
-	enum class EAppearance { SolarPulse, SolidBall };
+	enum class EAppearance { LaserBolt, SolidBall };
 	explicit ABallProjectile(EAppearance Appearance);
 
 	virtual void BeginPlay() override;
@@ -42,6 +45,16 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Projectile|Visuals", meta = (ClampMin = "0.01"))
 	float ProjectileVisualScale = 0.24f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Projectile|Laser Bolt", meta = (ClampMin = ".1", ClampMax = "4"))
+	float BoltLengthScale = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Projectile|Laser Bolt", meta = (ClampMin = ".1", ClampMax = "4"))
+	float BoltWidthScale = 1.f;
+
+	/** Travel distance over which the visible muzzle offset eases onto the collision path. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Projectile|Laser Bolt", meta = (ClampMin = "0", Units = "cm"))
+	float MuzzleBlendDistance = 650.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Projectile|Movement", meta = (ClampMin = "1.0", Units = "cm/s"))
 	float ProjectileInitialSpeed = 2500.0f;
@@ -96,4 +109,12 @@ private:
 	TObjectPtr<UMaterialInstanceDynamic> ProjectileMaterialInstance;
 
 	bool bHasCarvedSurface = false;
+	bool bLaserBolt = false;
+	FVector LaunchOrigin = FVector::ZeroVector;
+	FVector LaunchOffset = FVector::ZeroVector;
+	double LaunchBlendRange = 0.;
+	double TailLength = 0.;
+	FVector GetVisualScale() const;
+	void UpdateMuzzlePresentation();
+	void FinishMuzzlePresentation();
 };

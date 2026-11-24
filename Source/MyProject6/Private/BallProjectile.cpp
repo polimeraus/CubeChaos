@@ -19,13 +19,17 @@
 #include "UObject/ConstructorHelpers.h"
 
 ABallProjectile::ABallProjectile()
-	: ABallProjectile(EAppearance::SolarPulse)
+	: ABallProjectile(EAppearance::LaserBolt)
 {
 }
 
 ABallProjectile::ABallProjectile(EAppearance Appearance)
 {
-	PrimaryActorTick.bCanEverTick = false;
+	bLaserBolt = Appearance == EAppearance::LaserBolt;
+	PrimaryActorTick.bCanEverTick = bLaserBolt;
+	PrimaryActorTick.bStartWithTickEnabled = false;
+	PrimaryActorTick.bAllowTickOnDedicatedServer = false;
+	PrimaryActorTick.TickGroup = TG_PostPhysics;
 	InitialLifeSpan = 5.0f;
 
 	CollisionComponent = CreateDefaultSubobject<USphereComponent>(TEXT("CollisionComponent"));
@@ -42,9 +46,9 @@ ABallProjectile::ABallProjectile(EAppearance Appearance)
 	MeshComponent->SetGenerateOverlapEvents(false);
 	MeshComponent->SetCanEverAffectNavigation(false);
 	MeshComponent->SetCastShadow(false);
-	MeshComponent->SetRelativeScale3D(FVector(ProjectileVisualScale));
+	MeshComponent->SetRelativeScale3D(GetVisualScale());
 
-	if (Appearance == EAppearance::SolarPulse)
+	if (bLaserBolt)
 	{
 		static ConstructorHelpers::FObjectFinder<UStaticMesh> Pulse(
 			TEXT("/Game/Weapons/DefaultWeapon/Meshes/SM_SunPulse.SM_SunPulse"));
@@ -76,6 +80,19 @@ void ABallProjectile::BeginPlay()
 {
 	Super::BeginPlay();
 	ApplyProjectileConfiguration();
+	if (bLaserBolt)
+	{
+		AddTickPrerequisiteComponent(ProjectileMovement);
+		const int32 GlowSlot = MeshComponent->GetMaterialIndex(TEXT("PulseGlow"));
+		UMaterialInterface* Glow = GlowSlot != INDEX_NONE ? MeshComponent->GetMaterial(GlowSlot) : nullptr;
+		FLinearColor DefaultTint;
+		if (Glow && Glow->GetVectorParameterValue(FMaterialParameterInfo(TEXT("Tint")), DefaultTint)
+			&& !DefaultTint.Equals(ProjectileColor))
+		{
+			if (auto* Instance = MeshComponent->CreateDynamicMaterialInstance(GlowSlot, Glow))
+				Instance->SetVectorParameterValue(TEXT("Tint"), ProjectileColor);
+		}
+	}
 	if (AActor* OwnerActor = GetOwner())
 	{
 		CollisionComponent->IgnoreActorWhenMoving(OwnerActor, true);
@@ -127,7 +144,7 @@ void ABallProjectile::ApplyProjectileConfiguration()
 	}
 	if (MeshComponent)
 	{
-		MeshComponent->SetRelativeScale3D(FVector(FMath::Max(ProjectileVisualScale, 0.01f)));
+		MeshComponent->SetRelativeScale3D(GetVisualScale());
 	}
 	if (ProjectileMovement)
 	{
@@ -139,10 +156,62 @@ void ABallProjectile::ApplyProjectileConfiguration()
 	}
 }
 
+FVector ABallProjectile::GetVisualScale() const
+{
+	const float Size = FMath::Max(ProjectileVisualScale, .01f);
+	if (!bLaserBolt) return FVector(Size);
+	const float Width = FMath::Clamp(BoltWidthScale, .1f, 4.f);
+	return Size * FVector(FMath::Clamp(BoltLengthScale, .1f, 4.f), Width, Width);
+}
+
+void ABallProjectile::StartMuzzlePresentation(const FVector& MuzzleLocation)
+{
+	if (!bLaserBolt || !MeshComponent->GetStaticMesh() || GetNetMode() == NM_DedicatedServer) return;
+	LaunchOrigin = GetActorLocation();
+	LaunchOffset = MuzzleLocation - LaunchOrigin;
+	// Use the actual rearward mesh extent so changing the bolt length cannot send its tail through the player.
+	const FBox Bounds = MeshComponent->GetStaticMesh()->GetBoundingBox();
+	TailLength = FMath::Max(1., -Bounds.Min.X * GetVisualScale().X * FMath::Abs(GetActorScale3D().X));
+	LaunchBlendRange = FMath::Max3(double(MuzzleBlendDistance), TailLength, LaunchOffset.Size()*2.5);
+	SetActorTickEnabled(true);
+	UpdateMuzzlePresentation();
+}
+
+void ABallProjectile::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	UpdateMuzzlePresentation();
+}
+
+void ABallProjectile::UpdateMuzzlePresentation()
+{
+	const FVector Location = GetActorLocation();
+	const double Distance = FVector::Distance(Location, LaunchOrigin);
+	if (Distance >= LaunchBlendRange)
+	{
+		FinishMuzzlePresentation();
+		return;
+	}
+	const double Remaining = 1.-Distance/LaunchBlendRange;
+	// This tangent follows the rendered nose. Only the mesh moves off-axis during the launch.
+	const FVector Tangent = ProjectileMovement->Velocity.GetSafeNormal() - LaunchOffset*(2.*Remaining/LaunchBlendRange);
+	FVector Scale = GetVisualScale();
+	Scale.X *= FMath::Clamp(Distance/TailLength, .015, 1.);
+	MeshComponent->SetRelativeScale3D(Scale);
+	MeshComponent->SetWorldLocationAndRotation(Location+LaunchOffset*FMath::Square(Remaining), Tangent.Rotation());
+}
+
+void ABallProjectile::FinishMuzzlePresentation()
+{
+	MeshComponent->SetRelativeTransform(FTransform(FQuat::Identity, FVector::ZeroVector, GetVisualScale()));
+	SetActorTickEnabled(false);
+}
+
 void ABallProjectile::NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPrimitiveComponent* OtherComp,
 	bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit)
 {
 	Super::NotifyHit(MyComp, Other, OtherComp, bSelfMoved, HitLocation, HitNormal, NormalImpulse, Hit);
+	if (bLaserBolt && IsActorTickEnabled()) FinishMuzzlePresentation();
 
 	if (bHasCarvedSurface)
 	{

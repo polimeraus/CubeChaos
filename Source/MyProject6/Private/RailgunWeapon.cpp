@@ -27,7 +27,7 @@
 
 namespace
 {
-    const FVector ClassicRifleRestLocation(9.f, 3.f, -5.5f);
+    const FVector ClassicRifleRestLocation(13.f, 8.5f, -8.5f);
 }
 
 ARailgunWeapon::ARailgunWeapon()
@@ -123,7 +123,7 @@ void ARailgunWeapon::Equip(AMyProject6Character* Character)
     Arms->SetRelativeLocation(FVector(45, 11, -16) - PoseRotation.RotateVector(GripPose.GetLocation()));
     Original->SetVisibility(false);
     Original->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
-    // Keep the stock and radio panel below the reticle while both hands stay on the model.
+    // The dashboard sits below the reticle while both hands follow the grip pose.
     WeaponMesh->AttachToComponent(Arms, FAttachmentTransformRules::SnapToTargetNotIncludingScale, TEXT("HandGrip_R"));
     Muzzle->SetRelativeLocation(FVector(0, 52, 10));
     RestLocation = ClassicRifleRestLocation;

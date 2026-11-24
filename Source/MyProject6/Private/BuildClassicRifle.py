@@ -1,6 +1,7 @@
-"""Build the grip-space radio carbine and its orbiting pulse in Blender."""
+"""Build the Solstice carbine and laser bolt. Use --rifle-only or --projectile-only for a targeted export."""
 from pathlib import Path
 import math
+import sys
 
 import bpy
 from mathutils import Matrix, Vector
@@ -116,249 +117,394 @@ def save_model(source, asset, yaw):
     print(asset,len(combined.data.vertices),'vertices')
 
 
-bpy.ops.wm.read_factory_settings(use_empty=True)
-jade = material('RadioJade', (.018,.305,.174), .38,.26)
-ivory = material('RadioIvory', (.88,.71,.45), .19,.29)
-brass = material('RadioBrass', (.74,.385,.094), .71,.25)
-walnut = material('RadioWalnut', (.165,.053,.024), .15,.34)
-ebony = material('RadioEbony', (.024,.033,.034), .23,.40)
-amber = material('RadioAmber', (1.,.44,.022), .15,.20,1.4)
-
-# Stretch the grain along the stock and fore-end in the editable material as well.
-tree=walnut.node_tree
-coords=tree.nodes.new('ShaderNodeTexCoord')
-stretch=tree.nodes.new('ShaderNodeVectorMath')
-stretch.operation='MULTIPLY'
-stretch.inputs[1].default_value=(6.8,1.,5.3)
-tree.links.new(coords.outputs['Generated'],stretch.inputs[0])
-fibres=tree.nodes.new('ShaderNodeTexNoise')
-fibres.inputs['Scale'].default_value=3.6
-fibres.inputs['Detail'].default_value=2.1
-fibres.inputs['Distortion'].default_value=.32
-tree.links.new(stretch.outputs[0],fibres.inputs['Vector'])
-dye=tree.nodes.new('ShaderNodeValToRGB')
-for stop,t,color in zip(dye.color_ramp.elements,(.24,.77),[(.094,.031,.013,1),(.218,.078,.029,1)]):
-    stop.position=t
-    stop.color=color
-tree.links.new(fibres.outputs['Fac'],dye.inputs[0])
-tree.links.new(dye.outputs['Color'],tree.nodes.get('Principled BSDF').inputs['Base Color'])
-
-# A downturned wooden butt, a raised jade radio cabinet and a stepped faceplate.
-stock=[(-25.1,4.2,2.2,4.2),(-24.45,4.2,2.82,4.78),
-     (-21.8,4.7,3.12,4.85),(-17,5.75,2.88,3.72),(-10.1,7.0,2.40,2.5),
-     (-5.2,7.5,2.86,2.6),(1,7.5,3.04,2.2)]
-body('01 | Walnut shoulder stock',stock,walnut,.59)
-body('02 | Bakelite heel pad',[(-25.85,4.14,2.04,4.10),(-25.62,4.17,2.49,4.52),
-     (-25.12,4.2,2.72,4.65),(-24.76,4.25,2.66,4.64)],ebony,.58)
-body('03 | Heel coachline',[(-24.93,4.22,2.62,4.64),(-24.67,4.23,2.76,4.72),
-     (-24.44,4.24,2.78,4.74)],brass,.58)
-stations=[(-14.1,8.1,2.7,2.6),(-13.45,8.5,3.85,3.65),(-11.8,9.1,4.72,4.53),
-          (-8.2,9.55,5.32,5.03),(-4,9.7,5.58,5.22),(4.8,9.7,5.65,5.22),
-          (10.5,9.8,5.46,5.10),(14.5,9.9,5.16,4.77),(18.1,10,4.55,4.13),(19.7,10,3.85,3.7)]
-body('04 | Jade broadcast cabinet',stations,jade,.60)
+def rounded_profile(points, fraction=.18):
+    rounded = []
+    for i, corner in enumerate(points):
+        previous, corner, following = Vector(points[i-1]), Vector(corner), Vector(points[(i+1) % len(points)])
+        a, b = corner.lerp(previous, fraction), corner.lerp(following, fraction)
+        for k in range(5):
+            t = k / 4
+            rounded.append((1-t)**2*a + 2*(1-t)*t*corner + t*t*b)
+    return rounded
 
 
-def on_skin(stations,y,angle,side,lift,exponent):
-    for low,high in zip(stations,stations[1:]):
-        if y<=high[0]:
-            break
-    f=(y-low[0])/(high[0]-low[0])
-    z,w,h=[low[i]+(high[i]-low[i])*f for i in (1,2,3)]
-    return (side*(w+lift)*profile(math.cos(angle),exponent),y,z+(h+lift)*profile(math.sin(angle),exponent))
-
-
-def on_cabinet(y,angle,side,lift):
-    return on_skin(stations,y,angle,side,lift,.60)
-
-
-def cheek(name,y0,y1,mid,height,side,lift,mat):
-    points=[]
-    for i in range(45):
-        t=i/44
-        width=height*max(.018,math.sin(math.pi*t)**.56)
-        points.extend(on_cabinet(y0+(y1-y0)*t,mid+width*(j/3),side,lift) for j in range(-3,4))
-    faces=[(i*7+j,(i+1)*7+j,(i+1)*7+j+1,i*7+j+1) for i in range(44) for j in range(6)]
-    return mesh(name,points,faces if side>0 else [f[::-1] for f in faces],mat)
-
-
-for side in (-1,1):
-    for j in range(2):
-        trim('Stock | Swept brass inlay',[on_skin(stock,-23.6+k*(11.2-j*2.2)/28,
-             -.13+j*.13+.29*k/28,side,.047,.59) for k in range(29)],.062,brass)
-    cheek('05 | Brass faceplate bead',-12.7,17.3,-.04,.44,side,.10,brass)
-    cheek('06 | Porcelain station scale',-12.43,17.04,-.04,.37,side,.17,ivory)
-    for j in range(3):
-        z_angle=.035+(j-1)*.115
-        trim('07 | Station bars',[on_cabinet(6.5+k*(9.3-j*1.6)/22,z_angle,side,.25)
-                                 for k in range(23)],.092,ebony)
-    for step in range(3):
-        trim('08 | Cabinet pinstripes',[on_cabinet(-11.4+k*(18.1-step*3.25)/26,
-             -.62-step*.12,side,.10) for k in range(27)],.095,brass)
-    # The amber disc and inclined meridian are repeated on the flying projectile.
-    def dial(name,levels,mat):
-        return shell(name,[((side*d,.85,10.05),r,r) for d,r in levels],mat,
-                     axis=(side,0,0),radial=(0,1,0),sides=56)
-    dial('09 | Sun dial escutcheon',[(5.6,2.9),(5.84,3.7),(6.04,3.80),(6.24,3.62)],brass)
-    dial('10 | Black dial recess',[(6.23,3.37),(6.34,3.28)],ebony)
-    dial('11 | Dial glass',[(6.35,2.23),(6.51,2.13),(6.64,1.82)],amber)
-    for j in range(13):
-        a=math.radians(16+148*j/12)
-        trim('12 | Engraved dial graduations',[(side*6.36,.85+math.cos(a)*r,10.05+math.sin(a)*r)
-             for r in (2.61,3.11 if j%3==0 else 2.91)],.068,ivory)
-    angle=math.radians(26)
-    ring=[]
-    for j in range(65):
-        a=tau*j/64
-        h,v=2.72*math.cos(a),.75*math.sin(a)
-        ring.append((side*6.71,.85+h*math.cos(angle)-v*math.sin(angle),10.05+h*math.sin(angle)+v*math.cos(angle)))
-    trim('13 | Brass planetary orbit',ring,.115,brass)
-
-# Three amber pilot windows sit in a stepped porcelain hood facing the holder.
-n=Vector((0,-.82,.572)).normalized()
-u=Vector((1,0,0))
-v=n.cross(u)
-o=Vector((0,-13.65,13.55))
-def hood(name,offset,rows,mat):
-    return shell(name,[(o+u*offset+n*d,w,h) for d,w,h in rows],mat,axis=n,radial=u,exponent=.62)
-hood('14 | Radio tuning hood',0,[(-2.,3.37,1.67),(-.45,3.73,2.0),(.10,3.57,1.88)],jade)
-hood('15 | Knurled hood edge',0,[(.08,3.60,1.90),(.29,3.51,1.83)],brass)
-hood('16 | Inset tuning panel',0,[(.30,3.26,1.59),(.40,3.15,1.49)],ebony)
-for col in range(-2,3):
-    h=1.06-abs(col)*.24
-    hood('17 | Amber fan pilot',col*.87,[(.408,.20,h),(.45,.18,h*.95)],amber)
-for j in range(4):
-    y=-5.0+j*3.35
-    pts=[on_cabinet(y,math.radians(a),1,.13) for a in range(45,137,3)]
-    trim('18 | Brass radio grille ribs',pts,.15,brass)
-
-# Underslung fluted wood follows the support hand of the saved two-hand animation.
-body('19 | Front walnut saddle',[(14.2,4.32,1.95,1.58),(16.1,3.35,3.25,2.05),
-     (21.8,2.47,3.87,2.31),(30.7,2.45,3.98,2.38),(34.0,3.03,3.58,2.08),(36.5,4.32,2.73,1.61)],walnut,.68)
-for j in range(5):
-    y=21.5+j*2.5
-    body('20 | Palm-swell flutes',[(y-.20,2.48,3.83,2.26),(y,2.48,4.02,2.40),(y+.25,2.48,3.88,2.30)],ebony,.68)
-def grip(name,profile_data,mat):
-    return shell(name,[((0,y,z),w,d) for z,y,w,d in profile_data],mat,axis=(0,0,1),exponent=.79)
-grip('21 | Sculpted walnut grip',[(-10.55,-3.6,2.42,3.35),(-9.7,-3.47,2.78,3.58),
-     (-6.5,-2.43,2.75,3.3),(-1.0,-.55,2.44,2.92),(4.83,1.57,2.84,3.25),(5.5,1.60,3.0,3.55)],walnut)
-grip('22 | Brass grip foot',[(-10.88,-3.6,2.21,3.06),(-10.75,-3.6,2.63,3.40),(-10.36,-3.52,2.72,3.49)],brass)
-trim('23 | Brass finger bow',[(0,1.6,-4.24),(0,3.5,-4.96),(0,6.7,-4.85),(0,9.45,-3.75),
-     (0,10.6,-1.57),(0,10.7,3.70)],.35,brass)
-trim('24 | Ebony lever',[(0,5.6,4.2),(0,5.42,2.87),(0,4.87,.74),(0,5.39,-.24)],.39,ebony)
-
-# Bell-shaped nose with a narrow waist breaks the straight silhouette of the railguns.
-def emitter(name,profile_data,mat,exponent=1.0):
-    return body(name,[(y,10.,w,h) for y,w,h in profile_data],mat,exponent)
-emitter('25 | Porcelain collar',[(17.2,4.7,4.4),(18.2,4.97,4.64),(19.2,4.86,4.53),(20,4.26,4.08)],ivory)
-emitter('26 | Warm glass resonator',[(19.4,3.27,3.27),(20.5,3.82,3.82),(22.1,3.92,3.92),
-        (26.5,3.23,3.23),(30.5,2.88,2.88),(34.2,3.2,3.2),(35.1,3.52,3.52)],amber)
-for y,r in [(20.2,4.15),(23,4.02),(32.8,3.40),(35.2,3.74)]:
-    emitter('27 | Brass resonator rings',[(y-.35,r-.14,r-.14),(y-.21,r,r),(y+.21,r,r),(y+.35,r-.14,r-.14)],brass)
-for a in (math.radians(28),math.radians(152),math.radians(270)):
-    trim('28 | Curved resonator ribs',[(r*math.cos(a),y,10+r*math.sin(a))
-         for y,r in [(19.7,4.36),(20.6,4.63),(24.2,4.65),(29.7,4.13),(34.0,3.98),(35.5,3.86)]],.22,ebony)
-emitter('29 | Horn throat',[(34.5,3.21,3.25),(35.5,3.78,3.70),(36.6,4.03,3.83),(38.8,3.56,3.36)],brass)
-emitter('30 | Jade flared horn',[(36.4,3.89,3.79),(37.5,3.97,3.82),(39.1,3.56,3.38),
-        (41.2,3.37,3.23),(43.2,3.48,3.39),(45.2,4.08,3.87),(47.2,5.36,4.91),(48.8,6.26,5.66)],jade)
-emitter('31 | Cream horn band',[(47.18,5.35,4.92),(47.58,5.65,5.16),(48.1,5.97,5.43)],ivory)
-emitter('32 | Rolled brass bell lip',[(48.3,6.01,5.49),(48.75,6.43,5.82),(49.50,6.55,5.92),
-        (50.05,6.36,5.79),(50.38,5.86,5.34)],brass)
-emitter('33 | Dark bell interior',[(50.36,5.76,5.26),(50.45,5.61,5.09)],ebony)
-emitter('34 | Porcelain bulb seat',[(50.45,3.65,3.39),(50.62,3.61,3.36),(50.82,3.20,2.96)],ivory)
-emitter('35 | Luminous amber lens',[(50.83,2.97,2.77),(51.16,2.88,2.63),(51.66,2.04,1.90),(52,.40,.38)],amber)
-save_model('ClassicRifle.blend','SM_Rifle',math.pi)
-
-# One render component holds the hot sphere, its open Saturn ring and a soft wake.
-# The gameplay sphere remains centred on (0,0,0) and supplies all collision.
-bpy.ops.wm.read_factory_settings(use_empty=True)
-core = material('PulseCore',(1.,.59,.027),.03,.25,2.)
-orbit = material('PulseOrbit',(1.,.35,.012),.28,.28,1.4)
-glow = material('PulseGlow',(1.,.31,.014),0,.55,.19)
-
-
-def facing_weight(tree):
-    geo=tree.nodes.new('ShaderNodeNewGeometry')
-    dot=tree.nodes.new('ShaderNodeVectorMath')
-    dot.operation='DOT_PRODUCT'
-    for i,key in enumerate(('Normal','Incoming')):
-        tree.links.new(geo.outputs[key],dot.inputs[i])
-    absolute=tree.nodes.new('ShaderNodeMath')
-    absolute.operation='ABSOLUTE'
-    tree.links.new(dot.outputs['Value'],absolute.inputs[0])
-    return absolute.outputs[0]
-
-
-# Preview the hot centre and transparent falloffs in the source scene.
-tree=core.node_tree
-heat=tree.nodes.new('ShaderNodeValToRGB')
-heat.color_ramp.elements[0].color=(.29,.038,.002,1)
-heat.color_ramp.elements[1].color=(1.,.88,.46,1)
-heat.color_ramp.elements.new(.65).color=(.74,.38,.012,1)
-tree.links.new(facing_weight(tree),heat.inputs[0])
-tree.links.new(heat.outputs[0],tree.nodes.get('Principled BSDF').inputs['Emission Color'])
-tree.nodes.get('Principled BSDF').inputs['Emission Strength'].default_value=3.3
-
-tree=glow.node_tree
-def optic_math(operation,a,b):
-    node=tree.nodes.new('ShaderNodeMath')
-    node.operation=operation
-    for i,value in enumerate((a,b)):
-        if isinstance(value,(int,float)):
-            node.inputs[i].default_value=value
-        else:
-            tree.links.new(value,node.inputs[i])
-    return node.outputs[0]
-
-
-uv=tree.nodes.new('ShaderNodeSeparateXYZ')
-tree.links.new(tree.nodes.new('ShaderNodeTexCoord').outputs['UV'],uv.inputs[0])
-x,y=uv.outputs['X'],uv.outputs['Y']
-edge=optic_math('ABSOLUTE',optic_math('SUBTRACT',optic_math('MULTIPLY',y,2),1),0)
-tail=optic_math('MULTIPLY',optic_math('POWER',optic_math('SUBTRACT',1,edge),2.5),
-                optic_math('MAXIMUM',0,optic_math('SUBTRACT',1,x)))
-selector=optic_math('GREATER_THAN',x,1.5)
-halo_weight=optic_math('MULTIPLY',optic_math('POWER',facing_weight(tree),2.35),.34)
-weight=optic_math('ADD',optic_math('MULTIPLY',tail,optic_math('SUBTRACT',1,selector)),
-                  optic_math('MULTIPLY',halo_weight,selector))
-light=tree.nodes.new('ShaderNodeEmission')
-light.inputs[0].default_value=(1.,.37,.02,1)
-tree.links.new(weight,light.inputs['Strength'])
-add=tree.nodes.new('ShaderNodeAddShader')
-tree.links.new(tree.nodes.new('ShaderNodeBsdfTransparent').outputs[0],add.inputs[0])
-tree.links.new(light.outputs[0],add.inputs[1])
-tree.links.new(add.outputs[0],tree.nodes.get('Material Output').inputs['Surface'])
-
-
-def globe(name,radius,mat,segments,rings):
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=segments,ring_count=rings,radius=radius)
-    obj=bpy.context.object
-    obj.name=name
-    obj.data.materials.append(mat)
-    for f in obj.data.polygons:
-        f.use_smooth=True
+def casting(name, outer, x, thickness, bevel, mat, holes=()):
+    """Extrude a filleted silhouette in the side plane, including through-openings."""
+    curve = bpy.data.curves.new(name, 'CURVE')
+    curve.dimensions = '2D'
+    curve.fill_mode = 'BOTH'
+    curve.extrude = thickness * .5 - bevel
+    curve.bevel_depth = bevel
+    curve.bevel_resolution = 3
+    for i, outline in enumerate((outer, *holes)):
+        path = rounded_profile(outline)
+        area = sum(a.x*b.y - a.y*b.x for a, b in zip(path, path[1:]+path[:1]))
+        if (area > 0) == (i > 0):
+            path.reverse()
+        line = curve.splines.new('POLY')
+        line.points.add(len(path)-1)
+        for point, yz in zip(line.points, path):
+            point.co = (yz.x, yz.y, 0, 1)
+        line.use_cyclic_u = True
+    obj = bpy.data.objects.new(name, curve)
+    bpy.context.collection.objects.link(obj)
+    obj.matrix_world = Matrix(((0,0,1,x),(1,0,0,0),(0,1,0,0),(0,0,0,1)))
+    curve.materials.append(mat)
     return obj
-globe('01 | Incandescent amber heart',46.,core,36,18)
-equator=Vector((1,.14,.29)).normalized()
-meridian=Vector((-.31,.75,.59))
-meridian=(meridian-equator*meridian.dot(equator)).normalized()
-def arc(name,radius,start,end,width):
-    steps=math.ceil((end-start)/4.8)
-    points=[radius*(equator*math.cos(a)+meridian*math.sin(a))
-            for a in [math.radians(start+(end-start)*i/steps) for i in range(steps+1)]]
-    return trim(name,points,width,orbit)
-arc('02 | Main solar orbit',61.,-168,168,3.05)
-arc('03 | Fine echo arc',67.3,16,140,1.35)
-halo=globe('04 | Optical aureole',65.,glow,24,12)
-for loop in halo.data.uv_layers.active.data:
-    loop.uv=(2.,.5)
-# Four feathered strips keep the afterimage readable across viewing angles.
-for j in range(4):
-    radial=Vector((math.cos(j*math.pi/4),0,math.sin(j*math.pi/4)))
-    stations=[(0.,16.,25.),(.15,-2.,28.),(.34,-32.,23.),(.62,-76.,14.),(.85,-117.,6.),(1.,-151.,.2)]
-    verts=[Vector((0,y,0))+radial*w*s for _,y,w in stations for s in (-1,1)]
-    strip=mesh('05 | Flight afterimage',verts,[(2*i,2*i+1,2*i+3,2*i+2) for i in range(len(stations)-1)],glow,False)
-    uv=strip.data.uv_layers.new(name='UVMap')
-    for loop in strip.data.loops:
-        idx=loop.vertex_index
-        uv.data[loop.index].uv=(stations[idx//2][0],float(idx%2))
-save_model('SunPulse.blend','SM_SunPulse',math.pi*1.5)
+
+
+def enamel_band(name, stations, y0, y1, exponent, side, lift, edges, mat):
+    points, count, across = [], 37, 5
+    for i in range(count):
+        t = i/(count-1)
+        y = y0 + (y1-y0)*t
+        low, high = next((a,b) for a,b in zip(stations,stations[1:]) if a[0] <= y <= b[0]+1.e-5)
+        f = (y-low[0])/(high[0]-low[0])
+        z,w,h = (low[j]+(high[j]-low[j])*f for j in (1,2,3))
+        bottom, top = edges(t)
+        for j in range(across):
+            a = bottom + (top-bottom)*j/(across-1)
+            points.append((side*(w+lift)*profile(math.cos(a),exponent), y, z+(h+lift)*profile(math.sin(a),exponent)))
+    faces = [(i*across+j,(i+1)*across+j,(i+1)*across+j+1,i*across+j+1)
+             for i in range(count-1) for j in range(across-1)]
+    return mesh(name, points, faces if side>0 else [q[::-1] for q in faces], mat)
+
+
+def makers_mark(keel, side, lettering, metal):
+    # Draw the mirrored side plates separately so the mark reads from either side.
+    def point(u,v,lift=.075):
+        y=.20+side*(u-3.9)*1.26
+        z=7.83+v*1.16
+        a,b=next((a,b) for a,b in zip(keel,keel[1:]) if a[0]<=y<=b[0])
+        t=(y-a[0])/(b[0]-a[0])
+        centre,width,height=[a[k]+t*(b[k]-a[k]) for k in (1,2,3)]
+        x=width*(1.-(abs(z-centre)/height)**(2/.63))**(.63/2)
+        return (side*(x+lift),y,z)
+    star=[(0.,.87),(.16,.17),(.84,0.),(.17,-.15),(0.,-.78),(-.16,-.16),(-.76,0.),(-.15,.16)]
+    vertices=[point(.70,.03,.15)]+[point(.70+u,.03+v,.13) for u,v in star]
+    mesh('Signature | Four-point sun',vertices,[(0,(i+1)%8+1,i+1) for i in range(8)],metal,False)
+    for offset,strokes in [
+        (1.97,[(1.17,.57),(.98,.76),(.32,.76),(.08,.53),(.10,.27),(.31,.13),(.91,.07),
+               (1.09,-.09),(1.04,-.36),(.82,-.54),(.20,-.54),(0.,-.36)]),
+        (3.67,[(.37,.76),(.98,.76),(1.19,.53),(1.10,-.27),(.86,-.55),(.25,-.55),
+               (.04,-.31),(.13,.49),(.37,.76)]),
+        (5.41,[(.23,.78),(.07,-.52),(1.18,-.52)])]:
+        trim('Signature | Inlaid SOL lettering',[point(offset+y,z,.10) for y,z in strokes],.096,lettering)
+
+
+def aperture(name, profile_data, mat, exponent=.79, sides=48):
+    # The section turns back into the throat. Its interior is visible from the front.
+    rings = [((0,y,10),w,h) for y,w,h in profile_data]
+    points = [(w*profile(math.cos(a*tau/sides),exponent),center[1],10+h*profile(math.sin(a*tau/sides),exponent))
+              for center,w,h in rings for a in range(sides)]
+    faces = []
+    for row in range(len(rings)):
+        end = (row+1) % len(rings)
+        for i in range(sides):
+            j = (i+1)%sides
+            faces.append((row*sides+i,end*sides+i,end*sides+j,row*sides+j))
+    return mesh(name,points,faces,mat)
+
+
+def sphere(name, center, radii, mat):
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=48,ring_count=24,location=center)
+    obj = bpy.context.object
+    obj.name = name
+    obj.scale = radii
+    obj.data.materials.append(mat)
+    for face in obj.data.polygons:
+        face.use_smooth = True
+    return obj
+
+
+def scope_face(center,normal,mat):
+    right = Vector((1,0,0))
+    up = normal.cross(right).normalized()
+    vertices, uv = [center+normal*.12], [(.5,.5)]
+    sides = 56
+    for radius in (.52,.84,1.):
+        for i in range(sides):
+            a = i*tau/sides
+            x = radius*profile(math.cos(a),.55)
+            y = radius*profile(math.sin(a),.55)
+            vertices.append(center + right*(2.98*x) + up*(1.40*y) + normal*(.12*(1-radius*radius)))
+            uv.append((.5+.5*x,.5+.5*y))
+    faces = [(0,1+i,1+(i+1)%sides) for i in range(sides)]
+    for row in range(2):
+        start = 1+row*sides
+        for i in range(sides):
+            j = (i+1)%sides
+            faces.append((start+i,start+sides+i,start+sides+j,start+j))
+    obj = mesh('Dash | Curved phosphor glass',vertices,faces,mat)
+    layer = obj.data.uv_layers.new(name='UVMap')
+    for loop in obj.data.loops:
+        layer.data[loop.index].uv = uv[loop.vertex_index]
+
+
+def source_optics(corona, screen):
+    tree = corona.node_tree
+    ramp = tree.nodes.new('ShaderNodeValToRGB')
+    ramp.color_ramp.elements[0].color = (1.,.64,.16,1)
+    ramp.color_ramp.elements[1].color = (.40,.069,.004,1)
+    ramp.color_ramp.elements.new(.53).color = (1.,.33,.016,1)
+    tree.links.new(tree.nodes.new('ShaderNodeLayerWeight').outputs['Facing'],ramp.inputs[0])
+    bsdf = tree.nodes.get('Principled BSDF')
+    for pin in ('Base Color','Emission Color'):
+        tree.links.new(ramp.outputs[0],bsdf.inputs[pin])
+    bsdf.inputs['Emission Strength'].default_value = .85
+
+    # A packed frame makes the editable Blender scene show the same phosphor pattern as Unreal.
+    tree = screen.node_tree
+    width,height = 256,128
+    raster = bpy.data.images.new('Phosphor trace - source preview',width,height,alpha=False,float_buffer=True)
+    raster.colorspace_settings.name = 'Non-Color'
+    values = []
+    for row in range(height):
+        v = (row+.5)/height
+        for col in range(width):
+            u = (col+.5)/width
+            wave = .48+.23*math.sin(tau*(u*1.30+.07))+.065*math.sin(tau*(u*2.60-.08))
+            distance = abs(v-wave)
+            beam = math.exp(-distance*distance/.00050) + .18*math.exp(-distance*distance/.009)
+            grid = .037 if min((u*8)%1,(v*4)%1)<.045 else 0.
+            values.extend((.009+grid*.25+beam*.33,.048+grid+beam*1.15,.042+grid*.8+beam*.69,1))
+    raster.pixels.foreach_set(values)
+    raster.pack()
+    tex = tree.nodes.new('ShaderNodeTexImage')
+    tex.image = raster
+    bsdf = tree.nodes.get('Principled BSDF')
+    tree.links.new(tex.outputs['Color'],bsdf.inputs['Base Color'])
+    tree.links.new(tex.outputs['Color'],bsdf.inputs['Emission Color'])
+    bsdf.inputs['Emission Strength'].default_value = 1.0
+
+
+def build_rifle():
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    orange = material('SolMandarin',(.76,.164,.032),.33,.24)
+    ink = material('SolPetrol',(.022,.073,.09),.53,.30)
+    nickel = material('SolNickel',(.57,.62,.62),.76,.24)
+    cream = material('RadioIvory',(.86,.72,.50),.17,.30)
+    graphite = material('RadioEbony',(.023,.033,.033),.21,.41)
+    corona = material('SolCorona',(1.,.48,.025),.10,.22,.9)
+    scope = material('SolPhosphor',(.026,.18,.14),.10,.25,.9)
+    source_optics(corona,scope)
+
+    # The open shoulder frame and the two swept rear fins give a readable silhouette in profile.
+    shoulder = [(-25.1,7.6),(-21.4,8.6),(-12,9.3),(-5.0,8.9),(-1.4,6.4),(-2.8,3.9),
+                (-6.8,3.55),(-13.5,.10),(-21.9,-3.95),(-24.85,-4.05),(-25.75,-2.55)]
+    opening = [(-22.9,5.43),(-17.4,6.16),(-9.8,6.22),(-11.2,5.02),(-18.1,1.55),(-22.55,.02)]
+    casting('Tail | Hollow midnight casting',shoulder,0,4.25,.36,ink,(opening,))
+    heel = [(-26.15,7.0),(-25.75,7.57),(-24.65,7.77),(-24.32,6.32),(-24.5,-3.32),
+            (-25.10,-4.43),(-26.22,-4.16),(-26.65,-2.48)]
+    casting('Tail | Rubber heel',heel,0,4.85,.44,graphite)
+    for side in (-1,1):
+        casting('Tail | Mandarin outer spar',[(-24.5,7.7),(-16.4,8.45),(-8.6,8.62),(-5.6,7.70),
+                (-8.,7.04),(-17.6,7.0),(-23.9,6.27)],side*2.13,.30,.11,orange)
+        trim('Tail | Nickel lower edge',[(side*2.13,y,z) for y,z in
+             [(-23.3,-2.45),(-21.8,-2.30),(-17.8,-.57),(-13.3,1.66),(-7.7,4.30)]],.105,nickel)
+
+    keel = [(-13.7,7.95,2.34,2.24),(-12.5,8.10,3.26,2.75),(-9.1,8.15,4.04,3.0),
+            (-3.2,8.12,4.62,3.66),(4.8,8.0,4.80,3.76),(10.4,8.0,4.60,3.22),
+            (14.4,8.13,4.02,2.78),(16.1,8.72,3.05,2.12)]
+    body('Cabin | Deep petrol keel',keel,ink,.63)
+    mantle = [(-13.3,8.95,2.38,1.67),(-12.7,9.73,3.09,2.18),(-10.4,10.37,3.91,2.63),
+              (-6.4,10.70,4.58,3.06),(-1.6,10.92,4.88,3.02),(4.4,10.93,4.98,2.80),
+              (9.9,10.70,4.87,2.36),(13.4,10.43,4.34,1.97),(15.3,10.36,3.39,1.70)]
+    body('Cabin | Streamlined enamel bonnet',mantle,orange,.75)
+    for side in (-1,1):
+        def sweep(t):
+            centre=.02+.42*math.sin(math.pi*(t-.18))-.22*t
+            half=.025+.22*math.sin(t*math.pi)**.75
+            return centre-half,centre+half
+        enamel_band('Cabin | Nickel flash outline',mantle,-12.3,14.35,.75,side,.085,sweep,nickel)
+        def ivory_sweep(t):
+            lo,hi=sweep(t)
+            return lo+.044, max(lo+.046,hi-.043)
+        enamel_band('Cabin | Swept porcelain flash',mantle,-11.9,13.86,.75,side,.145,ivory_sweep,cream)
+        for j in range(3):
+            enamel_band('Cabin | Low speed flute',keel,-6.3+j*1.22,8.5-j*.27,.63,side,.095,
+                        lambda t,j=j:(-.26-.19*j+.12*t,-.218-.19*j+.12*t),nickel)
+        makers_mark(keel,side,cream,nickel)
+        fin=[(-10.5,12.2),(-10.45,16.7),(-9.73,16.98),(-6.25,15.53),(-1.4,14.1),
+             (5.10,12.86),(5.7,12.34),(.0,12.14),(-6.6,11.50)]
+        casting('Crest | Swept enamel tailfin',fin,side*2.93,.68,.19,orange)
+        casting('Crest | Inlaid petrol teardrop',[(-9.98,15.98),(-9.58,16.32),(-8.92,16.04),
+                (-6.1,14.91),(-3.2,14.03),(-6.36,14.64),(-9.55,15.62)],side*3.28,.14,.045,ink)
+        trim('Crest | Rolled silver edge',[(side*2.93,y,z) for y,z in
+             [(-10.24,16.55),(-9.82,16.79),(-8.9,16.50),(-6.2,15.37),(-1.4,13.98),(3.0,13.12)]],.15,nickel)
+
+    # Low dashboard faces back and up into the player's sightline.
+    normal = Vector((0,-.64,.77)).normalized()
+    right = Vector((1,0,0))
+    origin = Vector((0,-11.05,13.12))
+    def bezel(name, sections, mat):
+        return shell(name,[(origin+normal*d,w,h) for d,w,h in sections],mat,axis=normal,radial=right,exponent=.56)
+    bezel('Dash | Petrol cowl',[(-1.65,2.85,1.55),(-.8,3.56,1.92),(.14,3.64,1.91),(.38,3.43,1.75)],ink)
+    bezel('Dash | Satin bezel',[(.29,3.5,1.82),(.48,3.56,1.77),(.61,3.34,1.63)],nickel)
+    bezel('Dash | Insulating seal',[(.60,3.32,1.62),(.68,3.13,1.49)],graphite)
+    scope_face(origin+normal*.69,normal,scope)
+    # A raised comet emblem is visible from above, even in the alternate camera.
+    centre=Vector((0,4.2,13.72))
+    star=[(0,-1.80),(.25,-.26),(1.04,0),(.23,.20),(0,1.75),(-.23,.20),(-1.04,0),(-.25,-.26)]
+    mesh('Cabin | Inlaid compass spark',[centre]+[centre+Vector((x,y,.07)) for x,y in star],
+         [(0,i+1,(i+1)%len(star)+1) for i in range(len(star))],cream,False)
+
+    # Two hands bear on the same grip-space stations as the saved animation.
+    grip = [(-10.62,-3.74,2.22,3.10),(-10.1,-3.6,2.59,3.35),(-8.5,-3.25,2.63,3.35),
+            (-5.1,-2.28,2.56,3.08),(-.8,-.68,2.34,2.78),(3.6,1.05,2.71,3.16),(5.57,1.54,3.0,3.39)]
+    def handle(name,stations,mat):
+        return shell(name,[((0,y,z),w,d) for z,y,w,d in stations],mat,axis=(0,0,1),exponent=.74)
+    handle('Grip | Fluted Bakelite',grip,graphite)
+    handle('Grip | Nickel pommel',[(-10.97,-3.72,2.15,3.01),(-10.78,-3.7,2.51,3.30),
+                                   (-10.38,-3.67,2.62,3.36)],nickel)
+    for side in (-1,1):
+        panel=[(-4.40,-9.05),(-2.46,-9.22),(.53,-2.36),(1.52,.21),(.50,1.60),(-1.60,-1.05)]
+        casting('Grip | Mandarin inset',panel,side*2.48,.33,.11,orange)
+        for j in range(3):
+            trim('Grip | Raised thumb flute',[(side*2.70,-3.55+j*.55,-7.67),(side*2.70,-.77+j*.44,-1.39)],.070,ink)
+    guard=[(.8,-3.7),(2.,-4.7),(5.9,-5.14),(9.0,-4.03),(10.47,-1.58),(10.7,4.53),
+           (9.51,4.87),(9.51,-1.22),(8.37,-3.11),(5.57,-4.0),(2.68,-3.90),(1.04,-2.93)]
+    casting('Grip | Cast finger bow',guard,0,1.05,.24,nickel)
+    trim('Grip | Curved dark paddle',[(0,5.72,4.53),(0,5.92,2.78),(0,5.06,.82),(0,5.57,-.1)],.41,graphite)
+    cradle=[(6.5,4.93,2.05,1.39),(10.3,4.63,3.26,1.71),(15.1,3.45,3.66,1.80),
+            (21.7,2.53,3.86,1.99),(28.5,2.63,3.91,2.03),(32.8,3.20,3.70,1.97),
+            (36.65,4.35,3.03,1.71),(39.0,5.83,2.36,1.27)]
+    body('Palm | Streamlined supporting shoe',cradle,ink,.64)
+    body('Palm | Checkered Bakelite pad',[(17.3,1.94,2.65,1.02),(19.5,1.21,3.51,1.13),
+         (24.6,1.04,3.68,1.32),(30.1,1.32,3.61,1.26),(33.2,2.02,3.15,1.19),(34.8,3.07,2.58,1.13)],graphite,.63)
+    for side in (-1,1):
+        enamel_band('Palm | Mandarin coachline',cradle,11.05,37.47,.64,side,.08,
+                    lambda t:(.08,.09+.33*math.sin(math.pi*t)**.64),orange)
+    for j in range(5):
+        y=20.5+j*2.35
+        trim('Palm | Scalloped grip ribs',[(3.45,y,.82),(3.20,y+.5,.28),(2.66,y+.72,.04),
+             (0,y+.80,-.12),(-2.66,y+.72,.04),(-3.20,y+.5,.28),(-3.45,y,.82)],.12,ink)
+
+    # The cell is visible through open air between the flowing spars, from both sides and above.
+    for side in (-1,1):
+        spars=[(10.4,11.4,3.5,.96,1.61),(13.1,12.1,4.05,1.03,1.43),
+               (17.4,13.96,4.48,.72,.93),(21.2,14.59,4.7,.52,.57),
+               (24.65,14.65,4.66,.48,.48),(28.1,14.16,4.41,.57,.49),
+               (31.18,12.65,4.03,.75,.66),(34.3,10.36,3.18,.92,.95)]
+        shell('Cell | Mandarin flying buttress',[((side*x,y,z),w,h) for y,z,x,w,h in spars],orange,exponent=.67,sides=32)
+        trim('Cell | Highlight on the spar',[(side*(x+w*.78),y,z+h*.45) for y,z,x,w,h in spars[1:-1]],.12,nickel)
+        lower=[(12.7,6.98,3.26,1.25,1.13),(15.1,6.01,3.75,.95,.89),(20.0,5.39,4.24,.62,.55),
+               (25.8,5.37,4.27,.59,.54),(30.0,5.99,4.03,.72,.73),(34.55,8.0,3.51,.89,1.13)]
+        shell('Cell | Porcelain lower spar',[((side*x,y,z),w,h) for y,z,x,w,h in lower],cream,exponent=.7,sides=32)
+    body('Cell | Aft isolator',[(13.2,10.65,2.93,2.8),(14.8,10.8,3.30,3.08),(16.3,10.91,2.76,2.65),
+                                (18.0,11.11,2.04,2.03)],ink)
+    body('Cell | Forward isolator',[(27.8,11.18,1.78,1.91),(29.8,10.7,2.32,2.54),
+                                    (31.2,10.2,3.02,3.18),(33.25,10.,3.12,3.14)],ink)
+    orb=Vector((0,22.85,11.15))
+    sphere('Cell | Captive sun',orb,(4.10,5.10,4.04),corona)
+    u=Vector((.96,.24,-.12)).normalized()
+    v=Vector((.08,.52,.87))
+    v=(v-u*v.dot(u)).normalized()
+    for label,r,a,b,width,mat in [('Nickel orbital cradle',5.05,-162,161,.19,nickel),
+                                 ('Porcelain echo arc',5.32,40,160,.13,cream)]:
+        angles=[math.radians(a+(b-a)*i/56) for i in range(57)]
+        trim('Cell | '+label,[orb+r*(u*math.cos(t)+v*math.sin(t)) for t in angles],width,mat)
+
+    # Stepped heat vanes lead to a compact recessed optical emitter.
+    body('Nose | Petrol neck',[(30.4,10.05,2.72,2.79),(32.,10,3.29,3.30),(34.5,10,2.74,2.69),
+                                (41.9,10,2.34,2.41),(46.2,10,2.77,2.81),(49.2,10,2.72,2.70)],ink,.77)
+    for i,(y,w,h) in enumerate([(33.60,4.64,4.32),(35.93,4.53,4.21),(38.22,4.31,4.04),(40.47,4.0,3.80)]):
+        aperture('Nose | Streamlined nickel vane %d'%(i+1),
+                 [(y-.51,w-.48,h-.44),(y-.31,w-.13,h-.11),(y-.12,w,h),(y+.17,w,h),
+                  (y+.40,w-.29,h-.22),(y+.48,2.06,2.14),(y-.49,2.06,2.14)],nickel,exponent=.83)
+    for side in (-1,1):
+        runner=[(32.2,8.46,3.30,.57,.86),(34.7,7.27,3.37,.55,.66),(39.3,7.11,3.24,.49,.53),
+                (43.1,7.8,2.93,.49,.57),(46.4,8.99,2.52,.61,.70)]
+        shell('Nose | Enamel side runner',[((side*x,y,z),w,h) for y,z,x,w,h in runner],orange,sides=28)
+    aperture('Nose | Midnight ceramic surround',[(42.05,2.64,2.83),(43.34,3.36,3.38),(44.5,3.64,3.63),
+             (47.85,3.69,3.65),(49.23,3.42,3.38),(49.41,2.66,2.60),(42.10,2.23,2.18)],ink)
+    aperture('Nose | Ivory noseband',[(44.55,3.63,3.63),(44.75,3.79,3.77),(45.36,3.79,3.77),
+             (45.57,3.66,3.65),(45.56,3.44,3.40),(44.55,3.44,3.40)],cream)
+    aperture('Nose | Rolled nickel lip',[(48.7,3.55,3.51),(49.11,3.78,3.73),(50.83,3.76,3.71),
+             (51.51,3.49,3.45),(51.68,2.95,2.91),(51.12,2.75,2.73),(48.76,2.80,2.78)],nickel)
+    aperture('Nose | Recessed optical socket',[(48.7,2.84,2.84),(51.22,2.80,2.79),(51.38,2.56,2.55),
+             (49.35,2.17,2.16),(49.15,1.71,1.70),(48.51,1.65,1.65)],graphite)
+    sphere('Nose | Honey pilot lens',(0,49.44,10),(1.75,2.48,1.75),corona)
+    save_model('ClassicRifle.blend','SM_Rifle',math.pi)
+
+
+def build_projectile():
+    """One closed hot filament and its finite aureole, with the impact point near the nose."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    core = material('PulseCore',(1.,.66,.10),0.,.35,2.6)
+    halo = material('PulseGlow',(1.,.23,.012),0.,.5,.65)
+
+    def bolt_surface(name, profile_data, mat, sides):
+        vertices, faces, stations = [], [], []
+        for y,radius in profile_data:
+            count = sides if radius else 1
+            row = []
+            for i in range(count):
+                angle = tau*i/sides
+                row.append(len(vertices))
+                vertices.append((radius*math.cos(angle),y,radius*math.sin(angle)))
+            stations.append(row)
+        for back,front in zip(stations,stations[1:]):
+            for i in range(sides):
+                j=(i+1)%sides
+                if len(back)==1:
+                    faces.append((back[0],front[i],front[j]))
+                elif len(front)==1:
+                    faces.append((back[i],front[0],back[j]))
+                else:
+                    faces.append((back[i],front[i],front[j],back[j]))
+        obj=mesh(name,vertices,faces,mat)
+        layer=obj.data.uv_layers.new(name='UVMap')
+        tail,nose=profile_data[0][0],profile_data[-1][0]
+        for loop in obj.data.loops:
+            x,y,z=vertices[loop.vertex_index]
+            layer.data[loop.index].uv=((y-tail)/(nose-tail),math.atan2(z,x)/tau+.5)
+
+    # The existing .24-scale gameplay instance displays a 63 cm core and a 75 cm halo.
+    bolt_surface('01 | Ivory plasma filament',
+                 [(-225.,0.),(-222.,2.4),(-214.,4.4),(-188.,5.7),(-130.,6.1),
+                  (12.,6.1),(27.,5.7),(34.,4.6),(38.,2.4),(39.,0.)],core,20)
+    bolt_surface('02 | Amber corona',
+                 [(-263.,0.),(-251.,5.0),(-226.,10.8),(-192.,17.8),(-132.,21.2),
+                  (3.,21.2),(24.,19.3),(39.,13.6),(47.,6.4),(49.,0.)],halo,28)
+
+    # Match the game material's feathered emission in the editable source.
+    for surface,transparent in ((core,False),(halo,True)):
+        tree=surface.node_tree
+        geo=tree.nodes.new('ShaderNodeNewGeometry')
+        dot=tree.nodes.new('ShaderNodeVectorMath')
+        dot.operation='DOT_PRODUCT'
+        tree.links.new(geo.outputs['Normal'],dot.inputs[0])
+        tree.links.new(geo.outputs['Incoming'],dot.inputs[1])
+        absolute=tree.nodes.new('ShaderNodeMath')
+        absolute.operation='ABSOLUTE'
+        tree.links.new(dot.outputs['Value'],absolute.inputs[0])
+        emissive=tree.nodes.new('ShaderNodeEmission')
+        if transparent:
+            power=tree.nodes.new('ShaderNodeMath')
+            power.operation='POWER'
+            power.inputs[1].default_value=4.5
+            tree.links.new(absolute.outputs[0],power.inputs[0])
+            tree.links.new(power.outputs[0],emissive.inputs['Strength'])
+            emissive.inputs['Color'].default_value=(2.4,.55,.018,1)
+            add=tree.nodes.new('ShaderNodeAddShader')
+            tree.links.new(tree.nodes.new('ShaderNodeBsdfTransparent').outputs[0],add.inputs[0])
+            tree.links.new(emissive.outputs[0],add.inputs[1])
+            final=add
+        else:
+            ramp=tree.nodes.new('ShaderNodeValToRGB')
+            ramp.color_ramp.elements[0].color=(1.,.32,.015,1)
+            ramp.color_ramp.elements[1].color=(1.,.90,.67,1)
+            tree.links.new(absolute.outputs[0],ramp.inputs[0])
+            tree.links.new(ramp.outputs[0],emissive.inputs['Color'])
+            emissive.inputs['Strength'].default_value=4.0
+            final=emissive
+        tree.links.new(final.outputs[0],tree.nodes.get('Material Output').inputs['Surface'])
+    save_model('SunPulse.blend','SM_SunPulse',math.pi*1.5)
+
+
+if __name__=='__main__':
+    if '--projectile-only' not in sys.argv:
+        build_rifle()
+    if '--rifle-only' not in sys.argv:
+        build_projectile()

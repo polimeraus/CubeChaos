@@ -83,7 +83,7 @@ bool FWeaponInventoryTest::RunTest(const FString&)
     Key(EKeys::MouseScrollUp);Active(EPlayerWeapon::Default);
     Collect(EPickupWeapon::BFG);Active(EPlayerWeapon::BFG);
     Key(EKeys::MouseScrollDown);Active(EPlayerWeapon::Default);
-    TestEqual(TEXT("Switching back restores the radio carbine"), Player->Railgun->WeaponMesh->GetStaticMesh()->GetPathName(),
+    TestEqual(TEXT("Switching back restores the default projectile rifle"), Player->Railgun->WeaponMesh->GetStaticMesh()->GetPathName(),
         FString(TEXT("/Game/Weapons/DefaultWeapon/Meshes/SM_Rifle.SM_Rifle")));
     TestTrue(TEXT("Default transform restored"),Player->Railgun->WeaponMesh->GetRelativeTransform().Equals(FTransform::Identity));
     Key(EKeys::MouseScrollDown);Active(EPlayerWeapon::BFG);
@@ -104,13 +104,15 @@ bool FWeaponInventoryTest::RunTest(const FString&)
         const auto* Model=It->FindComponentByClass<UStaticMeshComponent>();
         if (TestNotNull(TEXT("Fired pulse has a render component"), Model) && TestNotNull(TEXT("Pulse mesh loads"), Model->GetStaticMesh().Get()))
         {
-            TestEqual(TEXT("Primary fire spawns the solar pulse"), Model->GetStaticMesh()->GetFName(), FName(TEXT("SM_SunPulse")));
-            TestTrue(TEXT("Core, orbit and wake retain their separate materials"), Model->GetMaterialIndex(TEXT("PulseCore"))!=INDEX_NONE
-                && Model->GetMaterialIndex(TEXT("PulseOrbit"))!=INDEX_NONE && Model->GetMaterialIndex(TEXT("PulseGlow"))!=INDEX_NONE);
+            TestEqual(TEXT("Primary fire uses SOL's bolt asset"), Model->GetStaticMesh()->GetFName(), FName(TEXT("SM_SunPulse")));
+            TestTrue(TEXT("Only the filament and corona render"), Model->GetStaticMesh()->GetNumSections(0)==2
+                && Model->GetMaterialIndex(TEXT("PulseCore"))!=INDEX_NONE && Model->GetMaterialIndex(TEXT("PulseGlow"))!=INDEX_NONE);
             const int32 CoreSlot=Model->GetMaterialIndex(TEXT("PulseCore"));
             TestTrue(TEXT("Automatic fire shares the authored core material"), CoreSlot!=INDEX_NONE
                 && Model->GetMaterial(CoreSlot)==Model->GetStaticMesh()->GetMaterial(CoreSlot));
-            TestTrue(TEXT("The tail points behind the moving sphere"), Model->GetStaticMesh()->GetBounds().Origin.X < -25.f);
+            const FBox BoltBounds=Model->GetStaticMesh()->GetBoundingBox();
+            TestTrue(TEXT("Finite streak lies along the flight axis"), BoltBounds.GetSize().X>7.*BoltBounds.GetSize().Y
+                && BoltBounds.Min.X<0. && BoltBounds.Max.X>0.);
             TestEqual(TEXT("The visible wake has no collision"), Model->GetCollisionEnabled(), ECollisionEnabled::NoCollision);
         }
         const auto* Sphere=It->FindComponentByClass<USphereComponent>();
