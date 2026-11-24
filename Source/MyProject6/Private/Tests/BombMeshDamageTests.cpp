@@ -147,6 +147,17 @@ bool FBombMeshDamageTest::RunTest(const FString&)
     Small->Width=Small->Depth=Small->Height=40;Small->CornerRadius=2;Small->RebuildMesh();
     T.Bomb(FVector(14000,3000,20),100)->Explode();
     TestEqual(TEXT("A fully enclosed rounded box can be removed completely"),Small->GetDynamicMeshComponent()->GetMesh()->TriangleCount(),0);
+    TestFalse(TEXT("A completely removed object loses collision in the same blast"),
+        T.Trace(FVector(14000,3000,120),FVector(14000,3000,-20),Hit));
+
+    // A scaled-down render bound can fit inside the blast while one end of the mesh remains outside.
+    auto* LongBox=T.MeshBox(FTransform(FRotator(0,90,0),FVector(16000,3000,1000),FVector(2,1,1)),FVector(250,30,30));
+    LongBox->GetDynamicMeshComponent()->SetBoundsScale(.1f);
+    T.Bomb(FVector(16000,3000,1000),100)->Explode();
+    TestTrue(TEXT("The far end of a partly enclosed transformed mesh stays solid"),
+        T.Trace(FVector(16000,3180,1080),FVector(16000,3180,920),Hit));
+    TestFalse(TEXT("The centre of the same mesh opens immediately"),
+        T.Trace(FVector(16000,3000,1080),FVector(16000,3000,920),Hit));
 
     auto* Lobby=T.World->SpawnActor<AParametricLobbyPlatform>(FVector(20000,3000,1000),FRotator::ZeroRotator);
     auto* LobbyBomb=T.Bomb(FVector(20000,3000,1030),200);LobbyBomb->Explode();

@@ -555,18 +555,30 @@ void ARailgunWeapon::Tick(float DeltaSeconds)
     PreviousVelocity = Velocity;
     PreviousAim = Aim;
     const float Amount = FMath::Clamp(MotionAmount, 0.f, 1.5f);
-    const FQuat Rotation = (ViewMotion.Rotation * Amount).Quaternion();
+    FQuat Rotation = (ViewMotion.Rotation * Amount).Quaternion();
     // Rotate around the grip, keeping both hands and the rifle together through every layer.
     const FVector GripPivot(45, 11, -16);
-    SetActorRelativeLocation(RestLocation + ViewMotion.Location * Amount + GripPivot - Rotation.RotateVector(GripPivot));
-    SetActorRelativeRotation(Rotation);
+    FVector Location = RestLocation + ViewMotion.Location * Amount + GripPivot - Rotation.RotateVector(GripPivot);
     if (PurpleEquipRemaining > 0.f)
     {
         PurpleEquipRemaining = FMath::Max(0.f, PurpleEquipRemaining - DeltaSeconds);
         const float Lower = FMath::SmoothStep(0.f, 1.f, PurpleEquipRemaining / .32f);
-        AddActorLocalOffset(FVector(-8.f * Lower, 0, -18.f * Lower));
-        AddActorLocalRotation(FRotator(-12.f * Lower, 0, 4.f * Lower));
+        Location += Rotation.RotateVector(FVector(-8.f * Lower, 0, -18.f * Lower));
+        Rotation = Rotation * FRotator(-12.f * Lower, 0, 4.f * Lower).Quaternion();
     }
+    if (Wielder->GetActiveWeapon() == EPlayerWeapon::Bomb)
+    {
+        const float ThrowAge = float(GetWorld()->GetTimeSeconds() - LastBombThrowTime);
+        WeaponMesh->SetVisibility(ThrowAge >= .65f);
+        if (ThrowAge >= 0 && ThrowAge < .85f)
+        {
+            const float Reach = FMath::Sin(FMath::Clamp(ThrowAge/.25f,0.f,1.f)*UE_PI);
+            const float Lower = FMath::Sin(FMath::Clamp((ThrowAge-.16f)/.69f,0.f,1.f)*UE_PI);
+            Location += Rotation.RotateVector(FVector(Reach*12.f,0,Reach*5.f-Lower*20.f));
+        }
+    }
+    // Propagate the final grip and throw pose to the arms, muzzle and lights once.
+    GetRootComponent()->SetRelativeLocationAndRotation(Location, Rotation);
     if (Wielder->GetActiveWeapon() == EPlayerWeapon::SleepSignal && bSleepThrowAnimating)
     {
         const float Age = float(GetWorld()->GetTimeSeconds()-LastSleepThrowTime);
@@ -590,17 +602,6 @@ void ARailgunWeapon::Tick(float DeltaSeconds)
         const float Time=GetWorld()->GetTimeSeconds();
         if(ChargeMaterial)ChargeMaterial->SetScalarParameterValue(TEXT("Emission"),Active?5.f+Power*6.f+FMath::Sin(Time*35.f):2.3f);
         if(Active)AddActorLocalOffset(FVector(FMath::Sin(Time*37.f)*(.16f+Power*.3f)-Power*2.f,0,FMath::Sin(Time*29.f)*.1f));
-    }
-    if (Wielder->GetActiveWeapon() == EPlayerWeapon::Bomb)
-    {
-        const float ThrowAge = float(GetWorld()->GetTimeSeconds() - LastBombThrowTime);
-        WeaponMesh->SetVisibility(ThrowAge >= .65f);
-        if (ThrowAge >= 0 && ThrowAge < .85f)
-        {
-            const float Reach = FMath::Sin(FMath::Clamp(ThrowAge/.25f,0.f,1.f)*UE_PI);
-            const float Lower = FMath::Sin(FMath::Clamp((ThrowAge-.16f)/.69f,0.f,1.f)*UE_PI);
-            AddActorLocalOffset(FVector(Reach*12.f,0,Reach*5.f-Lower*20.f));
-        }
     }
     if (BFGMuzzleFlashRemaining > 0) BFGMuzzleLight->SetWorldLocation(GetVisualMuzzleLocation());
 }

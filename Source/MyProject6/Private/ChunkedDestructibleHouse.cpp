@@ -43,6 +43,7 @@ namespace
 
 AChunkedDestructibleHouse::AChunkedDestructibleHouse()
 {
+	bCacheCellConvexHulls = true;
 	FloorPattern = EChunkedFloorPattern::Solid;
 	ChunkSideLength = 24;
 
@@ -160,8 +161,8 @@ bool AChunkedDestructibleHouse::CalculateLayout()
 	const int64 TotalCells = EncodedWidth * GridHeightBlocks;
 	if (TotalCells <= 0 || TotalCells > FMath::Max(MaxGeneratedCells, 1))
 	{
-		CachedCellPolygons.Reset();
-		CachedCellPolygonValid.Reset();
+		CellProfiles.Reset();
+		CellProfileIndices.Reset();
 		UE_LOG(LogTemp, Error,
 			TEXT("%s requested %lld house cells, exceeding MaxGeneratedCells (%d)."),
 			*GetName(), TotalCells, MaxGeneratedCells);
@@ -208,17 +209,29 @@ bool AChunkedDestructibleHouse::CalculateLayout()
 
 void AChunkedDestructibleHouse::RebuildCellPolygonCache()
 {
-	const int32 TotalCells = CellCount.X * CellCount.Y;
-	CachedCellPolygons.SetNum(TotalCells);
-	CachedCellPolygonValid.Init(false, TotalCells);
+	CellProfiles.Reset();
+	CellProfileIndices.Init(INDEX_NONE, CellCount.X * CellCount.Y);
+	TArray<FVector2D> Polygon;
 	for (int32 Z = 0; Z < GridHeightBlocks; ++Z)
 	{
-		for (int32 EncodedX = 0; EncodedX < CellCount.X; ++EncodedX)
+		for (int32 X = 0; X < GridWidthBlocks; ++X)
 		{
-			const FIntPoint Cell(EncodedX, Z);
-			const int32 CellIndex = ToCellIndex(Cell);
-			CachedCellPolygonValid[CellIndex] = GetCellPolygonXZ(
-				Cell, CachedCellPolygons[CellIndex]);
+			int32 ProfileIndex = INDEX_NONE;
+			for (int32 Y = 0; Y < GridDepthBlocks; ++Y)
+			{
+				const FIntPoint Cell = EncodeCell(X, Y, Z);
+				if (!GetCellPolygonXZ(Cell, Polygon)) { continue; }
+				// Walls and roofs repeat along Y. Openings and custom profiles still
+				// use the virtual generator and must match every vertex to share storage.
+				if (ProfileIndex == INDEX_NONE || CellProfiles[ProfileIndex].Polygon != Polygon)
+				{
+					ProfileIndex = CellProfiles.AddDefaulted();
+					FCellProfile& Profile = CellProfiles[ProfileIndex];
+					Profile.Polygon = Polygon;
+					Profile.UpdateMetrics(BlockDimensions);
+				}
+				CellProfileIndices[ToCellIndex(Cell)] = ProfileIndex;
+			}
 		}
 	}
 }
@@ -227,23 +240,25 @@ bool AChunkedDestructibleHouse::GetCachedCellPolygonXZ(
 	FIntPoint Cell,
 	TArray<FVector2D>& OutPolygon) const
 {
-	TArray<FVector2D> Fallback;
-	const TArray<FVector2D>* Polygon = FindCellPolygonXZ(Cell, Fallback);
-	if (!Polygon) { OutPolygon.Reset(); return false; }
-	OutPolygon = *Polygon;
+	FCellProfile Fallback;
+	const FCellProfile* Profile = FindCellProfile(Cell, Fallback);
+	if (!Profile) { OutPolygon.Reset(); return false; }
+	OutPolygon = Profile->Polygon;
 	return true;
 }
 
-const TArray<FVector2D>* AChunkedDestructibleHouse::FindCellPolygonXZ(
-	FIntPoint Cell, TArray<FVector2D>& Fallback) const
+const AChunkedDestructibleHouse::FCellProfile* AChunkedDestructibleHouse::FindCellProfile(
+	FIntPoint Cell, FCellProfile& Fallback) const
 {
 	const int32 CellIndex = IsValidCell(Cell) ? ToCellIndex(Cell) : INDEX_NONE;
-	if (!CachedCellPolygons.IsValidIndex(CellIndex) ||
-		!CachedCellPolygonValid.IsValidIndex(CellIndex))
+	if (CellProfileIndices.IsValidIndex(CellIndex))
 	{
-		return GetCellPolygonXZ(Cell, Fallback) ? &Fallback : nullptr;
+		const int32 Index = CellProfileIndices[CellIndex];
+		return Index == INDEX_NONE ? nullptr : &CellProfiles[Index];
 	}
-	return CachedCellPolygonValid[CellIndex] ? &CachedCellPolygons[CellIndex] : nullptr;
+	if (!GetCellPolygonXZ(Cell, Fallback.Polygon)) { return nullptr; }
+	Fallback.UpdateMetrics(BlockDimensions);
+	return &Fallback;
 }
 
 FChunkedDestructibleHouseMetrics AChunkedDestructibleHouse::GetHouseMetrics() const
@@ -628,20 +643,17 @@ bool AChunkedDestructibleHouse::GetCellPolygonXZ(FIntPoint Cell, TArray<FVector2
 	return OutPolygon.Num() >= 3 && HousePolygonArea(OutPolygon) >= MinimumArea;
 }
 
-bool AChunkedDestructibleHouse::IsCellPolygonFullRectangle(
-	FIntPoint Cell,
-	const TArray<FVector2D>& Polygon) const
+void AChunkedDestructibleHouse::FCellProfile::UpdateMetrics(const FVector& Dimensions)
 {
-	return Polygon.Num() == 4 && FMath::IsNearlyEqual(
-		HousePolygonArea(Polygon),
-		BlockDimensions.X * BlockDimensions.Z,
-		0.1);
+	Bounds = FBox2D(Polygon);
+	bFullBlock = Polygon.Num() == 4 && FMath::IsNearlyEqual(
+		HousePolygonArea(Polygon), Dimensions.X * Dimensions.Z, 0.1);
 }
 
 bool AChunkedDestructibleHouse::ShouldCellExistInGeneratedShape(FIntPoint Cell) const
 {
-	TArray<FVector2D> Fallback;
-	return FindCellPolygonXZ(Cell, Fallback) != nullptr;
+	FCellProfile Fallback;
+	return FindCellProfile(Cell, Fallback) != nullptr;
 }
 
 int32 AChunkedDestructibleHouse::EvaluatePatternMaterial(FIntPoint Cell) const
@@ -734,13 +746,13 @@ void AChunkedDestructibleHouse::BuildChunkMesh(int32 ChunkIndex, FDynamicMesh3& 
 		{
 			continue;
 		}
-		TArray<FVector2D> Fallback;
-		const TArray<FVector2D>* PolygonView = FindCellPolygonXZ(Cell, Fallback);
-		if (!PolygonView)
+		FCellProfile Fallback;
+		const FCellProfile* Profile = FindCellProfile(Cell, Fallback);
+		if (!Profile)
 		{
 			continue;
 		}
-		const TArray<FVector2D>& Polygon = *PolygonView;
+		const TArray<FVector2D>& Polygon = Profile->Polygon;
 
 		const FVector Center = GetCellLocalCenter(Cell);
 		const double FrontY = Center.Y - BlockDimensions.Y * 0.5;
@@ -904,15 +916,15 @@ void AChunkedDestructibleHouse::BuildChunkSimpleCollision(
 		{
 			continue;
 		}
-		TArray<FVector2D> Fallback;
-		const TArray<FVector2D>* PolygonView = FindCellPolygonXZ(Cell, Fallback);
-		if (!PolygonView)
+		FCellProfile Fallback;
+		const FCellProfile* Profile = FindCellProfile(Cell, Fallback);
+		if (!Profile)
 		{
 			continue;
 		}
-		const TArray<FVector2D>& Polygon = *PolygonView;
+		const TArray<FVector2D>& Polygon = Profile->Polygon;
 		const FVector Center = GetCellLocalCenter(Cell);
-		if (IsCellPolygonFullRectangle(Cell, Polygon))
+		if (Profile->bFullBlock)
 		{
 			if (bMerge)
 			{
@@ -963,15 +975,15 @@ void AChunkedDestructibleHouse::GetPieceLocalBounds(
 	FVector& OutCenter,
 	FVector& OutSize) const
 {
-	TArray<FVector2D> Fallback;
-	const TArray<FVector2D>* Polygon = FindCellPolygonXZ(Cell, Fallback);
-	if (!Polygon)
+	FCellProfile Fallback;
+	const FCellProfile* Profile = FindCellProfile(Cell, Fallback);
+	if (!Profile)
 	{
 		OutCenter = GetCellLocalCenter(Cell);
 		OutSize = BlockDimensions;
 		return;
 	}
-	FBox2D Bounds(*Polygon);
+	const FBox2D& Bounds = Profile->Bounds;
 	const FVector CellCenter = GetCellLocalCenter(Cell);
 	OutCenter = FVector(Bounds.GetCenter().X, CellCenter.Y, Bounds.GetCenter().Y);
 	OutSize = FVector(Bounds.GetSize().X, BlockDimensions.Y, Bounds.GetSize().Y);
@@ -1074,12 +1086,16 @@ int32 AChunkedDestructibleHouse::SelectCellsInRadius(
 				{
 					continue;
 				}
-				FVector Point = GetCellLocalCenter(Cell);
+				FVector Point;
 				if (Shape == EChunkedFloorBlastShape::Sphere)
 				{
 					FVector Center, Size;
 					GetPieceLocalBounds(Cell, Center, Size);
 					Point = FBox(Center-Size*.5, Center+Size*.5).GetClosestPointTo(LocalImpact);
+				}
+				else
+				{
+					Point = GetCellLocalCenter(Cell);
 				}
 				const FVector LocalDelta = Point - LocalImpact;
 				const FVector ScaledDelta(

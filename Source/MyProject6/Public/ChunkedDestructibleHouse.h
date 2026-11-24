@@ -243,8 +243,15 @@ private:
 	int32 GridHeightBlocks = 1;
 	FVector HouseGridLocalMin = FVector::ZeroVector;
 	FIntVector SpatialChunkCount = FIntVector::ZeroValue;
-	TArray<TArray<FVector2D>> CachedCellPolygons;
-	TBitArray<> CachedCellPolygonValid;
+	struct FCellProfile
+	{
+		TArray<FVector2D> Polygon;
+		FBox2D Bounds{ForceInit};
+		bool bFullBlock = false;
+		void UpdateMetrics(const FVector& Dimensions);
+	};
+	TArray<FCellProfile> CellProfiles;
+	TArray<int32> CellProfileIndices;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMesh> DebrisCubeMesh;
@@ -265,9 +272,8 @@ private:
 	void GatherChunkCells(int32 ChunkIndex, TArray<FIntPoint>& OutCells) const;
 	void RebuildCellPolygonCache();
 	bool GetCachedCellPolygonXZ(FIntPoint Cell, TArray<FVector2D>& OutPolygon) const;
-	const TArray<FVector2D>* FindCellPolygonXZ(FIntPoint Cell, TArray<FVector2D>& Fallback) const;
+	const FCellProfile* FindCellProfile(FIntPoint Cell, FCellProfile& Fallback) const;
 	int32 GetChimneyBaseZ() const;
-	bool IsCellPolygonFullRectangle(FIntPoint Cell, const TArray<FVector2D>& Polygon) const;
 	void AppendPolygonFaceAtY(
 		UE::Geometry::FDynamicMesh3& Mesh,
 		const TArray<FVector2D>& Polygon,

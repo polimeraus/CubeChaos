@@ -1,6 +1,7 @@
 #include "BombProjectile.h"
 #include "ChunkedDestructibleFloor.h"
 #include "DestructibleRadialSculpture.h"
+#include "DestructibleMeshCut.h"
 #include "DynamicMeshActor.h"
 #include "SimpleHouseActor.h"
 #include "ParametricFantasyHouse.h"
@@ -30,8 +31,6 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/DamageType.h"
-#include "GeometryScript/MeshBooleanFunctions.h"
-#include "GeometryScript/MeshNormalsFunctions.h"
 #include "GeometryScript/MeshPrimitiveFunctions.h"
 #include "PhysicsEngine/BodyInstance.h"
 #include "Physics/Experimental/PhysScene_Chaos.h"
@@ -52,33 +51,6 @@ bool IsDynamicMeshStructure(const AActor* Actor)
     // use the same component type without being destructible world geometry.
     return Actor->IsA<ADynamicMeshActor>() || Actor->IsA<ASimpleHouseActor>()
         || Actor->IsA<AParametricFantasyHouse>();
-}
-
-void CarveBlastSphere(UDynamicMeshComponent* Component, UDynamicMesh* Cutter,
-    const FVector& Origin, float Radius)
-{
-    if (!IsValid(Component) || !Component->GetDynamicMesh() || Component->GetMesh()->TriangleCount() == 0
-        || Component->Bounds.GetBox().ComputeSquaredDistanceToPoint(Origin) >= FMath::Square(Radius)) return;
-    FGeometryScriptMeshBooleanOptions Options;
-    Options.bFillHoles = true;
-    Options.bSimplifyOutput = true;
-    Options.bAllowEmptyResult = true;
-    Options.OutputTransformSpace = EGeometryScriptBooleanOutputSpace::TargetTransformSpace;
-    const bool bHadCollision = Component->GetCollisionEnabled() != ECollisionEnabled::NoCollision;
-    Component->SetTransientDeferCollisionUpdates(true);
-    UGeometryScriptLibrary_MeshBooleanFunctions::ApplyMeshBoolean(Component->GetDynamicMesh(),
-        Component->GetComponentTransform(), Cutter, FTransform(Origin),
-        EGeometryScriptBooleanOperation::Subtract, Options);
-    FGeometryScriptSplitNormalsOptions Split;
-    Split.bSplitByOpeningAngle = true;
-    Split.OpeningAngleDeg = 60.f;
-    UGeometryScriptLibrary_MeshNormalsFunctions::ComputeSplitNormals(Component->GetDynamicMesh(),
-        Split, FGeometryScriptCalculateNormalsOptions());
-    Component->SetTransientDeferCollisionUpdates(false);
-    Component->InvalidateAutoCalculatedTangents();
-    Component->NotifyMeshUpdated();
-    // Publish the final hole immediately so the next thrown bomb can pass through it.
-    Component->SetComplexAsSimpleCollisionEnabled(bHadCollision, true);
 }
 
 FVector ClosestBlastPoint(UPrimitiveComponent* Component, const FVector& Origin)
@@ -411,6 +383,17 @@ void ABombProjectile::DamageStructures(const FVector& Origin)
     // Each structure is handled here once, independently of the NPC damage query.
     const float Radius = FMath::Max(1.f, BlastRadius);
     UDynamicMesh* Cutter = nullptr;
+    auto GetCutter = [&]()
+    {
+        if (!Cutter)
+        {
+            Cutter = NewObject<UDynamicMesh>(this);
+            UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendSphereLatLong(Cutter,
+                FGeometryScriptPrimitiveOptions(), FTransform::Identity, Radius, 16, 32,
+                EGeometryScriptPrimitiveOriginMode::Center);
+        }
+        return Cutter;
+    };
     auto DamageMeshStructure = [&](AActor* Structure)
     {
         if (!IsValid(Structure) || !Structure->CanBeDamaged()) return;
@@ -432,16 +415,12 @@ void ABombProjectile::DamageStructures(const FVector& Origin)
         }
         else
         {
-            if (!Cutter)
+            TInlineComponentArray<UDynamicMeshComponent*> Components(Structure);
+            for (UDynamicMeshComponent* Component : Components)
             {
-                Cutter = NewObject<UDynamicMesh>(this);
-                UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendSphereLatLong(Cutter,
-                    FGeometryScriptPrimitiveOptions(), FTransform::Identity, Radius, 16, 32,
-                    EGeometryScriptPrimitiveOriginMode::Center);
+                if (IsValid(Component) && Component->Bounds.GetBox().ComputeSquaredDistanceToPoint(Origin) < FMath::Square(Radius))
+                    DestructibleMesh::SubtractSphere(*Component, Origin, Radius, GetCutter);
             }
-            TInlineComponentArray<UDynamicMeshComponent*> Components;
-            Structure->GetComponents(Components);
-            for (UDynamicMeshComponent* Component : Components) CarveBlastSphere(Component, Cutter, Origin, Radius);
         }
     };
     for (UClass* Class : {ADynamicMeshActor::StaticClass(), ASimpleHouseActor::StaticClass(), AParametricFantasyHouse::StaticClass()})

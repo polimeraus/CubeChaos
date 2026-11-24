@@ -925,6 +925,8 @@ protected:
 	void ClearRuntimeEffects();
 	void ClearChunkComponents();
 	void CreateChunkComponents();
+	/** Shapes with rigid clipped cells can reuse their cooked hulls across hits. */
+	bool bCacheCellConvexHulls = false;
 	virtual UClass* GetChunkComponentClass() const;
 	void RebuildAllChunks();
 	void RebuildChunk(int32 ChunkIndex);

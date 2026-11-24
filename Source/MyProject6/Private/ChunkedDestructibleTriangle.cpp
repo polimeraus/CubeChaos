@@ -37,6 +37,7 @@ namespace
 
 AChunkedDestructibleTriangle::AChunkedDestructibleTriangle()
 {
+	bCacheCellConvexHulls = true;
 	AreaSize = FVector2D(BaseLength, TriangleHeight);
 	FloorPattern = EChunkedFloorPattern::Checkerboard;
 	// Exact edge cells and pattern overlays are immutable between regenerations. Smaller chunks

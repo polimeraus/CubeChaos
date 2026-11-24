@@ -17,6 +17,7 @@
 #include "MusicReactionWorldSubsystem.h"
 #include "PhysicsEngine/AggregateGeom.h"
 #include "PhysicsEngine/BoxElem.h"
+#include "SculptureMeshComponent.h"
 #include "Sound/SoundAttenuation.h"
 #include "Sound/SoundBase.h"
 #include "TimerManager.h"
@@ -377,6 +378,18 @@ void AChunkedDestructibleFloor::SyncLegacyFieldsFromSpiralSettings()
 void AChunkedDestructibleFloor::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// A placed flash component can override its overlay independently of the flash
+	// material. Resolve the ISM renderer's fallback once, before the first impact.
+	if (UMaterialInterface* Overlay = FlashInstances ? FlashInstances->GetOverlayMaterial() : nullptr)
+	{
+		bool bSupportsInstances = false;
+		Overlay->NeedsSetMaterialUsage_Concurrent(bSupportsInstances, MATUSAGE_InstancedStaticMeshes);
+		if (!bSupportsInstances)
+		{
+			FlashInstances->SetOverlayMaterial(UMaterial::GetDefaultMaterial(MD_Surface));
+		}
+	}
 
 	// Runtime-spawned and cooked actors both get a clean authoritative grid here.
 	MusicReactionRandomStream.Initialize(HashCombineFast(
@@ -1203,6 +1216,10 @@ void AChunkedDestructibleFloor::ClearChunkComponents()
 
 UClass* AChunkedDestructibleFloor::GetChunkComponentClass() const
 {
+	if (bCacheCellConvexHulls && bGenerateCollision && GetWorld() && GetWorld()->IsGameWorld() && CanDestroyCell(FIntPoint::ZeroValue))
+	{
+		return USculptureMeshComponent::StaticClass();
+	}
 	return UDynamicMeshComponent::StaticClass();
 }
 
@@ -1322,10 +1339,19 @@ void AChunkedDestructibleFloor::RebuildChunk(int32 ChunkIndex)
 	// the invalidated OLD body, then cook the replacement a second time below.
 	if (bGenerateCollision)
 	{
-		FKAggregateGeom SimpleCollision;
-		BuildChunkSimpleCollision(ChunkIndex, SimpleCollision);
-		Component->SetSimpleCollisionShapes(SimpleCollision, false);
-		Component->UpdateCollision(false);
+		if (auto* RigidCells = Cast<USculptureMeshComponent>(Component))
+		{
+			RigidCells->RebuildGeneratedCollision([this, ChunkIndex](FKAggregateGeom& Shapes)
+			{
+				BuildChunkSimpleCollision(ChunkIndex, Shapes);
+			});
+		}
+		else
+		{
+			FKAggregateGeom SimpleCollision;
+			BuildChunkSimpleCollision(ChunkIndex, SimpleCollision);
+			Component->SetSimpleCollisionShapes(SimpleCollision, true);
+		}
 	}
 	else
 	{
@@ -2956,10 +2982,7 @@ void AChunkedDestructibleFloor::SpawnCellFlash(FIntPoint Cell, double CurrentTim
 	// cube in the ISM scene proxy. Restore the shared cube lazily for the next impact.
 	if (!FlashInstances->GetStaticMesh())
 	{
-		UStaticMesh* FlashCubeMesh = LoadObject<UStaticMesh>(
-			nullptr,
-			TEXT("/Engine/BasicShapes/Cube.Cube"));
-		FlashInstances->SetStaticMesh(FlashCubeMesh);
+		FlashInstances->SetStaticMesh(GetDefault<AChunkedDestructibleFloor>()->FlashInstances->GetStaticMesh());
 	}
 	if (!FlashInstances->GetStaticMesh())
 	{
@@ -3049,10 +3072,7 @@ void AChunkedDestructibleFloor::RebuildFlashInstances()
 
 	if (!FlashInstances->GetStaticMesh())
 	{
-		UStaticMesh* FlashCubeMesh = LoadObject<UStaticMesh>(
-			nullptr,
-			TEXT("/Engine/BasicShapes/Cube.Cube"));
-		FlashInstances->SetStaticMesh(FlashCubeMesh);
+		FlashInstances->SetStaticMesh(GetDefault<AChunkedDestructibleFloor>()->FlashInstances->GetStaticMesh());
 	}
 	TArray<FTransform> InstanceTransforms;
 	InstanceTransforms.Reserve(ActiveFlashes.Num());

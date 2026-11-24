@@ -526,6 +526,7 @@ namespace
 
 AChunkedDestructibleDecorativeFloor::AChunkedDestructibleDecorativeFloor()
 {
+	bCacheCellConvexHulls = true;
 	AreaSize = ShapeSize;
 	CellDimensions = FVector(100.0, 100.0, 35.0);
 	FloorPattern = EChunkedFloorPattern::Solid;

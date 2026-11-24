@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "SimpleHouseActor.h"
+#include "DestructibleMeshCut.h"
 #include "HousePaintSplatter.h"
 
 #include "Components/SceneComponent.h"
@@ -2028,20 +2029,6 @@ void ASimpleHouseActor::CarveSphereAtWorldLocation(
 		WorldLocation +
 		InwardDirection * SafeRadius * SafeDepthFraction;
 
-	UDynamicMesh* CutterMesh = GetOrCreateDamageCutter(SafeRadius);
-
-	FGeometryScriptMeshBooleanOptions DamageBooleanOptions;
-	DamageBooleanOptions.bFillHoles = true;
-	DamageBooleanOptions.bSimplifyOutput = true;
-	DamageBooleanOptions.bAllowEmptyResult = true;
-	DamageBooleanOptions.OutputTransformSpace =
-		EGeometryScriptBooleanOutputSpace::TargetTransformSpace;
-
-	FGeometryScriptSplitNormalsOptions SplitOptions;
-	SplitOptions.bSplitByOpeningAngle = true;
-	SplitOptions.OpeningAngleDeg = 60.0f;
-	FGeometryScriptCalculateNormalsOptions NormalOptions;
-
 	UDynamicMeshComponent* const FixedDamageableComponents[] = {
 		RoofComponent,
 		CeilingComponent,
@@ -2092,58 +2079,13 @@ void ASimpleHouseActor::CarveSphereAtWorldLocation(
 		}
 	}
 
-	const FTransform CutterTransform(
-		FRotator::ZeroRotator,
-		CutterCenter);
-	auto CarveComponent = [&](UDynamicMeshComponent* Component)
-	{
-		if (!IsValid(Component))
-		{
-			return;
-		}
-
-		UDynamicMesh* TargetMesh = Component->GetDynamicMesh();
-		if (!TargetMesh)
-		{
-			return;
-		}
-
-		const FBox WorldBounds = Component->Bounds.GetBox();
-		if (WorldBounds.ComputeSquaredDistanceToPoint(CutterCenter) >
-			FMath::Square(SafeRadius))
-		{
-			return;
-		}
-
-		const bool bHadCollision =
-			Component->GetCollisionEnabled() !=
-			ECollisionEnabled::NoCollision;
-		// Geometry and normals each signal a mesh edit. Only cook the final collision,
-		// keeping it synchronous so the next projectile sees the new hole immediately.
-		Component->SetTransientDeferCollisionUpdates(true);
-		UGeometryScriptLibrary_MeshBooleanFunctions::ApplyMeshBoolean(
-			TargetMesh,
-			Component->GetComponentTransform(),
-			CutterMesh,
-			CutterTransform,
-			EGeometryScriptBooleanOperation::Subtract,
-			DamageBooleanOptions);
-		UGeometryScriptLibrary_MeshNormalsFunctions::ComputeSplitNormals(
-			TargetMesh,
-			SplitOptions,
-			NormalOptions);
-		Component->SetTransientDeferCollisionUpdates(false);
-
-		Component->InvalidateAutoCalculatedTangents();
-		Component->NotifyMeshUpdated();
-		Component->SetComplexAsSimpleCollisionEnabled(
-			bHadCollision,
-			true);
-	};
-
+	auto GetCutter = [this, SafeRadius]() { return GetOrCreateDamageCutter(SafeRadius); };
 	for (UDynamicMeshComponent* Component : DamageableComponents)
 	{
-		CarveComponent(Component);
+		if (IsValid(Component) && Component->Bounds.GetBox().ComputeSquaredDistanceToPoint(CutterCenter) <= FMath::Square(SafeRadius))
+		{
+			DestructibleMesh::SubtractSphere(*Component, CutterCenter, SafeRadius, GetCutter);
+		}
 	}
 }
 

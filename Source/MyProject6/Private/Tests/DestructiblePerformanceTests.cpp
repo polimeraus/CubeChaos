@@ -3,7 +3,10 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "ChunkedDestructibleFloor.h"
+#include "ChunkedDestructibleDecorativeFloor.h"
+#include "SculptureMeshComponent.h"
 #include "ChunkedDestructibleHouse.h"
+#include "SimpleHouseActorDestructable.h"
 #include "ChunkedDestructibleHalloweenPumpkin.h"
 #include "ChunkedDestructibleHalloweenPumpkin2.h"
 #include "ChunkedDestructibleHalloweenPumpkin3.h"
@@ -103,6 +106,50 @@ bool FDestructibleQueueTest::RunTest(const FString& Parameters)
 	for (auto& Flash : Floor->ActiveFlashes) Flash.ExpireTime = Now;
 	Floor->UpdateFlashes();
 	TestNull(TEXT("The last flash releases its render source"), Floor->FlashInstances->GetStaticMesh());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDecorativeFloorImpactCollisionTest,
+	"MyProject6.Destructible.DecorativeFloorImpactCollision",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FDecorativeFloorImpactCollisionTest::RunTest(const FString&)
+{
+	FTestWorld Fixture;
+	auto* Floor = Fixture.World->SpawnActor<AChunkedDestructibleDecorativeFloor>();
+	Floor->ConfigureDecorativeFloor(EChunkedDecorativeFloorShape::Circle, FVector2D(1200),
+		FVector(100, 100, 50), FVector2D::ZeroVector, false);
+	auto HitsFloor = [&](FVector Position)
+	{
+		FHitResult Hit;
+		return Fixture.World->LineTraceSingleByChannel(Hit, Position + FVector(0, 0, 150),
+			Position - FVector(0, 0, 150), ECC_GameTraceChannel1) && Hit.GetActor() == Floor;
+	};
+	TInlineComponentArray<USculptureMeshComponent*> Chunks(Floor);
+	auto CachedUpdates = [&]()
+	{
+		int32 Total = 0;
+		for (const auto* Chunk : Chunks) { Total += Chunk->GetCachedCollisionUpdates(); }
+		return Total;
+	};
+	const FVector Center(-150, -150, 0), Edge(-535, -240, 0), Outside(-570, -280, 0);
+	FIntPoint Cell = FIntPoint::NoneValue;
+	if (!TestTrue(TEXT("Center maps to an intact floor cell"), HitsFloor(Center) && Floor->WorldLocationToCell(Center, Cell))) return false;
+	const int32 Before = CachedUpdates();
+	TestTrue(TEXT("Interior cell breaks"), Floor->DestroyCell(Cell));
+	TestTrue(TEXT("Unchanged edge hulls were reused"), CachedUpdates() > Before);
+	TestFalse(TEXT("The hole loses collision immediately"), HitsFloor(Center));
+	TestTrue(TEXT("Adjacent box still supports the player"), HitsFloor(Center + FVector(100, 0, 0)));
+	TestTrue(TEXT("The clipped edge remains solid"), HitsFloor(Edge));
+	TestFalse(TEXT("The clipped corner stays outside"), HitsFloor(Outside));
+
+	FIntPoint EdgeCell = FIntPoint::NoneValue;
+	if (!TestTrue(TEXT("Edge maps to a clipped cell"), Floor->WorldLocationToCell(Edge, EdgeCell))) return false;
+	TestTrue(TEXT("Clipped cell breaks"), Floor->DestroyCell(EdgeCell));
+	TestFalse(TEXT("Removed convex hulls lose collision immediately"), HitsFloor(Edge));
+	TestTrue(TEXT("Restoring both cells restores their original collision"),
+		Floor->RestoreCell(EdgeCell) && Floor->RestoreCell(Cell) && HitsFloor(Edge) && HitsFloor(Center));
+	TestFalse(TEXT("Restoring the edge preserves its outline"), HitsFloor(Outside));
 	return true;
 }
 
@@ -233,6 +280,36 @@ bool FDestructibleStructureTest::RunTest(const FString& Parameters)
 {
 	FTestWorld Fixture;
 	AChunkedDestructibleHouse* House = Fixture.World->SpawnActor<AChunkedDestructibleHouse>();
+	auto VerifyProfiles = [this](AChunkedDestructibleHouse* Building)
+	{
+		int32 Occupied = 0;
+		const FIntPoint Count = Building->GetCellCount();
+		for (int32 Z = 0; Z < Count.Y; ++Z)
+		{
+			for (int32 XY = 0; XY < Count.X; ++XY)
+			{
+				const FIntPoint Cell(XY, Z);
+				TArray<FVector2D> Expected;
+				const bool bExists = Building->GetCellPolygonXZ(Cell, Expected);
+				AChunkedDestructibleHouse::FCellProfile Fallback;
+				const auto* Profile = Building->FindCellProfile(Cell, Fallback);
+				if (bExists != (Profile != nullptr) || (Profile &&
+					(Profile->Polygon != Expected || Profile->Bounds != FBox2D(Expected))))
+				{
+					AddError(FString::Printf(TEXT("House profile changed at (%d, %d)"), XY, Z));
+					return;
+				}
+				Occupied += bExists;
+			}
+		}
+		AddInfo(FString::Printf(TEXT("%s: %d occupied cells, %d stored profiles"),
+			*Building->GetClass()->GetName(), Occupied, Building->CellProfiles.Num()));
+		TestTrue(TEXT("Matching profiles share storage across the depth of the house"),
+			Building->CellProfiles.Num() > 0 && Building->CellProfiles.Num() < Occupied);
+	};
+	VerifyProfiles(House);
+	auto* Facade = Fixture.World->SpawnActor<ASimpleHouseActorDestructable>(FVector(10000, 0, 0), FRotator::ZeroRotator);
+	VerifyProfiles(Facade);
 	House->bCollapseUnsupportedSections = true;
 	House->CollapseDelayRange = FVector2D(10.0);
 	House->bScatterDestroyedPieces = false;

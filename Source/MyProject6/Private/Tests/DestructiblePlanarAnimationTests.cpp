@@ -99,15 +99,23 @@ bool FDestructiblePlanarAnimationTest::RunTest(const FString& Parameters)
 				TestTrue(TEXT("No surface offset or scaling"), Surface->GetRelativeTransform().Equals(FTransform::Identity));
 				TestEqual(TEXT("Clipped geometry retains every vertex"), Effect.VertexCount(), Source.VertexCount());
 				TestEqual(TEXT("Clipped geometry retains every triangle"), Effect.TriangleCount(), Source.TriangleCount());
+				const auto* FootprintUV = Effect.Attributes()->GetUVLayer(1);
+				TestEqual(TEXT("The animation shares one projected UV per vertex"), FootprintUV->ElementCount(), Source.VertexCount());
 				for (const int32 Vertex : Source.VertexIndicesItr())
 				{
 					if (!Effect.IsVertex(Vertex) || Effect.GetVertex(Vertex) != Source.GetVertex(Vertex))
 					{ AddError(TEXT("Animation changed a clipped boundary or displaced a vertex")); break; }
+					const FVector3d Position = Source.GetVertex(Vertex);
+					const FVector2f ExpectedUV((FVector2D(Position.X, Position.Y) - Floor->GridLocalMin) / Floor->EffectiveGridSize);
+					if (!FootprintUV->GetElement(Vertex).Equals(ExpectedUV))
+					{ AddError(TEXT("Projected UV moved on the animation surface")); break; }
 				}
 				for (const int32 Triangle : Source.TriangleIndicesItr())
 				{
 					if (Effect.GetTriangle(Triangle) != Source.GetTriangle(Triangle))
 					{ AddError(TEXT("Animation changed the original topology")); break; }
+					if (FootprintUV->GetTriangle(Triangle) != Effect.GetTriangle(Triangle))
+					{ AddError(TEXT("An animation triangle references the wrong projected UV")); break; }
 					TestEqual(TEXT("Effect uses one material batch per chunk"), Effect.Attributes()->GetMaterialID()->GetValue(Triangle), 0);
 				}
 			}

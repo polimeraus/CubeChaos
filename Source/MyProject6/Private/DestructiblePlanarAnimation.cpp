@@ -107,6 +107,7 @@ void UDestructiblePlanarAnimation::RefreshChunk(int32 Index)
 		Surface->SetupAttachment(Owner->FloorRoot);
 		Surface->SetMobility(EComponentMobility::Movable);
 		Surface->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Surface->SetDeferredCollisionUpdatesEnabled(true, false);
 		Surface->SetGenerateOverlapEvents(false);
 		Surface->SetCanEverAffectNavigation(false);
 		Surface->SetCastShadow(false);
@@ -121,22 +122,17 @@ void UDestructiblePlanarAnimation::RefreshChunk(int32 Index)
 	Mesh.EnableAttributes();
 	Mesh.Attributes()->SetNumUVLayers(FMath::Max(Mesh.Attributes()->NumUVLayers(), 2));
 	FDynamicMeshUVOverlay* UV = Mesh.Attributes()->GetUVLayer(1);
-	UV->ClearElements();
+	// The projected coordinates depend only on the vertex position, even at UV0 seams.
+	UV->CreatePerVertex(0.f, true);
 	const FVector2D Size(FMath::Max(Owner->EffectiveGridSize.X, 1.0), FMath::Max(Owner->EffectiveGridSize.Y, 1.0));
-	for (const int32 Triangle : Mesh.TriangleIndicesItr())
+	for (const int32 Vertex : Mesh.VertexIndicesItr())
 	{
-		const FIndex3i Vertices = Mesh.GetTriangle(Triangle);
-		FIndex3i Elements;
-		for (int32 Corner = 0; Corner < 3; ++Corner)
-		{
-			const FVector3d Position = Mesh.GetVertex(Vertices[Corner]);
-			const FVector2D Normalized = (FVector2D(Position.X, Position.Y) - Owner->GridLocalMin) / Size;
-			Elements[Corner] = UV->AppendElement(FVector2f(Normalized));
-		}
-		UV->SetTriangle(Triangle, Elements);
-		// One material batch for the effect; the original chunk keeps its entire palette.
-		if (Mesh.Attributes()->HasMaterialID()) { Mesh.Attributes()->GetMaterialID()->SetValue(Triangle, 0); }
+		const FVector3d Position = Mesh.GetVertex(Vertex);
+		const FVector2D Normalized = (FVector2D(Position.X, Position.Y) - Owner->GridLocalMin) / Size;
+		UV->SetElement(Vertex, FVector2f(Normalized));
 	}
+	// One material batch for the effect; the original chunk keeps its entire palette.
+	if (auto* MaterialIDs = Mesh.Attributes()->GetMaterialID()) { MaterialIDs->Initialize(0); }
 	UDynamicMesh* Replacement = NewObject<UDynamicMesh>(Surface);
 	Replacement->SetMesh(MoveTemp(Mesh));
 	Surface->SetDynamicMesh(Replacement);

@@ -52,6 +52,7 @@ namespace LobbyDestructable
 
 AParametricLobbyPlatformDestructable::AParametricLobbyPlatformDestructable()
 {
+    bCacheCellConvexHulls = true;
     static ConstructorHelpers::FObjectFinder<UMaterialInterface> Surface(TEXT("/Game/Materials/Platforms/M_LobbySurface.M_LobbySurface"));
     static ConstructorHelpers::FObjectFinder<UMaterialInterface> Trim(TEXT("/Game/Materials/Platforms/M_LobbyTrim.M_LobbyTrim"));
     SurfaceMaterial=Surface.Object; TrimMaterial=Trim.Object;

@@ -475,6 +475,13 @@ void ADestructibleRadialSculpture::BuildChunkMesh(int32 ChunkIndex,FDynamicMesh3
         // Normal generation creates fresh components and also takes that path.
         if (bValid && (Current->TriangleCount()==0 || bHasGlow==bool(SculptureGlowInstance)))
         {
+            if (RemovedTriangles.Num() == Current->TriangleCount())
+            {
+                // The authoritative builder produces an empty chunk, including both UV layers.
+                // There is no body or glow geometry left to copy or remove triangle by triangle.
+                BuildFullChunkMesh(ChunkIndex,Mesh);
+                return;
+            }
             Mesh=*Current;
             for (const int32 T:RemovedTriangles) Mesh.RemoveTriangle(T,true,false);
             return;
