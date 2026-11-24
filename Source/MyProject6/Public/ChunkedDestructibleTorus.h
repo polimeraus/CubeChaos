@@ -32,13 +32,13 @@ public:
     bool bRoundedEnds=true;
     /** Number of vertical radial partitions along the occupied arc, including its rounded ends. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Torus|Panels", meta=(ClampMin="3", ClampMax="96"))
-    int32 MeridianCount=36;
+    int32 MeridianCount=24;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Torus|Panels", meta=(ClampMin="0", ClampMax="24"))
     int32 ParallelCount=7;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Torus|Panels", meta=(ClampMin="2", ClampMax="100", Units="cm"))
-    float MeridianThickness=12;
+    float MeridianThickness=16;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Torus|Panels", meta=(ClampMin="2", ClampMax="100", Units="cm"))
-    float ParallelThickness=12;
+    float ParallelThickness=16;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Torus|Quality", meta=(ClampMin="16", ClampMax="128"))
     int32 CurveSegments=40;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Torus|Quality", meta=(ClampMin="32", ClampMax="512"))

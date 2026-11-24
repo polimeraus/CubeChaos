@@ -1,7 +1,7 @@
 """Persist the railgun's blue flowing coil/display material and updated display geometry."""
 from pathlib import Path
 from datetime import datetime
-import shutil,unreal
+import runpy,shutil,unreal
 root=Path(unreal.Paths.project_dir()).resolve()
 base='/Game/Weapons/Railgun'
 assets=unreal.AssetToolsHelpers.get_asset_tools()
@@ -45,9 +45,12 @@ def build_material():
     return m
 
 def import_mesh():
+    instruments = runpy.run_path(str(Path(__file__).with_name('SetupRailgunInstruments.py')))
+    finishes = instruments['make_blue_finishes']()
     task=unreal.AssetImportTask()
     for key,value in {'filename':str(root/'ContentSource/Railgun/SM_QuakeRailgun.fbx'),'destination_path':base+'/Meshes',
-                      'destination_name':'SM_QuakeRailgun','automated':True,'replace_existing':True,'save':True}.items():task.set_editor_property(key,value)
+                      'destination_name':'SM_QuakeRailgun','automated':True,'replace_existing':True,
+                      'replace_existing_settings':True,'save':True}.items():task.set_editor_property(key,value)
     options=unreal.FbxImportUI()
     for key,value in {'import_mesh':True,'import_as_skeletal':False,'import_materials':False,'import_textures':False,
                       'mesh_type_to_import':unreal.FBXImportType.FBXIT_STATIC_MESH,'automated_import_should_detect_type':False}.items():options.set_editor_property(key,value)
@@ -58,10 +61,21 @@ def import_mesh():
     mesh=unreal.load_asset(base+'/Meshes/SM_QuakeRailgun');assert mesh
     slots=mesh.get_editor_property('static_materials')
     for i,slot in enumerate(slots):
-        mat=unreal.load_asset(base+'/Materials/MI_'+str(slot.material_slot_name));assert mat
+        name = str(slot.material_slot_name)
+        mat = finishes.get(name) or unreal.load_asset(base+'/Materials/MI_'+name)
+        assert mat, name
         slot.set_editor_property('material_interface',mat);slots[i]=slot
+    assert set(finishes).issubset({str(slot.material_slot_name) for slot in slots})
     mesh.set_editor_property('static_materials',slots)
+    reduction = unreal.StaticMeshReductionOptions()
+    reduction.set_editor_property('auto_compute_lod_screen_size', False)
+    reduction.set_editor_property('reduction_settings', [
+        unreal.StaticMeshReductionSettings(percent_triangles=1., screen_size=1.),
+        unreal.StaticMeshReductionSettings(percent_triangles=.55, screen_size=.45),
+        unreal.StaticMeshReductionSettings(percent_triangles=.24, screen_size=.18)])
+    assert unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem).set_lods(mesh, reduction) == 3
     assert unreal.EditorAssetLibrary.save_loaded_asset(mesh,False)
+    return mesh
 
 if __name__=='__main__':
     backup=root/'Saved/RailTowerUpgrade/Backups'/datetime.now().strftime('%Y%m%d_%H%M%S')

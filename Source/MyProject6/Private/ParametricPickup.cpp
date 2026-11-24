@@ -1,4 +1,5 @@
 #include "ParametricPickup.h"
+#include "PickupRetroMesh.h"
 #include "MyProject6Character.h"
 
 #include "Components/BoxComponent.h"
@@ -144,6 +145,8 @@ AParametricPickup::AParametricPickup()
     // Optional while the setup script is creating the material for the first time.
     static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> DefaultMaterial(TEXT("/Game/Materials/Pickups/M_PickupSurface.M_PickupSurface"));
     SurfaceMaterial = DefaultMaterial.Get();
+    static ConstructorHelpers::FObjectFinderOptional<UMaterialInterface> Enamel(TEXT("/Game/Materials/Pickups/M_PickupEnamel.M_PickupEnamel"));
+    HousingMaterial = Enamel.Get();
     static ConstructorHelpers::FObjectFinder<USoundBase> DefaultSound(
         TEXT("/Game/Audio/SFX/Free_Sounds_Pack/wav/Special_Collectible_9-1.Special_Collectible_9-1"));
     CollectionSound = DefaultSound.Object;
@@ -161,7 +164,13 @@ void AParametricPickup::RefreshPickup()
     const float Radius = SafeValue(CornerRadius, 0, Width * .499f, Width * .15f);
     const int32 Steps = Shape == EPickupShape::Cube ? 1 : FMath::Clamp(SurfaceSubdivisions, 4, 32);
     FPickupMeshBuilder Builder;
-    if (Shape == EPickupShape::Pyramid)
+    const bool bHousing = PickupRetro::IsHousing(Shape);
+    const float Depth = bHousing ? SafeValue(HousingDepth,.5f,1.5f,1.f) : 1.f;
+    if (bHousing)
+    {
+        PickupRetro::Build(Builder.Mesh,*this,Width,Depth);
+    }
+    else if (Shape == EPickupShape::Pyramid)
     {
         Builder.Pyramid(Width);
     }
@@ -174,13 +183,16 @@ void AParametricPickup::RefreshPickup()
         Builder.CubeFace(FVector(0, 0, 1), FVector(1, 0, 0), FVector(0, 1, 0), Shape, Width, Radius, Steps);
         Builder.CubeFace(FVector(0, 0, -1), FVector(1, 0, 0), FVector(0, -1, 0), Shape, Width, Radius, Steps);
     }
+    const int32 Slots=bHousing ? 2 : 1;
+    if (Body->GetNumMaterials()!=Slots) Body->SetNumMaterials(Slots);
     Body->SetMesh(MoveTemp(Builder.Mesh));
     // Also migrate component attachments on existing Blueprint instances.
     Body->AttachToComponent(MotionPivot, FAttachmentTransformRules::KeepRelativeTransform);
     CollectionTrigger->AttachToComponent(MotionPivot, FAttachmentTransformRules::KeepRelativeTransform);
     Body->SetRelativeLocation(FVector(0, 0, -Width * .5));
     CollectionTrigger->SetRelativeLocation(FVector::ZeroVector);
-    CollectionTrigger->SetBoxExtent(FVector(Width * .5 + SafeValue(CollectionPadding, 0, 500, 12)));
+    const FVector HalfSize=FVector(FMath::Max(1.f,Depth),1,1)*(Width*.5f);
+    CollectionTrigger->SetBoxExtent(HalfSize+FVector(SafeValue(CollectionPadding,0,500,12)));
     RefreshMotion();
     RefreshMaterial();
     OnRep_Collected();
@@ -252,6 +264,35 @@ void AParametricPickup::ApplyMotion(double ElapsedSeconds)
 
 void AParametricPickup::RefreshMaterial()
 {
+    const bool bHousing=PickupRetro::IsHousing(Shape);
+    const float Maximum=SafeValue(MaximumGlow,0,100,6);
+    const auto SetFinish=[&](UMaterialInstanceDynamic* MID)
+    {
+        MID->SetScalarParameterValue(TEXT("Roughness"),SafeValue(Roughness,0,1,.32f));
+        MID->SetScalarParameterValue(TEXT("Metallic"),SafeValue(Metallic,0,1,.3f));
+        MID->SetScalarParameterValue(TEXT("PulseEnabled"),bPulse ? 1 : 0);
+        MID->SetScalarParameterValue(TEXT("PulsePeriod"),SafeValue(PulsePeriod,.05f,3600,2));
+        MID->SetScalarParameterValue(TEXT("MinimumGlow"),SafeValue(MinimumGlow,0,Maximum,0));
+        MID->SetScalarParameterValue(TEXT("MaximumGlow"),Maximum);
+        MID->SetScalarParameterValue(TEXT("PulsePhase"),SafeValue(PulsePhase,0,1,0));
+        MID->SetVectorParameterValue(TEXT("IconColor"),IconColor);
+    };
+    if (bHousing && HousingMaterial)
+    {
+        if (!HousingInstance || HousingInstance->Parent!=HousingMaterial)
+            HousingInstance=UMaterialInstanceDynamic::Create(HousingMaterial,this);
+        Body->SetMaterial(1,HousingInstance);
+        SetFinish(HousingInstance);
+        HousingInstance->SetVectorParameterValue(TEXT("BodyColor"),BodyColor);
+        HousingInstance->SetVectorParameterValue(TEXT("TrimColor"),TrimColor);
+        HousingInstance->SetVectorParameterValue(TEXT("InlayColor"),InlayColor);
+        HousingInstance->SetVectorParameterValue(TEXT("BadgeColor"),BadgeColor);
+    }
+    else
+    {
+        HousingInstance=nullptr;
+        if (bHousing) Body->SetMaterial(1,UMaterial::GetDefaultMaterial(MD_Surface));
+    }
     if (!SurfaceMaterial)
     {
         MaterialInstance = nullptr;
@@ -261,20 +302,12 @@ void AParametricPickup::RefreshMaterial()
     if (!MaterialInstance || MaterialInstance->Parent != SurfaceMaterial)
         MaterialInstance = UMaterialInstanceDynamic::Create(SurfaceMaterial, this);
     Body->SetMaterial(0, MaterialInstance);
+    SetFinish(MaterialInstance);
     // Preserve the material parameter name used by existing material instances.
     MaterialInstance->SetScalarParameterValue(TEXT("Motif"), static_cast<uint8>(Icon));
-    MaterialInstance->SetVectorParameterValue(TEXT("IconColor"), IconColor);
-    MaterialInstance->SetVectorParameterValue(TEXT("BodyColor"), BodyColor);
+    MaterialInstance->SetVectorParameterValue(TEXT("BodyColor"), bHousing ? BadgeColor : BodyColor);
     MaterialInstance->SetScalarParameterValue(TEXT("IconScale"), SafeValue(IconScale, .1f, 1, .72f));
     MaterialInstance->SetScalarParameterValue(TEXT("IconRotation"), FMath::IsFinite(IconRotation) ? FMath::Fmod(IconRotation, 360.f) : 0);
-    MaterialInstance->SetScalarParameterValue(TEXT("Roughness"), SafeValue(Roughness, 0, 1, .32f));
-    MaterialInstance->SetScalarParameterValue(TEXT("Metallic"), SafeValue(Metallic, 0, 1, .3f));
-    MaterialInstance->SetScalarParameterValue(TEXT("PulseEnabled"), bPulse ? 1 : 0);
-    MaterialInstance->SetScalarParameterValue(TEXT("PulsePeriod"), SafeValue(PulsePeriod, .05f, 3600, 2));
-    const float Maximum = SafeValue(MaximumGlow, 0, 100, 6);
-    MaterialInstance->SetScalarParameterValue(TEXT("MinimumGlow"), SafeValue(MinimumGlow, 0, Maximum, 0));
-    MaterialInstance->SetScalarParameterValue(TEXT("MaximumGlow"), Maximum);
-    MaterialInstance->SetScalarParameterValue(TEXT("PulsePhase"), SafeValue(PulsePhase, 0, 1, 0));
 }
 
 void AParametricPickup::BeginPlay()

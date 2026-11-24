@@ -1,6 +1,6 @@
 """Save reusable bomb pickup defaults and add one pickup to the current project's weapon row."""
 from pathlib import Path
-import json, shutil, unreal
+import json, runpy, shutil, unreal
 
 root=Path(unreal.Paths.project_dir()).resolve()
 out=root/'Saved/FuseBomb';out.mkdir(parents=True,exist_ok=True)
@@ -14,10 +14,11 @@ factory=unreal.BlueprintFactory();factory.set_editor_property('parent_class',unr
 bp=unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else assets.create_asset('BP_BombPickup',str(Path(path).parent).replace('\\','/'),unreal.Blueprint,factory)
 cdo=unreal.get_default_object(bp.generated_class())
 settings={'weapon_reward':unreal.PickupWeapon.BOMB,'icon':unreal.PickupMotif.BOMB,
-          'shape':unreal.PickupShape.ROUNDED_CUBE,'size':60.,'corner_radius':8.,
-          'body_color':unreal.LinearColor(.035,.023,.017,1),'icon_color':unreal.LinearColor(1,.28,.035,1),
+          'size':60.,'corner_radius':8.,
+          'icon_color':unreal.LinearColor(1,.28,.035,1),
           'icon_scale':.76,'minimum_glow':1.8,'maximum_glow':4.,'motion':unreal.PickupMotion.SPIN_AND_BOB,
           'spin_speed':35.,'bob_height':18.,'bob_period':2.4,'auto_collect':True,'player_only':True}
+settings.update(runpy.run_path(str(Path(__file__).with_name('RetroPickupPresets.py')))['appearance'](settings['weapon_reward']))
 for key,value in settings.items():cdo.set_editor_property(key,value)
 unreal.BlueprintEditorLibrary.compile_blueprint(bp)
 assert unreal.EditorAssetLibrary.save_loaded_asset(bp,False)

@@ -76,6 +76,13 @@ bool FPurpleRailgunTest::RunTest(const FString&)
     TestFalse(TEXT("Red pickup does not unlock the blue railgun"),Player->HasWeapon(EPlayerWeapon::Railgun));
     TestEqual(TEXT("Collection equips red railgun"),Player->GetActiveWeapon(),EPlayerWeapon::PurpleRailgun);
     if(!TestNotNull(TEXT("Imported mesh exists"),Gun->WeaponMesh->GetStaticMesh().Get()))return false;
+    auto DisplayCharge = [&]()
+    {
+        const auto& Data = Gun->WeaponMesh->GetCustomPrimitiveData().Data;
+        return Data.IsValidIndex(0) ? 1.f - Data[0] : 1.f;
+    };
+    TestTrue(TEXT("Comet dial is present and full at equip"),
+        Gun->WeaponMesh->GetMaterialIndex(TEXT("RailGauge")) != INDEX_NONE && DisplayCharge() == 1.f);
     TestEqual(TEXT("Comet model is equipped"),Gun->WeaponMesh->GetStaticMesh()->GetName(),FString(TEXT("SM_PurpleRailgun")));
     TestEqual(TEXT("Weapon follows grip"),Gun->WeaponMesh->GetAttachSocketName(),FName(TEXT("HandGrip_R")));
     TestEqual(TEXT("Baked fit animation runs"),Gun->Arms->GetSingleNodeInstance()->GetCurrentAsset()->GetName(),FString(TEXT("A_PurpleRailgunHold")));
@@ -103,6 +110,7 @@ bool FPurpleRailgunTest::RunTest(const FString&)
     TestEqual(TEXT("Primary fire shoots exactly once"),Gun->ShotsFired,1);
     TestEqual(TEXT("Red rail hits instantly"),Target->GetCurrentHealth(),75.f);
     TestTrue(TEXT("HUD charge starts empty"),Gun->GetRailgunCharge()<.01f);
+    TestTrue(TEXT("The physical dial drops on the accepted shot"), DisplayCharge() < .01f);
     for(TActorIterator<ARailgunBeam> It(World);It;++It)
     {
         TestTrue(TEXT("Red core settings reach beam"),It->Visuals.Color.Equals(Player->PurpleRailgunVisuals.Color));
@@ -112,13 +120,20 @@ bool FPurpleRailgunTest::RunTest(const FString&)
         if(TestNotNull(TEXT("Spiral renderer material"),SpiralMID))TestTrue(TEXT("Spiral has the configured color"),SpiralMID->K2_GetVectorParameterValue(TEXT("Tint")).Equals(Player->PurpleRailgunVisuals.SpiralColor));
     }
     Key(EKeys::MiddleMouseButton);TestEqual(TEXT("Middle and primary share cooldown"),Gun->ShotsFired,1);
+    Advance(.45f);
+    const float PartCharge = DisplayCharge();
+    TestTrue(TEXT("The instrument refills in step with the HUD"),
+        PartCharge > .2f && PartCharge < .5f && FMath::IsNearlyEqual(PartCharge, Gun->GetRailgunCharge()));
     Player->EquipRailgun();TestTrue(TEXT("Blue railgun retains its blue tint"),Gun->Visuals.Color.Equals(Player->RailgunVisuals.Color));
+    TestTrue(TEXT("Blue meter inherits the active recharge on a switch"),
+        Gun->WeaponMesh->GetMaterialIndex(TEXT("RailGauge")) != INDEX_NONE && FMath::IsNearlyEqual(DisplayCharge(), PartCharge));
     TestFalse(TEXT("Switching railgun cannot reset cooldown"),Gun->Fire());
     Key(EKeys::Seven);TestTrue(TEXT("Switching back restores red"),Gun->Visuals.Color.Equals(Player->PurpleRailgunVisuals.Color));
     Advance(1.6f);Key(EKeys::MiddleMouseButton);TestEqual(TEXT("Middle fires the selected red weapon"),Gun->ShotsFired,2);
     Key(EKeys::MouseScrollUp);TestEqual(TEXT("Wheel wraps from seventh slot"),Player->GetActiveWeapon(),EPlayerWeapon::Default);
     Key(EKeys::MouseScrollDown);TestEqual(TEXT("Wheel selects owned red railgun"),Player->GetActiveWeapon(),EPlayerWeapon::PurpleRailgun);
     Advance(1.6f);TestTrue(TEXT("Charge returns to ready"),Gun->GetRailgunCharge()>.99f);
+    TestTrue(TEXT("The instrument returns to full"), DisplayCharge() > .99f);
     if(!GUsingNullRHI)
     {
         const FString Dir=FPaths::ProjectSavedDir()/TEXT("PurpleRailgun/Preview");IFileManager::Get().MakeDirectory(*Dir,true);

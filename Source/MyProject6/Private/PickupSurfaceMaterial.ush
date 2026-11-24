@@ -255,7 +255,7 @@ else if (Motif < 11.5)
     bolt=min(bolt,symbols.Segment(p,float2(.19,.05),float2(-.16,-.65))-.06);
     distance=min(distance,bolt);
 }
-else
+else if (Motif < 12.5)
 {
     // Comet badge: torpedo shell, swept tail, short grip and three flared vanes.
     float2 hull=(p-float2(-.26,.11))/float2(.48,.23);
@@ -268,6 +268,87 @@ else
         distance=min(distance,symbols.Box(p-float2(.28+i*.145,.11),float2(.032,.20-i*.028)));
     float flash=symbols.Segment(p,float2(-.56,.09),float2(.02,.15))-.023;
     distance=max(distance,-flash);
+}
+else if (Motif < 13.5)
+{
+    // The front of the tilted ring cuts a clean line across the planet.
+    float2 q=float2(.91*p.x+.415*p.y,-.415*p.x+.91*p.y);
+    float path=abs(symbols.Ellipse(q,float2(.86,.255)));
+    float globe=length(p)-.48;
+    float orbit=path-.058;
+    if (q.y<0.) globe=max(globe,.115-path);
+    else orbit=max(orbit,.50-length(p));
+    distance=min(globe,orbit);
+    distance=min(distance,length(p-float2(-.56,.52))-.090);
+}
+else if (Motif < 14.5)
+{
+    float left=length((p-float2(-.30,-.23))/float2(1.,1.08))-.285;
+    float right=length((p-float2(.32,-.32))/float2(1.,1.08))-.292;
+    left=max(left,.067-length(p-float2(-.389,-.12)));
+    right=max(right,.063-length(p-float2(.235,-.20)));
+    float stems=symbols.Segment(p,float2(-.30,.015),float2(-.16,.36));
+    stems=min(stems,symbols.Segment(p,float2(-.16,.36),float2(.10,.65)));
+    stems=min(stems,symbols.Segment(p,float2(.10,.65),float2(.31,-.045)));
+    float2 q=p-float2(.35,.60);
+    float leaf=symbols.Ellipse(float2(.94*q.x+.342*q.y,-.342*q.x+.94*q.y),float2(.26,.105));
+    distance=min(min(left,right),min(stems-.053,leaf));
+}
+else if (Motif < 15.5)
+{
+    float notes=min(symbols.Ellipse(p-float2(-.40,-.42),float2(.23,.166)),
+                    symbols.Ellipse(p-float2(.29,-.26),float2(.23,.166)));
+    float stems=min(symbols.Segment(p,float2(-.225,-.42),float2(-.225,.45)),
+                    symbols.Segment(p,float2(.465,-.26),float2(.465,.61)))-.060;
+    float beam=symbols.Segment(p,float2(-.225,.44),float2(.465,.60))-.108;
+    distance=min(notes,min(stems,beam));
+}
+else if (Motif < 16.5)
+{
+    float2 bolt[12];
+    bolt[0]=float2(.19,.83); bolt[1]=float2(-.34,-.036); bolt[2]=float2(-.01,-.036);
+    bolt[3]=float2(-.19,-.82); bolt[4]=float2(.46,.16); bolt[5]=float2(.10,.16);
+    distance=symbols.Polygon(p,bolt,6);
+    distance=min(distance,symbols.Segment(p,float2(-.77,.43),float2(-.28,.33))-.064);
+    distance=min(distance,symbols.Segment(p,float2(-.66,.21),float2(-.37,.145))-.051);
+    distance=min(distance,symbols.Segment(p,float2(.36,-.20),float2(.75,-.12))-.055);
+}
+else if (Motif < 17.5)
+{
+    float2 q=p-float2(0,.035);
+    float shoe=abs(symbols.Ellipse(q,float2(.51,.61)))-.132;
+    shoe=max(shoe,min(.33-abs(q.x),q.y-.20));
+    for (int i=0;i<5;++i)
+    {
+        float a=3.14159+i*.78540;
+        float2 stud=float2(.51*cos(a),.61*sin(a));
+        shoe=max(shoe,.053-length(q-stud));
+    }
+    distance=shoe;
+}
+else if (Motif < 18.5)
+{
+    float2 q=p-float2(.26,.22);
+    float2 spark[12];
+    for (int i=0;i<8;++i)
+    {
+        float a=1.5707963+i*.7853982;
+        spark[i]=float2(cos(a),sin(a))*((i%2)==0 ? .47 : .146);
+    }
+    distance=symbols.Polygon(q,spark,8);
+    distance=min(distance,symbols.Segment(p,float2(-.73,-.44),float2(-.16,.04))-.069);
+    distance=min(distance,symbols.Segment(p,float2(-.54,-.67),float2(.04,-.15))-.060);
+    distance=min(distance,symbols.Segment(p,float2(-.68,-.12),float2(-.39,.13))-.047);
+}
+else
+{
+    float2 q=float2(abs(p.x),p.y);
+    float lobes=length(q-float2(.303,.246))-.351;
+    float2 base[12];
+    base[0]=float2(-.603,.067);base[1]=float2(-.45,.27);base[2]=float2(.45,.27);
+    base[3]=float2(.603,.067);base[4]=float2(0,-.68);
+    distance=min(lobes,symbols.Polygon(p,base,5));
+    distance=max(distance,.063-symbols.Segment(p,float2(-.44,.29),float2(-.34,.38)));
 }
 float aa = max(length(fwidth(p)) * .65, .001);
 float mask = 1 - smoothstep(-aa, aa, distance);

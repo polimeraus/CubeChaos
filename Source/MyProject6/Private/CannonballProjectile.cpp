@@ -3,6 +3,7 @@
 #include "CannonballProjectile.h"
 
 ACannonballProjectile::ACannonballProjectile()
+	: ABallProjectile(EAppearance::SolidBall)
 {
 	// Red shots remove twice as much NPC health as the yellow ball.
 	ActorDamage *= 2.0f;

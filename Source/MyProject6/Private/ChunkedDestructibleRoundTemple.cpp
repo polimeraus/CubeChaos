@@ -1,4 +1,5 @@
 #include "ChunkedDestructibleRoundTemple.h"
+#include "DestructibleFaceUV.h"
 #include "DynamicMesh/DynamicMesh3.h"
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
 #include "Materials/Material.h"
@@ -217,8 +218,9 @@ void AChunkedDestructibleRoundTemple::AppendPiece(FDynamicMesh3& Mesh,const FPie
         const FVector& A=V[F[0]];const FVector& B=V[F[1]];const FVector& C=V[F[2]];const FVector& D=V[F[3]];
         const FVector N=FVector::CrossProduct(B-A,C-A).GetSafeNormal();
         const FVector M=FVector::CrossProduct(C-A,D-A).GetSafeNormal();
-        if (!N.IsNearlyZero()) AppendMeshTriangle(Mesh,A,B,C,FVector3f(N),Material,FVector2f(0,0),FVector2f((B-A).Length()/UVWorldUnits,0),FVector2f((C-A).Length()/UVWorldUnits,(C-B).Length()/UVWorldUnits));
-        if (!M.IsNearlyZero()) AppendMeshTriangle(Mesh,A,C,D,FVector3f(M),Material,FVector2f(0,0),FVector2f((C-D).Length()/UVWorldUnits,(D-A).Length()/UVWorldUnits),FVector2f(0,(D-A).Length()/UVWorldUnits));
+        const FDestructibleFaceUVs UV = ProjectDestructibleFaceUVs(A, B, C, D, N + M, UVWorldUnits);
+        if (!N.IsNearlyZero()) AppendMeshTriangle(Mesh, A, B, C, FVector3f(N), Material, UV.A, UV.B, UV.C);
+        if (!M.IsNearlyZero()) AppendMeshTriangle(Mesh, A, C, D, FVector3f(M), Material, UV.A, UV.C, UV.D);
     }
 }
 void AChunkedDestructibleRoundTemple::BuildChunkMesh(int32 ChunkIndex,FDynamicMesh3& Mesh) const

@@ -1,4 +1,5 @@
 #include "ChunkedDestructibleSpiralTower.h"
+#include "DestructibleFaceUV.h"
 #include "DynamicMesh/DynamicMesh3.h"
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
 #include "Materials/Material.h"
@@ -386,6 +387,7 @@ void AChunkedDestructibleSpiralTower::AppendPiece(FDynamicMesh3& Mesh,const FPie
         FVector A=V[F[0]],B=V[F[1]],C=V[F[2]],D=V[F[3]];
         const FVector N=FVector::CrossProduct(B-A,C-A).GetSafeNormal();
         const FVector M=FVector::CrossProduct(C-A,D-A).GetSafeNormal();
+        const FDestructibleFaceUVs UV = ProjectDestructibleFaceUVs(A, B, C, D, N + M, UVWorldUnits);
         if (GlowOverlay)
         {
             // Separate additive skin, with no collision. The source masonry is never replaced.
@@ -404,12 +406,12 @@ void AChunkedDestructibleSpiralTower::AppendPiece(FDynamicMesh3& Mesh,const FPie
         };
         if (!N.IsNearlyZero())
         {
-            AppendMeshTriangle(Mesh,A,B,C,FVector3f(N),Material,FVector2f(0,0),FVector2f((B-A).Length()/UVWorldUnits,0),FVector2f((C-A).Length()/UVWorldUnits,(C-B).Length()/UVWorldUnits));
+            AppendMeshTriangle(Mesh, A, B, C, FVector3f(N), Material, UV.A, UV.B, UV.C);
             SetPathUV(F[0],F[1],F[2]);
         }
         if (!M.IsNearlyZero())
         {
-            AppendMeshTriangle(Mesh,A,C,D,FVector3f(M),Material,FVector2f(0,0),FVector2f((C-D).Length()/UVWorldUnits,(D-A).Length()/UVWorldUnits),FVector2f(0,(D-A).Length()/UVWorldUnits));
+            AppendMeshTriangle(Mesh, A, C, D, FVector3f(M), Material, UV.A, UV.C, UV.D);
             SetPathUV(F[0],F[2],F[3]);
         }
         if (Piece.bSmoothInnerFace && FaceIndex==5)

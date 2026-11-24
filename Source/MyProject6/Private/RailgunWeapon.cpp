@@ -25,6 +25,11 @@
 #include "Sound/SoundBase.h"
 #include "UObject/ConstructorHelpers.h"
 
+namespace
+{
+    const FVector ClassicRifleRestLocation(9.f, 3.f, -5.5f);
+}
+
 ARailgunWeapon::ARailgunWeapon()
 {
     PrimaryActorTick.bCanEverTick = true;
@@ -57,7 +62,7 @@ ARailgunWeapon::ARailgunWeapon()
         Mesh->FirstPersonPrimitiveType = EFirstPersonPrimitiveType::FirstPerson;
     }
     Arms->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
-    static ConstructorHelpers::FObjectFinder<UStaticMesh> Rifle(TEXT("/Game/Weapons/Rifle/Meshes/SM_Rifle.SM_Rifle"));
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> Rifle(TEXT("/Game/Weapons/DefaultWeapon/Meshes/SM_Rifle.SM_Rifle"));
     WeaponMesh->SetStaticMesh(Rifle.Object);
     DefaultModel = Rifle.Object;
     static ConstructorHelpers::FObjectFinderOptional<UStaticMesh> RailModel(TEXT("/Game/Weapons/Railgun/Meshes/SM_QuakeRailgun.SM_QuakeRailgun"));
@@ -118,10 +123,11 @@ void ARailgunWeapon::Equip(AMyProject6Character* Character)
     Arms->SetRelativeLocation(FVector(45, 11, -16) - PoseRotation.RotateVector(GripPose.GetLocation()));
     Original->SetVisibility(false);
     Original->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
-    // Template rifle and mannequin share the authored HandGrip_R socket.
+    // Keep the stock and radio panel below the reticle while both hands stay on the model.
     WeaponMesh->AttachToComponent(Arms, FAttachmentTransformRules::SnapToTargetNotIncludingScale, TEXT("HandGrip_R"));
     Muzzle->SetRelativeLocation(FVector(0, 52, 10));
-    RestLocation = GetRootComponent()->GetRelativeLocation();
+    RestLocation = ClassicRifleRestLocation;
+    GetRootComponent()->SetRelativeLocation(RestLocation);
     ViewMotion = FRailgunViewMotion();
     PreviousVelocity = Character->GetVelocity();
     PreviousAim = Character->GetBaseAimRotation();
@@ -174,7 +180,7 @@ void ARailgunWeapon::ActivateDefaultWeapon()
     WeaponMesh->SetStaticMesh(DefaultModel);
     WeaponMesh->SetRelativeTransform(FTransform::Identity);
     Muzzle->SetRelativeLocation(FVector(0, 52, 10));
-    RestLocation = FVector::ZeroVector;
+    RestLocation = ClassicRifleRestLocation;
     GetRootComponent()->SetRelativeLocation(RestLocation);
 }
 
@@ -192,6 +198,7 @@ void ARailgunWeapon::ActivateRailgun()
     // Move both hands and weapon together, keeping the authored grip intact.
     RestLocation = FVector(10, 3, -9);
     GetRootComponent()->SetRelativeLocation(RestLocation);
+    UpdateRailgunGauge();
     if (!ChargeMaterial)
     {
         const int32 Slot = WeaponMesh->GetMaterialIndex(TEXT("RailEnergy"));
@@ -217,6 +224,7 @@ void ARailgunWeapon::ActivatePurpleRailgun()
     RestLocation = FVector(22, 8, -14);
     GetRootComponent()->SetRelativeLocation(RestLocation);
     if (Wielder) Visuals = Wielder->PurpleRailgunVisuals;
+    UpdateRailgunGauge();
     ChargeMaterial = nullptr;
     const int32 Slot = WeaponMesh->GetMaterialIndex(TEXT("PurpleEnergy"));
     if (Slot != INDEX_NONE) ChargeMaterial = WeaponMesh->CreateDynamicMaterialInstance(Slot);
@@ -232,6 +240,12 @@ float ARailgunWeapon::GetRailgunCharge() const
 {
     if (!GetWorld()) return 1.f;
     return 1.f - FMath::Clamp(float(NextFireTime - GetWorld()->GetTimeSeconds()) / FMath::Max(.1f, FireInterval), 0.f, 1.f);
+}
+
+void ARailgunWeapon::UpdateRailgunGauge()
+{
+    // Both instruments read primitive-data slot 0. A standalone mesh defaults to fully charged.
+    WeaponMesh->SetCustomPrimitiveDataFloat(0, 1.f - GetRailgunCharge());
 }
 
 void ARailgunWeapon::ActivateBFG()
@@ -474,6 +488,7 @@ bool ARailgunWeapon::Fire()
         }
     }
     NextFireTime = World->GetTimeSeconds() + FMath::Max(.1f, FireInterval);
+    UpdateRailgunGauge();
     if (ChargeMaterial) ChargeMaterial->SetScalarParameterValue(TEXT("Emission"), 2.2f);
     ++ShotsFired;
     LastShotEnd = End;
@@ -529,6 +544,7 @@ void ARailgunWeapon::Tick(float DeltaSeconds)
     if (!Wielder || DeltaSeconds <= 0.f || Wielder->IsEnergyDepleted()
         || UGameplayStatics::IsGamePaused(this)) return;
     const float FlashDuration = FMath::Clamp(BFGMuzzleFlashDuration, .01f, .3f);
+    if (Wielder->bRailgunEquipped) UpdateRailgunGauge();
     if (ChargeMaterial)
     {
         const double NextShot = Wielder->bBFGEquipped ? NextBFGFireTime : NextFireTime;

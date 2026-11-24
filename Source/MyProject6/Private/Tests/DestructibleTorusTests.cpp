@@ -2,6 +2,7 @@
 #include "ChunkedDestructibleTorus.h"
 #include "Components/DynamicMeshComponent.h"
 #include "DynamicMesh/DynamicMesh3.h"
+#include "DynamicMesh/DynamicMeshAttributeSet.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Misc/AutomationTest.h"
@@ -31,6 +32,23 @@ bool FDestructibleTorusTest::RunTest(const FString&)
     const int32 Original=Triangles(),Count=A->GeneratedPieceCount;
     TestTrue(TEXT("Reference torus fits budget"),A->GenerationWarning.IsEmpty() && Count>1000);
     TestEqual(TEXT("Every fragment is a closed hexahedron"),Original,Count*12);
+    for (const auto& Component : A->ChunkComponents)
+    {
+        const auto& Mesh = Component->GetDynamicMesh()->GetMeshRef();
+        const auto* UVs = Mesh.Attributes()->PrimaryUV();
+        for (int32 T = 0; T < Mesh.TriangleCount(); T += 2)
+        {
+            // The two triangles have winding (A,C,B) and (A,D,C).
+            const auto First = UVs->GetTriangle(T);
+            const auto Second = UVs->GetTriangle(T + 1);
+            if (UVs->GetElement(First.A) != UVs->GetElement(Second.A) ||
+                UVs->GetElement(First.B) != UVs->GetElement(Second.C))
+            {
+                AddError(TEXT("Texture coordinates split at the diagonal of a torus panel."));
+                return false;
+            }
+        }
+    }
     TestTrue(TEXT("Both panel families exist"),A->GeneratedMeridianPieces>0 && A->GeneratedParallelPieces>0);
     if(!ValidSolids())return false;
     FHitResult Hit;

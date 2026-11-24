@@ -132,7 +132,8 @@ unreal.BlueprintEditorLibrary.compile_blueprint(bp);save(bp)
 factory=unreal.BlueprintFactory();factory.set_editor_property('parent_class',unreal.ParametricPickup)
 pickup_path='/Game/Weapons/SleepSignal/Pickups/BP_SleepSignalPickup'
 pickup_bp=create('BP_SleepSignalPickup',pickup_path.rsplit('/',1)[0],unreal.Blueprint,factory)
-settings={'weapon_reward':unreal.PickupWeapon.SLEEP_SIGNAL,'icon':unreal.PickupMotif.SLEEP_SIGNAL,'shape':unreal.PickupShape.ROUNDED_CUBE,'size':60.,'corner_radius':10.,'body_color':unreal.LinearColor(.018,.025,.06,1),'icon_color':unreal.LinearColor(.1,.75,1,1),'icon_scale':.8,'minimum_glow':1.7,'maximum_glow':3.5,'motion':unreal.PickupMotion.SPIN_AND_BOB,'spin_speed':30.,'bob_height':16.,'bob_period':2.6,'auto_collect':True,'player_only':True}
+settings={'weapon_reward':unreal.PickupWeapon.SLEEP_SIGNAL,'icon':unreal.PickupMotif.SLEEP_SIGNAL,'size':60.,'corner_radius':10.,'icon_color':unreal.LinearColor(.1,.75,1,1),'icon_scale':.8,'minimum_glow':1.7,'maximum_glow':3.5,'motion':unreal.PickupMotion.SPIN_AND_BOB,'spin_speed':30.,'bob_height':16.,'bob_period':2.6,'auto_collect':True,'player_only':True}
+settings.update(runpy.run_path(str(Path(__file__).with_name('RetroPickupPresets.py')))['appearance'](settings['weapon_reward']))
 for k,value in settings.items():unreal.get_default_object(pickup_bp.generated_class()).set_editor_property(k,value)
 unreal.BlueprintEditorLibrary.compile_blueprint(pickup_bp);save(pickup_bp)
 map_path='/Game/FirstPerson/Lvl_FirstPerson'

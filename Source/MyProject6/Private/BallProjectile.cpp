@@ -10,6 +10,7 @@
 
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/Material.h"
@@ -18,6 +19,11 @@
 #include "UObject/ConstructorHelpers.h"
 
 ABallProjectile::ABallProjectile()
+	: ABallProjectile(EAppearance::SolarPulse)
+{
+}
+
+ABallProjectile::ABallProjectile(EAppearance Appearance)
 {
 	PrimaryActorTick.bCanEverTick = false;
 	InitialLifeSpan = 5.0f;
@@ -38,17 +44,23 @@ ABallProjectile::ABallProjectile()
 	MeshComponent->SetCastShadow(false);
 	MeshComponent->SetRelativeScale3D(FVector(ProjectileVisualScale));
 
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
-	if (SphereMesh.Succeeded())
+	if (Appearance == EAppearance::SolarPulse)
 	{
-		MeshComponent->SetStaticMesh(SphereMesh.Object);
+		static ConstructorHelpers::FObjectFinder<UStaticMesh> Pulse(
+			TEXT("/Game/Weapons/DefaultWeapon/Meshes/SM_SunPulse.SM_SunPulse"));
+		if (Pulse.Succeeded())
+		{
+			MeshComponent->SetStaticMesh(Pulse.Object);
+			ProjectileMaterial = MeshComponent->GetMaterial(MeshComponent->GetMaterialIndex(TEXT("PulseCore")));
+		}
 	}
-
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> BasicProjectileMaterial(
-		TEXT("/Game/Materials/Prototyping/M_FlatCol.M_FlatCol"));
-	if (BasicProjectileMaterial.Succeeded())
+	if (!MeshComponent->GetStaticMesh())
 	{
-		ProjectileMaterial = BasicProjectileMaterial.Object;
+		static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+		static ConstructorHelpers::FObjectFinder<UMaterialInterface> Flat(
+			TEXT("/Game/Materials/Prototyping/M_FlatCol.M_FlatCol"));
+		MeshComponent->SetStaticMesh(Sphere.Object);
+		ProjectileMaterial = Flat.Object;
 		MeshComponent->SetMaterial(0, ProjectileMaterial);
 	}
 
@@ -84,7 +96,16 @@ void ABallProjectile::BeginPlay()
 	{
 		ParentMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
 	}
-	ProjectileMaterialInstance = MeshComponent->CreateDynamicMaterialInstance(0, ParentMaterial);
+	const int32 CoreSlot = MeshComponent->GetMaterialIndex(TEXT("PulseCore"));
+	// Standard automatic fire shares one core material across all live shots.
+	FLinearColor SurfaceTint;
+	if (CoreSlot != INDEX_NONE && MeshComponent->GetMaterial(CoreSlot) == ParentMaterial
+		&& ParentMaterial->GetVectorParameterValue(FMaterialParameterInfo(TEXT("Tint")), SurfaceTint)
+		&& SurfaceTint.Equals(ProjectileColor))
+	{
+		return;
+	}
+	ProjectileMaterialInstance = MeshComponent->CreateDynamicMaterialInstance(CoreSlot == INDEX_NONE ? 0 : CoreSlot, ParentMaterial);
 	if (ProjectileMaterialInstance)
 	{
 		// M_FlatCol's exact vector parameter name contains a space. Keep the common aliases too

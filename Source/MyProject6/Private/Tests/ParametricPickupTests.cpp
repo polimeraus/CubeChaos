@@ -72,6 +72,67 @@ bool FParametricPickupTest::RunTest(const FString&)
 
     auto* Second = World->SpawnActor<AParametricPickup>(FVector(1000, 0, 0), FRotator::ZeroRotator);
     Second->bAutoCollect = false;
+    for (EPickupShape Shape : {EPickupShape::WingedToken, EPickupShape::Jukebox, EPickupShape::FlyingSaucer, EPickupShape::DaisyCharm})
+    {
+        Pickup->Shape = Shape;
+        Pickup->HousingDepth = .5f;
+        Pickup->BulbCount = 0;
+        Pickup->RefreshPickup();
+        const double ThinWidth = Body->GetMesh()->GetBounds().Width();
+        const int32 UnlitTriangles = Body->GetMesh()->TriangleCount();
+        Pickup->HousingDepth = 1.5f;
+        Pickup->RefreshPickup();
+        TestNearlyEqual(TEXT("Depth scales only the front-to-back dimension"), Body->GetMesh()->GetBounds().Width(), ThinWidth * 3., .01);
+        Pickup->BulbCount = 7;
+        Pickup->RefreshPickup();
+        const auto* Mesh = Body->GetMesh();
+        TestTrue(TEXT("Marquee count creates real additional geometry"), Mesh->TriangleCount() > UnlitTriangles);
+        TestTrue(FString::Printf(TEXT("Retro shape %d has valid topology"), int32(Shape)),
+                 Mesh->CheckValidity({}, UE::Geometry::EValidityCheckFailMode::ReturnOnly));
+        const auto* Attributes = Mesh->Attributes();
+        bool bComplete = Attributes->NumUVLayers() == 2 && Attributes->HasMaterialID();
+        int32 Icons = 0, Housing = 0;
+        bool bSideEmblem = false;
+        for (int32 ID : Mesh->TriangleIndicesItr())
+        {
+            if (!bComplete) break;
+            const auto* Normals = Attributes->PrimaryNormals();
+            const auto N = Normals->GetTriangle(ID);
+            const FVector3d ShadingNormal(Normals->GetElement(N.A) + Normals->GetElement(N.B) + Normals->GetElement(N.C));
+            bComplete = Attributes->PrimaryUV()->IsSetTriangle(ID) && Attributes->GetUVLayer(1)->IsSetTriangle(ID)
+                && Mesh->GetTriNormal(ID).Dot(ShadingNormal) > 0;
+            if (!bComplete) AddError(FString::Printf(TEXT("Shape %d, triangle %d, normal agreement %.5g"),
+                int32(Shape), ID, Mesh->GetTriNormal(ID).Dot(ShadingNormal)));
+            const int32 Slot = Attributes->GetMaterialID()->GetValue(ID);
+            Icons += Slot == 0;
+            Housing += Slot == 1;
+            bSideEmblem |= Slot == 0 && FMath::Abs(Mesh->GetTriNormal(ID).Y) > .6;
+        }
+        TestTrue(FString::Printf(TEXT("Lens and housing %d are both visible, UV mapped and outward facing"), int32(Shape)), bComplete && Icons > 0 && Housing > Icons);
+        if (Shape == EPickupShape::Jukebox || Shape == EPickupShape::FlyingSaucer)
+            TestTrue(TEXT("Rotating jukeboxes and saucers have a side-facing emblem"), bSideEmblem);
+        TestEqual(TEXT("Housing and emblem use separate material slots"), Body->GetNumMaterials(), 2);
+        const auto Bounds = Mesh->GetBounds();
+        const auto Trigger = Pickup->FindComponentByClass<UBoxComponent>()->GetUnscaledBoxExtent();
+        TestTrue(TEXT("Existing collection trigger contains even the deepest housing"),
+                 Bounds.Max.X <= Trigger.X && Bounds.Max.Y <= Trigger.Y && Bounds.Max.Z - Pickup->Size * .5 <= Trigger.Z);
+    }
+    const int32 OriginalPetals = Body->GetMesh()->TriangleCount();
+    Pickup->PetalCount = 11;
+    Pickup->RefreshPickup();
+    TestTrue(TEXT("Changing the petal count rebuilds the rosette"), Body->GetMesh()->TriangleCount() > OriginalPetals);
+    if (auto* Enamel = Cast<UMaterialInstanceDynamic>(Body->GetMaterial(1)))
+    {
+        const auto* OtherBody = Second->FindComponentByClass<UDynamicMeshComponent>();
+        TestTrue(TEXT("Enamel palettes are per pickup"), Enamel != OtherBody->GetMaterial(1));
+        Pickup->TrimColor = FLinearColor::Green;
+        Pickup->RefreshMaterial();
+        TestTrue(TEXT("Runtime trim tint reaches the existing material"), Enamel->K2_GetVectorParameterValue(TEXT("TrimColor")).Equals(FLinearColor::Green));
+    }
+    else AddError(TEXT("Saved arcade housing material is required"));
+    Pickup->Shape = EPickupShape::Cube;
+    Pickup->RefreshPickup();
+    TestEqual(TEXT("Returning to classic shapes releases the housing slot"), Body->GetNumMaterials(), 1);
     if (TestNotNull(TEXT("Saved default material loads on native actor"), Pickup->GetDynamicMaterial())
         && TestNotNull(TEXT("Second actor has its own material"), Second->GetDynamicMaterial()))
     {

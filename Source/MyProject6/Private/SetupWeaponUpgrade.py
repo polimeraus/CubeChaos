@@ -1,7 +1,7 @@
 """Persist only requested weapon rewards, plasma shader and Babylon entrance height."""
 from pathlib import Path
 from datetime import datetime
-import json, shutil, unreal
+import json, runpy, shutil, unreal
 
 root=Path(unreal.Paths.project_dir()).resolve()
 content=root/'Content'
@@ -42,6 +42,8 @@ default_path='/Game/Weapons/DefaultWeapon/Pickups/BP_DefaultWeaponPickup'
 factory=unreal.BlueprintFactory();factory.set_editor_property('parent_class',unreal.ParametricPickup)
 default_bp=unreal.load_asset(default_path) if unreal.EditorAssetLibrary.does_asset_exist(default_path) else unreal.AssetToolsHelpers.get_asset_tools().create_asset('BP_DefaultWeaponPickup',default_path.rsplit('/',1)[0],unreal.Blueprint,factory)
 default_settings={'weapon_reward':unreal.PickupWeapon.DEFAULT_WEAPON,'icon':unreal.PickupMotif.ROCKET,'icon_color':unreal.LinearColor(1,.48,.045,1)}
+appearance=runpy.run_path(str(Path(__file__).with_name('RetroPickupPresets.py')))['appearance']
+default_settings.update(appearance(default_settings['weapon_reward']))
 for key,value in default_settings.items():unreal.get_default_object(default_bp.generated_class()).set_editor_property(key,value)
 unreal.BlueprintEditorLibrary.compile_blueprint(default_bp)
 assert unreal.EditorAssetLibrary.save_loaded_asset(default_bp,False)
@@ -66,6 +68,7 @@ for map_path in maps:
                  'BP_ParametricPickup4':{'weapon_reward':unreal.PickupWeapon.BFG,'icon':unreal.PickupMotif.RADIATION_BOMB,'icon_color':unreal.LinearColor(.03,1,.12,1)}}
         for label,settings in rewards.items():
             a=pickups[label];old_pose=pose(a)
+            settings.update(appearance(settings['weapon_reward'],settings.get('icon', a.icon)))
             for key,value in settings.items():a.set_editor_property(key,value)
             a.refresh_pickup();assert pose(a)==old_pose
         pickup_records=[{'label':a.get_actor_label(),'reward':str(a.weapon_reward),'pose':pose(a)} for a in pickups.values()]

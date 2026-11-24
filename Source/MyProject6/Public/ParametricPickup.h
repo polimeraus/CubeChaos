@@ -46,7 +46,11 @@ enum class EPickupShape : uint8
     Cube,
     Sphere,
     RoundedCube UMETA(DisplayName="Rounded Cube"),
-    Pyramid
+    Pyramid,
+    WingedToken UMETA(DisplayName="Winged Arcade Token"),
+    Jukebox UMETA(DisplayName="Miniature Jukebox"),
+    FlyingSaucer UMETA(DisplayName="Flying Saucer"),
+    DaisyCharm UMETA(DisplayName="Daisy Rosette")
 };
 
 UENUM(BlueprintType)
@@ -64,7 +68,14 @@ enum class EPickupMotif : uint8
     BombCluster UMETA(DisplayName="Bomb Cluster"),
     SleepSignal UMETA(DisplayName="Sleep Signal"),
     ElectricTether UMETA(DisplayName="Arc Cage"),
-    PurpleRailgun UMETA(DisplayName="Red Railgun")
+    PurpleRailgun UMETA(DisplayName="Red Railgun"),
+    RingedPlanet UMETA(DisplayName="Ringed Planet"),
+    Cherries,
+    MusicNotes UMETA(DisplayName="Music Notes"),
+    WingedBolt UMETA(DisplayName="Winged Lightning"),
+    LuckyHorseshoe UMETA(DisplayName="Lucky Horseshoe"),
+    ShootingStar UMETA(DisplayName="Shooting Star"),
+    CandyHeart UMETA(DisplayName="Candy Heart")
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FParametricPickupCollected, AParametricPickup*, Pickup, APawn*, Collector);
@@ -87,7 +98,7 @@ public:
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Shape")
-    EPickupShape Shape = EPickupShape::Cube;
+    EPickupShape Shape = EPickupShape::WingedToken;
 
     /** Width/diameter and height in centimetres. The actor's scale can also stretch it. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Shape", meta=(ClampMin="1", ClampMax="10000", Units="cm"))
@@ -96,8 +107,33 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Shape", meta=(ClampMin="0", Units="cm", EditCondition="Shape == EPickupShape::RoundedCube"))
     float CornerRadius = 9;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="Pickup|Shape", meta=(ClampMin="4", ClampMax="32", EditCondition="Shape == EPickupShape::Sphere || Shape == EPickupShape::RoundedCube"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="Pickup|Shape", meta=(ClampMin="4", ClampMax="32", EditCondition="Shape != EPickupShape::Cube && Shape != EPickupShape::Pyramid"))
     int32 SurfaceSubdivisions = 16;
+
+    /** Front-to-back thickness of the four arcade housings, relative to their original proportions. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Retro Housing", meta=(ClampMin="0.5", ClampMax="1.5"))
+    float HousingDepth = 1.f;
+
+    /** Width of the raised border around the icon lenses. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Retro Housing", meta=(ClampMin="0.5", ClampMax="1.6"))
+    float BezelWidth = 1.f;
+
+    /** Number of small marquee bulbs along each decorative arc or perimeter. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Retro Housing", meta=(ClampMin="0", ClampMax="16"))
+    int32 BulbCount = 7;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Retro Housing", meta=(ClampMin="5", ClampMax="12", EditCondition="Shape == EPickupShape::DaisyCharm"))
+    int32 PetalCount = 7;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Retro Housing", meta=(HideAlphaChannel))
+    FLinearColor TrimColor = FLinearColor(.79f, .48f, .18f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Retro Housing", meta=(HideAlphaChannel))
+    FLinearColor InlayColor = FLinearColor(.96f, .81f, .55f);
+
+    /** Colour immediately behind the icon on arcade housings. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Retro Housing", meta=(HideAlphaChannel))
+    FLinearColor BadgeColor = FLinearColor(.020f, .038f, .046f);
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Icon")
     EPickupMotif Icon = EPickupMotif::Star;
@@ -112,7 +148,7 @@ public:
     float IconRotation = 0;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Body")
-    FLinearColor BodyColor = FLinearColor(0.025f, 0.04f, 0.065f, 1.f);
+    FLinearColor BodyColor = FLinearColor(.035f, .38f, .34f);
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Body", meta=(ClampMin="0", ClampMax="1"))
     float Roughness = 0.32f;
@@ -190,6 +226,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="Pickup|Material")
     TObjectPtr<UMaterialInterface> SurfaceMaterial;
 
+    /** The arcade housing finish reads enamel, trim, inlay, socket and lamp roles from UV1. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="Pickup|Material")
+    TObjectPtr<UMaterialInterface> HousingMaterial;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pickup|Collection")
     bool bAutoCollect = true;
 
@@ -244,6 +284,9 @@ protected:
 private:
     UPROPERTY(Transient)
     TObjectPtr<UMaterialInstanceDynamic> MaterialInstance;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UMaterialInstanceDynamic> HousingInstance;
 
     UPROPERTY(ReplicatedUsing=OnRep_Collected)
     bool bCollected = false;

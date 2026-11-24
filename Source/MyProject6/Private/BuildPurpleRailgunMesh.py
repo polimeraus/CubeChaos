@@ -21,6 +21,7 @@ palette = {
     'CometGrip': (.046, .034, .038, .12, .55),
     'PurpleEnergy': (1., .025, .052, .16, .23),
     'CometDial': (.028, .057, .063, .32, .25),
+    'RailGauge': (.97, .79, .48, .15, .31),
 }
 materials = {}
 for name, (r, g, b, metal, rough) in palette.items():
@@ -36,7 +37,7 @@ for name, (r, g, b, metal, rough) in palette.items():
         shader.inputs['Emission Strength'].default_value = 1.6
     materials[name] = mat
 
-cherry, ivory, brass, dark, grip, ruby, dial = materials
+cherry, ivory, brass, dark, grip, ruby, dial, gauge = materials
 objects = []
 
 def mesh(name, vertices, faces, finish, smooth=True):
@@ -197,7 +198,7 @@ handle('22 | Brass heel cap',[(-10.7,-3.45,2.23,3.1),(-10.5,-3.45,2.86,3.75),
 drawn('23 | Trigger bow',[(0,2.5,-4.6),(0,4.1,-5.6),(0,7.5,-5.4),(0,10.8,-3.7),(0,12.7,-.3),(0,12.8,3.6)],brass,.48)
 drawn('24 | Red trigger',[(0,6.5,3.4),(0,6.0,1.4),(0,5.65,-.4),(0,6.2,-1.5)],cherry,.48)
 
-# The top dial faces back toward the player. All markings are relief geometry.
+# The graduations and pivot are relief geometry. The game draws the moving needle on the face.
 N=Vector((0,-.64,.768)).normalized()
 U=Vector((1,0,0))
 V=N.cross(U)
@@ -211,16 +212,23 @@ def dial_disc(name, rings, finish):
               for j in range(len(rings)-1) for i in range(n)]
     obj=mesh(name,verts,faces,finish)
     for f in obj.data.polygons[:2]: f.use_smooth=False
+    return obj
 dial_disc('25 | Dashboard binnacle',[(-2.3,3.65),(-1.3,4.45),(.32,4.38),(.50,4.18)],dark)
 dial_disc('26 | Turned brass dial bezel',[(.42,4.24),(.60,4.36),(.88,4.19),(1.,3.94)],brass)
-dial_disc('27 | Porcelain dial face',[(1.01,3.88),(1.05,3.88)],ivory)
+gauge_face = dial_disc('27 | Porcelain dial face',[(1.01,3.88),(1.05,3.88)],gauge)
+dial_uv = gauge_face.data.uv_layers.new(name='UVMap')
+for loop in gauge_face.data.loops:
+    p = gauge_face.data.vertices[loop.vertex_index].co - O
+    dial_uv.data[loop.index].uv = (.5 + p.dot(U) / 7.76, .5 + p.dot(V) / 7.76)
 for i in range(13):
     a=radians(25+130*i/12)
     r=2.54 if i%3==0 else 2.87
     drawn('28 | Meter graduation', [on_dial(r*cos(a),r*sin(a),1.12),on_dial(3.32*cos(a),3.32*sin(a),1.12)],
           cherry if i<3 else dial, .103 if i%3==0 else .076)
 drawn('29 | Hot band', [on_dial(3.5*cos(radians(a)),3.5*sin(radians(a)),1.12) for a in range(25,53,2)],cherry,.108)
-mesh('30 | Needle',[on_dial(*p,1.24) for p in [(-.32,-.57),(.25,-.71),(1.8,2.38)]],[(0,1,2)],cherry,False)
+studio_needle = mesh('30 | Needle - charged studio pose', [
+    on_dial(-.58, -.5, 1.24), on_dial(-.74, -.04, 1.24),
+    on_dial(2.81, 1.49, 1.24)], [(0,2,1)], cherry, False)
 drawn('31 | Meter underline',[on_dial(-1.0,-1.82,1.13),on_dial(1.0,-1.82,1.13)],dial,.09)
 dial_disc('32 | Pointer pivot',[(1.25,.42),(1.42,.40)],brass)
 # A small ruby dorsal jewel ties the visible meter to the forward accelerator.
@@ -241,18 +249,21 @@ deps=bpy.context.evaluated_depsgraph_get()
 bpy.ops.object.select_all(action='DESELECT')
 export=[]
 for obj in objects:
+    if obj == studio_needle:
+        continue
     data=bpy.data.meshes.new_from_object(obj.evaluated_get(deps),depsgraph=deps)
     part=bpy.data.objects.new('Export '+obj.name,data)
     bpy.context.collection.objects.link(part)
     data.transform(Matrix.Scale(.01,4) @ Matrix.Rotation(pi,4,'Z') @ obj.matrix_world)
     # Grain UVs in grip space prevent the metal parent from sampling one point.
     uv=data.uv_layers.new(name='UVMap') if not data.uv_layers.active else data.uv_layers.active
-    for poly in data.polygons:
-        axis=max(range(3),key=lambda i:abs(poly.normal[i]))
-        dims=[i for i in range(3) if i!=axis]
-        for li in poly.loop_indices:
-            co=data.vertices[data.loops[li].vertex_index].co
-            uv.data[li].uv=(co[dims[0]]*2.,co[dims[1]]*2.)
+    if obj != gauge_face:
+        for poly in data.polygons:
+            axis=max(range(3),key=lambda i:abs(poly.normal[i]))
+            dims=[i for i in range(3) if i!=axis]
+            for li in poly.loop_indices:
+                co=data.vertices[data.loops[li].vertex_index].co
+                uv.data[li].uv=(co[dims[0]]*2.,co[dims[1]]*2.)
     part.select_set(True)
     export.append(part)
 bpy.context.view_layer.objects.active=export[0]

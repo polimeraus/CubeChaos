@@ -3,10 +3,12 @@
 #include "RailgunWeapon.h"
 #include "ParametricPickup.h"
 #include "BallProjectile.h"
+#include "CannonballProjectile.h"
 #include "GameOverMenuTestController.h"
 #include "EnergyHUDWidget.h"
 #include "Components/InputComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SphereComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Animation/AnimationAsset.h"
@@ -81,7 +83,8 @@ bool FWeaponInventoryTest::RunTest(const FString&)
     Key(EKeys::MouseScrollUp);Active(EPlayerWeapon::Default);
     Collect(EPickupWeapon::BFG);Active(EPlayerWeapon::BFG);
     Key(EKeys::MouseScrollDown);Active(EPlayerWeapon::Default);
-    TestEqual(TEXT("Original rifle model and grip restored"),Player->Railgun->WeaponMesh->GetStaticMesh()->GetName(),FString(TEXT("SM_Rifle")));
+    TestEqual(TEXT("Switching back restores the radio carbine"), Player->Railgun->WeaponMesh->GetStaticMesh()->GetPathName(),
+        FString(TEXT("/Game/Weapons/DefaultWeapon/Meshes/SM_Rifle.SM_Rifle")));
     TestTrue(TEXT("Default transform restored"),Player->Railgun->WeaponMesh->GetRelativeTransform().Equals(FTransform::Identity));
     Key(EKeys::MouseScrollDown);Active(EPlayerWeapon::BFG);
     Collect(EPickupWeapon::Railgun);Active(EPlayerWeapon::Railgun);
@@ -91,9 +94,33 @@ bool FWeaponInventoryTest::RunTest(const FString&)
     Key(EKeys::Three);Active(EPlayerWeapon::BFG);
     Collect(EPickupWeapon::DefaultWeapon);Active(EPlayerWeapon::Default);
     TestTrue(TEXT("Picking original rifle retains both acquired weapons"),Player->HasWeapon(EPlayerWeapon::Railgun)&&Player->HasWeapon(EPlayerWeapon::BFG));
-    Key(EKeys::LeftMouseButton);Tick();Key(EKeys::LeftMouseButton,IE_Released);
-    int32 Balls=0;for(TActorIterator<ABallProjectile> It(World);It;++It)++Balls;
-    TestTrue(TEXT("Restored default weapon fires its original projectiles"),Balls>0);
+    Key(EKeys::LeftMouseButton);
+    for (int32 Frame=0; Frame<4; ++Frame) Tick();
+    Key(EKeys::LeftMouseButton,IE_Released);
+    int32 Balls=0;
+    for (TActorIterator<ABallProjectile> It(World); It; ++It)
+    {
+        ++Balls;
+        const auto* Model=It->FindComponentByClass<UStaticMeshComponent>();
+        if (TestNotNull(TEXT("Fired pulse has a render component"), Model) && TestNotNull(TEXT("Pulse mesh loads"), Model->GetStaticMesh().Get()))
+        {
+            TestEqual(TEXT("Primary fire spawns the solar pulse"), Model->GetStaticMesh()->GetFName(), FName(TEXT("SM_SunPulse")));
+            TestTrue(TEXT("Core, orbit and wake retain their separate materials"), Model->GetMaterialIndex(TEXT("PulseCore"))!=INDEX_NONE
+                && Model->GetMaterialIndex(TEXT("PulseOrbit"))!=INDEX_NONE && Model->GetMaterialIndex(TEXT("PulseGlow"))!=INDEX_NONE);
+            const int32 CoreSlot=Model->GetMaterialIndex(TEXT("PulseCore"));
+            TestTrue(TEXT("Automatic fire shares the authored core material"), CoreSlot!=INDEX_NONE
+                && Model->GetMaterial(CoreSlot)==Model->GetStaticMesh()->GetMaterial(CoreSlot));
+            TestTrue(TEXT("The tail points behind the moving sphere"), Model->GetStaticMesh()->GetBounds().Origin.X < -25.f);
+            TestEqual(TEXT("The visible wake has no collision"), Model->GetCollisionEnabled(), ECollisionEnabled::NoCollision);
+        }
+        const auto* Sphere=It->FindComponentByClass<USphereComponent>();
+        if (TestNotNull(TEXT("Primary fire retains its collision sphere"), Sphere))
+            TestTrue(TEXT("Pulse collision radius stays at twelve centimetres"), FMath::IsNearlyEqual(Sphere->GetScaledSphereRadius(),12.f));
+    }
+    TestTrue(TEXT("Holding primary fire sends a burst of solar pulses"),Balls>=3);
+    const auto* CannonModel=GetDefault<ACannonballProjectile>()->FindComponentByClass<UStaticMeshComponent>();
+    if (TestNotNull(TEXT("Red cannonball model"), CannonModel) && TestNotNull(TEXT("Red cannonball mesh"), CannonModel->GetStaticMesh().Get()))
+        TestEqual(TEXT("The separate cannonball retains its solid sphere"), CannonModel->GetStaticMesh()->GetFName(), FName(TEXT("Sphere")));
     Key(EKeys::Two);Active(EPlayerWeapon::Railgun);
     TestTrue(TEXT("Railgun can fire after switching"),Player->Railgun->Fire());
     Key(EKeys::Three);Key(EKeys::Two);

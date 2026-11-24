@@ -22,12 +22,15 @@ public:
 	ABallProjectile();
 
 protected:
+	enum class EAppearance { SolarPulse, SolidBall };
+	explicit ABallProjectile(EAppearance Appearance);
+
 	virtual void BeginPlay() override;
 	virtual void NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPrimitiveComponent* OtherComp,
 		bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit) override;
 	void ApplyProjectileConfiguration();
 
-	/** Basic surface material tinted at runtime with ProjectileColor. */
+	/** The core surface tinted at runtime with ProjectileColor. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Projectile|Visuals")
 	TObjectPtr<UMaterialInterface> ProjectileMaterial;
 

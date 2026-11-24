@@ -162,6 +162,7 @@ private:
     FRotator PreviousAim = FRotator::ZeroRotator;
     FRailgunViewMotion ViewMotion;
     void ApplyHit(const FHitResult& Hit, const FVector& Direction);
+    void UpdateRailgunGauge();
     void RestoreWeaponAttachment();
     void ApplyHoldPose(UAnimSequence* Animation);
 };

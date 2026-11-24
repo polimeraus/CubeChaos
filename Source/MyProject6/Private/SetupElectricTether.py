@@ -50,7 +50,8 @@ hold.set_editor_property('enable_root_motion',False);save(hold)
 factory=unreal.BlueprintFactory();factory.set_editor_property('parent_class',unreal.ParametricPickup)
 pickup_path='/Game/Weapons/ElectricTether/Pickups/BP_ArcCagePickup'
 bp=create('BP_ArcCagePickup',pickup_path.rsplit('/',1)[0],unreal.Blueprint,factory)
-settings={'weapon_reward':unreal.PickupWeapon.ELECTRIC_TETHER,'icon':unreal.PickupMotif.ELECTRIC_TETHER,'shape':unreal.PickupShape.ROUNDED_CUBE,'size':60.,'corner_radius':10.,'body_color':unreal.LinearColor(.015,.02,.045,1),'icon_color':unreal.LinearColor(.22,.7,1,1),'icon_scale':.8,'minimum_glow':1.8,'maximum_glow':4.,'motion':unreal.PickupMotion.SPIN_AND_BOB,'spin_speed':28.,'bob_height':16.,'bob_period':2.4,'auto_collect':True,'player_only':True}
+settings={'weapon_reward':unreal.PickupWeapon.ELECTRIC_TETHER,'icon':unreal.PickupMotif.ELECTRIC_TETHER,'size':60.,'corner_radius':10.,'icon_color':unreal.LinearColor(.22,.7,1,1),'icon_scale':.8,'minimum_glow':1.8,'maximum_glow':4.,'motion':unreal.PickupMotion.SPIN_AND_BOB,'spin_speed':28.,'bob_height':16.,'bob_period':2.4,'auto_collect':True,'player_only':True}
+settings.update(runpy.run_path(str(Path(__file__).with_name('RetroPickupPresets.py')))['appearance'](settings['weapon_reward']))
 for k,v in settings.items():unreal.get_default_object(bp.generated_class()).set_editor_property(k,v)
 unreal.BlueprintEditorLibrary.compile_blueprint(bp);save(bp)
 actors=unreal.get_editor_subsystem(unreal.EditorActorSubsystem);level=unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)

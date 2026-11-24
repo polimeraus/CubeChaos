@@ -19,7 +19,8 @@ def import_file(filename,destination,name,options=None):
     assert result,(filename,list(task.imported_object_paths))
     return result
 
-finishes = runpy.run_path(str(Path(__file__).with_name('SetupPurpleRailgunMaterials.py')))['make_finishes']()
+finishes = runpy.run_path(str(Path(__file__).with_name('SetupPurpleRailgunMaterials.py')))['make_finishes'](
+    preserve_existing='-KeepRailFinishes' in unreal.SystemLibrary.get_command_line())
 
 options=unreal.FbxImportUI()
 for k,v in dict(import_mesh=True,import_as_skeletal=False,import_materials=False,import_textures=False,

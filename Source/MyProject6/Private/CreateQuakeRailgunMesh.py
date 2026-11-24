@@ -1,131 +1,269 @@
-"""Original Q3-style railgun reconstruction. Run with Blender --background --python.
-Dimensions in metres, grip at origin, barrel along +Y. No game assets are extracted.
-"""
-import bpy, math
+"""Build the blue arcade railgun. The editable source uses centimetres in grip space."""
+import math
 from pathlib import Path
+
+import bpy
+from mathutils import Matrix, Vector
 
 out = Path(__file__).resolve().parents[3] / 'ContentSource/Railgun'
 out.mkdir(parents=True, exist_ok=True)
 bpy.ops.object.select_all(action='SELECT')
 bpy.ops.object.delete(use_global=False)
+parts = []
+tau = math.tau
 
-def material(name, color, metal, rough):
-    m = bpy.data.materials.new(name)
-    m.diffuse_color = (*color, 1)
-    m.use_nodes = True
-    p = m.node_tree.nodes.get('Principled BSDF')
-    p.inputs['Base Color'].default_value = (*color, 1)
-    p.inputs['Metallic'].default_value = metal
-    p.inputs['Roughness'].default_value = rough
-    return m
 
-silver = material('RailSilver', (.39, .43, .45), .82, .3)
-dark = material('RailGunmetal', (.045, .06, .065), .75, .4)
-black = material('RailRubber', (.013, .019, .018), .08, .65)
-energy = material('RailEnergy', (.008, .22, 1.), .25, .25)
-brass = material('RailBrass', (.28, .20, .07), .8, .35)
+def finish(name, rgb, metal, rough, glow=0.0):
+    mat = bpy.data.materials.new(name)
+    mat.diffuse_color = (*rgb, 1)
+    mat.use_nodes = True
+    shader = mat.node_tree.nodes.get('Principled BSDF')
+    for key, value in [('Base Color', mat.diffuse_color), ('Metallic', metal), ('Roughness', rough),
+                       ('Emission Color', mat.diffuse_color), ('Emission Strength', glow)]:
+        shader.inputs[key].default_value = value
+    return mat
 
-def finish(o, name, mat, bevel=0):
-    o.name = name
-    o.data.materials.append(mat)
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    if bevel:
-        b = o.modifiers.new('Machined edges', 'BEVEL')
-        b.width = bevel; b.segments = 2
-        bpy.ops.object.modifier_apply(modifier=b.name)
-        n = o.modifiers.new('Weighted normals', 'WEIGHTED_NORMAL')
-        bpy.ops.object.modifier_apply(modifier=n.name)
-    return o
 
-def box(name, loc, size, mat, bevel=.003):
-    bpy.ops.mesh.primitive_cube_add(size=1, location=loc)
-    o = bpy.context.object; o.dimensions = size
-    return finish(o, name, mat, bevel)
+cobalt = finish('RailCobalt', (.022, .135, .57), .34, .25)
+ice = finish('RailPorcelain', (.62, .85, .93), .16, .29)
+chrome = finish('RailSilver', (.64, .75, .82), .8, .23)
+navy = finish('RailGunmetal', (.035, .055, .08), .55, .35)
+rubber = finish('RailRubber', (.023, .033, .042), .08, .54)
+amber = finish('RailBrass', (.66, .29, .068), .68, .26)
+cyan = finish('RailEnergy', (.018, .69, .99), .16, .23, 1.7)
+glass = finish('RailGauge', (.018, .08, .095), .2, .25)
 
-def cylinder(name, y, radius, length, mat, x=0, z=.1, verts=32):
-    bpy.ops.mesh.primitive_cylinder_add(vertices=verts, radius=radius, depth=length,
-        location=(x, y, z), rotation=(math.pi / 2, 0, 0))
-    return finish(bpy.context.object, name, mat, .0015)
 
-def ring(name, y, outer, inner, width, mat):
-    vertices=[]; faces=[]; n=40
-    for cy, radius in [(y-width/2,outer),(y+width/2,outer),(y-width/2,inner),(y+width/2,inner)]:
-        vertices.extend((radius*math.cos(i*math.tau/n),cy,.1+radius*math.sin(i*math.tau/n)) for i in range(n))
-    for i in range(n):
-        j=(i+1)%n
-        faces.extend([(i,j,n+j,n+i),(2*n+i,3*n+i,3*n+j,2*n+j),
-                      (i,2*n+i,2*n+j,j),(n+i,n+j,3*n+j,3*n+i)])
-    mesh=bpy.data.meshes.new(name); mesh.from_pydata(vertices,[],[tuple(reversed(f)) for f in faces]); mesh.update()
-    o=bpy.data.objects.new(name,mesh); bpy.context.collection.objects.link(o)
-    bpy.context.view_layer.objects.active=o; o.select_set(True)
-    return finish(o,name,mat,.001)
+def mesh(name, vertices, faces, mat, smooth=True):
+    data = bpy.data.meshes.new(name)
+    data.from_pydata(vertices, [], faces)
+    data.update()
+    obj = bpy.data.objects.new(name, data)
+    bpy.context.collection.objects.link(obj)
+    data.materials.append(mat)
+    for poly in data.polygons:
+        poly.use_smooth = smooth
+    parts.append(obj)
+    return obj
 
-# Broad rear housing, long exposed accelerator and the distinctive repeated clamps.
-box('Rear receiver',(0,-.065,.10),(.148,.20,.135),silver,.012)
-box('Receiver top',(0,-.06,.171),(.095,.15,.018),dark)
-box('Energy display bezel',(0,-.055,.183),(.084,.084,.006),silver,.003)
-box('Flowing energy display',(0,-.055,.187),(.068,.068,.003),energy,.001)
-# Frame the display with stepped brass graduations visible from the grip.
-for side in [-1,1]:
-    for j in range(4):
-        box('Display graduation',(side*.038,-.081+j*.017,.187),(.006,.007,.003),brass,.0007)
-box('Back plate',(0,-.169,.10),(.132,.012,.112),dark)
-for x in [-.076,.076]:
-    box('Receiver inset',(x,-.07,.103),(.004,.115,.068),dark,.002)
-    for y in [-.108,-.085,-.062,-.039]:
-        box('Cooling fins',(x*1.02,y,.103),(.007,.010,.058),silver,.001)
-cylinder('Accelerator dark bed',.305,.044,.55,dark)
-cylinder('Blue induction chamber',.285,.046,.46,energy)
-# A continuous dark helix breaks up the exposed blue chamber between clamps.
-coil=bpy.data.curves.new('Wound inductor','CURVE')
-coil.dimensions='3D';coil.bevel_depth=.0042;coil.bevel_resolution=2
-spline=coil.splines.new('POLY');spline.points.add(180)
-for i,p in enumerate(spline.points):
-    t=i/180;angle=math.tau*8*t
-    p.co=(.047*math.cos(angle),.055+.46*t,.1+.047*math.sin(angle),1)
-winding=bpy.data.objects.new('Wound inductor',coil);bpy.context.collection.objects.link(winding)
-coil.materials.append(brass);bpy.ops.object.select_all(action='DESELECT');winding.select_set(True)
-bpy.context.view_layer.objects.active=winding;bpy.ops.object.convert(target='MESH')
-for y in [.065,.155,.245,.335,.425,.515]:
-    ring('Induction clamp',y,.063,.045,.026,silver)
-    ring('Clamp gasket',y+.018,.054,.044,.007,black)
-for x in [-.053,.053]:
-    box('Longitudinal magnetic rail',(x,.29,.133),(.017,.52,.027),silver,.004)
-    box('Inset rail',(x,.29,.151),(.008,.49,.007),dark,.001)
-box('Top accelerator spine',(0,.31,.159),(.024,.49,.019),dark)
-box('Underslung frame',(0,.27,.043),(.066,.46,.025),dark,.007)
-for y in [.08,.17,.26,.35,.44,.53]:
-    for x in [-.064,.064]:
-        cylinder('Clamp fastener',y,.006,.007,brass,x=x,z=.127,verts=12)
-cylinder('Muzzle housing',.591,.068,.096,silver)
-ring('Muzzle gasket',.635,.070,.035,.018,dark)
-ring('Muzzle rim',.654,.058,.031,.027,silver)
-cylinder('Recessed bore',.645,.030,.002,black)
-ring('Energy aperture',.653,.034,.029,.003,energy)
-box('Forward sight',(0,.58,.174),(.016,.04,.025),dark)
-box('Sight tip',(0,.58,.189),(.007,.012,.006),energy,.001)
 
-# Trigger hand and support hand use the existing two-handed pose.
-grip=box('Pistol grip',(0,-.025,-.035),(.046,.062,.135),black,.01)
-grip.rotation_euler[0]=-.16
-for z in [-.075,-.053,-.031,-.009]:
-    box('Grip ribs',(0,-.055,z),(.048,.008,.007),dark,.002)
-box('Trigger guard base',(0,.048,-.043),(.025,.092,.012),silver)
-box('Trigger guard front',(0,.091,-.013),(.025,.012,.068),silver)
-box('Trigger',(0,.036,-.006),(.012,.011,.034),dark)
-box('Fore-end contact',(0,.20,.025),(.074,.16,.022),black,.008)
+def section(angle, exponent):
+    def signed(v):
+        return math.copysign(abs(v) ** exponent, v)
+    return signed(math.cos(angle)), signed(math.sin(angle))
 
-bpy.ops.object.select_all(action='SELECT')
-bpy.context.view_layer.objects.active=bpy.context.selected_objects[0]
-bpy.ops.object.join()
-o=bpy.context.object; o.name='SM_QuakeRailgun'
-bpy.context.scene.cursor.location=(0,0,0)
-bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
-bpy.ops.object.transform_apply(location=False,rotation=True,scale=True)
-# Blender FBX -> Unreal flips Y. Bake the compensation so the imported barrel is +Y.
-o.rotation_euler[2]=math.pi
-bpy.ops.object.transform_apply(location=False,rotation=True,scale=True)
-bpy.ops.export_scene.fbx(filepath=str(out/'SM_QuakeRailgun.fbx'),use_selection=True,object_types={'MESH'},
-    add_leaf_bones=False,axis_forward='-Y',axis_up='Z',bake_anim=False,mesh_smooth_type='FACE')
+
+def hull(name, stations, mat, exponent=1., sides=48):
+    # Each station gives y, center x/z and the two cross-section radii.
+    vertices = []
+    for y, x, z, width, height in stations:
+        for i in range(sides):
+            px, pz = section(tau * i / sides, exponent)
+            vertices.append((x + width * px, y, z + height * pz))
+    faces = [tuple(range(sides)), tuple(reversed(range(len(vertices)-sides, len(vertices))))]
+    for row in range(len(stations)-1):
+        for i in range(sides):
+            a, b = row*sides+i, row*sides+(i+1)%sides
+            faces.append((a, a+sides, b+sides, b))
+    obj = mesh(name, vertices, faces, mat)
+    for poly in obj.data.polygons[:2]:
+        poly.use_smooth = False
+    return obj
+
+
+def line(name, points, radius, mat):
+    curve = bpy.data.curves.new(name, 'CURVE')
+    curve.dimensions = '3D'
+    curve.bevel_depth = radius
+    curve.bevel_resolution = 3
+    curve.use_fill_caps = True
+    spine = curve.splines.new('POLY')
+    spine.points.add(len(points)-1)
+    for dst, point in zip(spine.points, points):
+        dst.co = (*point, 1)
+    obj = bpy.data.objects.new(name, curve)
+    bpy.context.collection.objects.link(obj)
+    curve.materials.append(mat)
+    parts.append(obj)
+
+
+def barrel(name, stations, mat, exponent=1.):
+    return hull(name, [(y, 0., 10., w, h) for y, w, h in stations], mat, exponent)
+
+
+shell = [(-16.2,0,9.1,2.7,2.6),(-15.7,0,9.1,4.6,3.7),(-14.,0,9.2,6.7,5.0),
+         (-11.,0,9.4,7.65,5.8),(-7.,0,9.65,8.20,6.05),(-1.,0,9.75,8.48,6.08),
+         (6.,0,9.7,8.20,5.85),(12.,0,9.6,7.55,5.35),(18.,0,9.5,6.65,4.72),
+         (23.,0,9.55,5.45,3.92),(25.,0,9.7,4.12,3.15)]
+hull('Cobalt enamel cowling', shell, cobalt, .74, 64)
+
+
+def on_shell(y, angle, side, lift):
+    for left, right in zip(shell, shell[1:]):
+        if y <= right[0]:
+            break
+    t = (y-left[0]) / (right[0]-left[0])
+    z, w, h = [left[i]+(right[i]-left[i])*t for i in (2,3,4)]
+    px,pz = section(angle,.74)
+    return (side*(w+lift)*px, y, z+(h+lift)*pz)
+
+
+def flash(name, side, y0, y1, angle0, angle1, half, lift, mat):
+    ys = sorted({y0+(y1-y0)*i/44 for i in range(45)} | {s[0] for s in shell if y0<s[0]<y1})
+    verts = []
+    for y in ys:
+        t = (y-y0)/(y1-y0)
+        # Rounded head at the rear, drawn to a fine point on the nose.
+        width = half * max(.012, math.sin(math.pi*t)**.64 * (1.32-.65*t))
+        angle = angle0+(angle1-angle0)*t
+        verts.extend(on_shell(y, angle+width*j/3, side, lift) for j in range(-3,4))
+    faces = [(i*7+j,(i+1)*7+j,(i+1)*7+j+1,i*7+j+1) for i in range(len(ys)-1) for j in range(6)]
+    mesh(name, verts, faces if side>0 else [f[::-1] for f in faces], mat)
+
+
+for side in (-1,1):
+    flash('Nickel outline around speed flash',side,-15.0,20.7,.18,.54,.27,.065,chrome)
+    flash('Glacier porcelain side flash',side,-14.75,20.,.18,.54,.212,.11,ice)
+    for j in range(3):
+        flash('Stepped coachline',side,-14.+j*.55,12.-j*4.1,-.22-.14*j,-.05-.14*j,.030,.11,chrome)
+
+    # The forward hull opens into twin swept pontoons around the light chamber.
+    stations = [(8.,6.35,9.5,1.0,1.5),(13.,7.05,9.65,2.05,2.70),
+                (19.,7.65,9.9,2.32,3.10),(26.,7.9,10.,2.28,2.88),
+                (38.,7.45,10.,1.93,2.22),(48.,6.4,10.,1.60,1.60),
+                (57.,4.75,10.,1.15,1.12),(62.,3.2,10.,.60,.73)]
+    hull('Swept cobalt outrigger',[(y,side*x,z,w,h) for y,x,z,w,h in stations],cobalt,.74)
+    line('Chrome outrigger rubbing strip',[(side*(x+w*.98),y,z+.25) for y,x,z,w,h in stations],.22,chrome)
+    line('Porcelain outrigger crest',[(side*x,y,z+h) for y,x,z,w,h in stations[1:]],.30,ice)
+
+# A softly waisted luminous bottle is visible above and between the two outriggers.
+barrel('Inset accelerator socket',[(18.,4.2,3.7),(20.,4.65,4.05),(24.,4.42,3.85),(25.,3.85,3.25)],navy,.78)
+barrel('Polished socket rim',[(23.,4.48,3.91),(23.4,4.58,4.0),(24.0,4.53,3.95)],chrome,.78)
+barrel('Turquoise induction bottle',[(24.,3.65,3.2),(26.,3.92,3.55),(31.,3.68,3.40),
+     (38.,2.85,2.72),(43.,2.35,2.29),(49.,2.63,2.52),(54.,3.12,3.01),(58.,3.30,3.17)],cyan)
+for y,w,h in [(27.,3.96,3.63),(53.,3.13,3.02)]:
+    barrel('Nickel bottle cap',[(y-.64,w-.16,h-.16),(y-.4,w+.12,h+.12),(y+.42,w+.12,h+.12),(y+.65,w-.12,h-.12)],chrome)
+for y,x,h in [(31.,7.65,4.6),(48.,6.35,3.7)]:
+    line('Polished arch over the induction bottle',
+         [(x*math.cos(math.pi*i/24),y,10.+h*math.sin(math.pi*i/24)) for i in range(25)],.28,chrome)
+# Broad horizontal emitter with a recessed luminous aperture.
+barrel('Dark emitter joint',[(55.,3.2,2.9),(57.,4.4,3.35),(58.8,4.7,3.48)],navy,.66)
+barrel('Ice enamel emitter cowl',[(57.2,4.25,3.28),(58.2,5.33,3.65),(61.5,5.70,3.73),
+                                  (64.3,5.34,3.47),(65.4,4.73,3.23)],ice,.62)
+barrel('Cobalt nose band',[(63.2,5.56,3.65),(63.7,5.58,3.66),(65.5,5.02,3.39),(65.9,4.9,3.34)],cobalt,.62)
+barrel('Chrome emitter bezel',[(65.5,4.96,3.37),(66.,5.02,3.41),(66.8,4.87,3.3),(67.,4.62,3.12)],chrome,.62)
+barrel('Inset blue-black aperture',[(66.95,4.41,2.97),(67.24,4.15,2.78)],navy,.66)
+barrel('Cyan emitter lens',[(67.25,3.28,2.04),(67.64,3.18,1.95),(67.94,2.32,1.48),(68.,.6,.42)],cyan,.78)
+
+# Two grasping surfaces fit the existing idle animation at its authored wrist positions.
+hull('Underslung palm saddle',[(13.,0,4.1,1.6,.8),(16.,0,3.2,3.6,1.6),
+          (22.,0,2.,4.12,2.1),(31.,0,2.,4.15,2.22),(35.5,0,2.8,3.54,1.65),
+          (38.,0,4.0,1.8,.9)],navy,.78)
+for y in (22.,24.6,27.2,29.8,32.4):
+    hull('Foregrip fluting',[(y-.38,0,2.,4.09,2.12),(y,0,2.,4.25,2.24),(y+.38,0,2.,4.12,2.13)],rubber,.78)
+
+
+def handle(name, rings, mat):
+    n = 32
+    verts = [(w*math.cos(tau*i/n),y+d*math.sin(tau*i/n),z) for z,y,w,d in rings for i in range(n)]
+    faces = [tuple(reversed(range(n))),tuple(range(len(verts)-n,len(verts)))]
+    faces += [(j*n+i,j*n+(i+1)%n,(j+1)*n+(i+1)%n,(j+1)*n+i) for j in range(len(rings)-1) for i in range(n)]
+    return mesh(name,verts,faces,mat)
+
+
+handle('Blue-black Bakelite grip',[(-10.8,-3.55,2.25,3.2),(-10.2,-3.5,3.00,3.72),
+       (-8.25,-2.97,3.03,3.72),(-3.4,-1.55,2.72,3.5),(2.0,.04,2.67,3.55),(5.7,1.5,3.14,3.8)],rubber)
+handle('Nickel grip heel',[(-10.9,-3.56,2.31,3.18),(-10.65,-3.54,2.85,3.58),(-10.14,-3.46,3.00,3.72)],chrome)
+line('Amber control lever',[(0,5.8,4.1),(0,5.55,2.5),(0,5.1,.25),(0,5.7,-.8)],.46,amber)
+line('Rolled chrome bow',[(0,1.4,-4.45),(0,3.4,-5.3),(0,7.1,-5.2),(0,10.2,-3.9),(0,11.1,-2.0),(0,11.2,3.65)],.43,chrome)
+
+# A dashboard inspired by a 1950s radio, tilted towards the player.
+normal = Vector((0,-.78,.626)).normalized()
+across = Vector((1,0,0))
+up = normal.cross(across)
+origin = Vector((0,-11.15,16.72))
+
+
+def dash_point(x,y,h):
+    return origin + across*x + up*y + normal*h
+
+
+def dash_panel(name, rings, mat):
+    n = 48
+    verts = []
+    for depth,w,h in rings:
+        for i in range(n):
+            x,y = section(tau*i/n,.44)
+            verts.append(dash_point(x*w,y*h,depth))
+    faces = [tuple(reversed(range(n))),tuple(range(len(verts)-n,len(verts)))]
+    faces += [(j*n+i,j*n+(i+1)%n,(j+1)*n+(i+1)%n,(j+1)*n+i) for j in range(len(rings)-1) for i in range(n)]
+    obj=mesh(name,verts,faces,mat)
+    for poly in obj.data.polygons[:2]:
+        poly.use_smooth=False
+    return obj
+
+
+dash_panel('Sculpted instrument pod',[(-3.6,6.0,2.48),(-1.5,6.43,2.72),(.12,6.25,2.50)],cobalt)
+dash_panel('Chrome instrument rim',[(.06,6.23,2.47),(.35,6.31,2.52),(.54,6.04,2.30)],chrome)
+dash_panel('Glacier dashboard surround',[(.54,5.94,2.23),(.61,5.89,2.18)],ice)
+display = dash_panel('Luminous charge scale',[(.615,5.10,1.54),(.69,5.08,1.52)],glass)
+uv = display.data.uv_layers.new(name='MeterUV')
+for loop in display.data.loops:
+    v = display.data.vertices[loop.vertex_index].co-origin
+    uv.data[loop.index].uv = (.5+v.dot(across)/10.16,.5+v.dot(up)/3.04)
+
+# Show the charged instrument in the editable studio model. Unreal shades the same glass dynamically.
+def studio_scale(name, centers, half_width, half_height, mat):
+    verts = [dash_point(x+dx, y+dy, .71) for x,y in centers
+             for dx,dy in [(-half_width,-half_height),(half_width,-half_height),
+                           (half_width,half_height),(-half_width,half_height)]]
+    return mesh(name, verts, [tuple(range(i,i+4)) for i in range(0,len(verts),4)], mat, False)
+
+
+pitch = 10.16*.836/8
+phosphor = finish('Studio turquoise phosphor', (.12,.82,.98), .08, .35, 1.1)
+studio_bars = studio_scale('Charged display bars - studio', [((i-3.5)*pitch,.03) for i in range(8)],
+                           .407*pitch, .55, phosphor)
+studio_ticks = studio_scale('Charge scale ticks - studio', [((i-4)*pitch,-.84) for i in range(9)],
+                            .11*pitch, .16, ice)
+for side in (-1,1):
+    line('Bezel rivet', [dash_point(side*5.54,0,.63),dash_point(side*5.54,.02,.72)], .17, amber)
+for j in range(3):
+    y = -4.2+j*2.7
+    line('Chrome dorsal louvers',[on_shell(y,math.radians(a),1,.13) for a in range(64,118,2)],.21,chrome)
+
+# Preserve the separate enamel parts in Blender. Bake a single grip-space mesh for Unreal.
+bpy.context.scene.unit_settings.system = 'METRIC'
+bpy.context.scene.unit_settings.scale_length = .01
+bpy.context.preferences.filepaths.save_version = 0
 bpy.ops.wm.save_as_mainfile(filepath=str(out/'Railgun_Source.blend'))
-print('QUAKE_RAILGUN_MESH_READY')
+deps = bpy.context.evaluated_depsgraph_get()
+bpy.ops.object.select_all(action='DESELECT')
+export = []
+for obj in parts:
+    if obj in (studio_bars, studio_ticks):
+        continue
+    data = bpy.data.meshes.new_from_object(obj.evaluated_get(deps),depsgraph=deps)
+    part = bpy.data.objects.new('Export ' + obj.name,data)
+    bpy.context.collection.objects.link(part)
+    data.transform(Matrix.Scale(.01,4) @ Matrix.Rotation(math.pi,4,'Z') @ obj.matrix_world)
+    if obj != display:
+        uv = data.uv_layers.active or data.uv_layers.new(name='UVMap')
+        for poly in data.polygons:
+            major = max(range(3),key=lambda i:abs(poly.normal[i]))
+            axes = [i for i in range(3) if i != major]
+            for li in poly.loop_indices:
+                p=data.vertices[data.loops[li].vertex_index].co
+                uv.data[li].uv=(p[axes[0]]*2.,p[axes[1]]*2.)
+    else:
+        data.uv_layers.active.name = 'UVMap'
+    part.select_set(True)
+    export.append(part)
+bpy.context.view_layer.objects.active = export[0]
+bpy.ops.object.join()
+joined = bpy.context.view_layer.objects.active
+joined.name = 'SM_QuakeRailgun'
+bpy.context.scene.unit_settings.scale_length = 1.
+bpy.ops.export_scene.fbx(filepath=str(out/'SM_QuakeRailgun.fbx'),use_selection=True,object_types={'MESH'},
+                         add_leaf_bones=False,axis_forward='-Y',axis_up='Z',bake_anim=False,mesh_smooth_type='FACE')
+print('BLUE_RETRO_RAILGUN_BUILT', len(joined.data.vertices), 'vertices')

@@ -10,12 +10,13 @@ factory=unreal.BlueprintFactory();factory.set_editor_property('parent_class',unr
 bp=unreal.load_asset(path) if lib.does_asset_exist(path) else assets.create_asset('BP_PurpleRailgunPickup',path.rsplit('/',1)[0],unreal.Blueprint,factory)
 cdo=unreal.get_default_object(bp.generated_class())
 settings={'weapon_reward':unreal.PickupWeapon.PURPLE_RAILGUN,'icon':unreal.PickupMotif.PURPLE_RAILGUN,
-    'shape':unreal.PickupShape.ROUNDED_CUBE,'size':60.,'corner_radius':8.,
-    'body_color':unreal.LinearColor(.065,.012,.019,1),'icon_color':unreal.LinearColor(1,.045,.065,1),
+    'size':60.,'corner_radius':8.,
+    'icon_color':unreal.LinearColor(1,.045,.065,1),
     'icon_scale':.83,'minimum_glow':1.8,'maximum_glow':4.,'pulse_period':2.4,
     'motion':unreal.PickupMotion.SPIN_AND_BOB,'spin_speed':35.,'bob_height':18.,'bob_period':2.4,
     'auto_collect':True,'player_only':True,
     'surface_material':unreal.load_asset('/Game/Materials/Pickups/M_PickupSurface')}
+settings.update(runpy.run_path(str(Path(__file__).with_name('RetroPickupPresets.py')))['appearance'](settings['weapon_reward']))
 for k,v in settings.items():cdo.set_editor_property(k,v)
 # Reuse the project's established pickup sound.
 existing_cdo=unreal.get_default_object(unreal.load_class(None,'/Game/GameplayActors/Pickups/ParametricPickup/BP_ParametricPickup.BP_ParametricPickup_C'))

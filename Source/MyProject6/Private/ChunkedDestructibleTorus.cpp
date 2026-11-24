@@ -1,4 +1,5 @@
 #include "ChunkedDestructibleTorus.h"
+#include "DestructibleFaceUV.h"
 #include "DynamicMesh/DynamicMesh3.h"
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
 #include "Materials/Material.h"
@@ -169,7 +170,8 @@ bool AChunkedDestructibleTorus::CalculateLayout()
     TArray<FVector2D> Shelves;
     for (int32 P=0;P<ParallelCount;++P)
     {
-        const double Z=2.*TubeRadius*(P+1)/(ParallelCount+1);
+        // Center each shelf in an equal-height band, leaving half a band at either pole.
+        const double Z = 2.0 * TubeRadius * (P + 0.5) / ParallelCount;
         Shelves.Add(FVector2D(Z-ParallelThickness*.5,Z+ParallelThickness*.5));
     }
     TArray<FPiece> Previous=MoveTemp(Pieces);
@@ -210,16 +212,16 @@ FTransform AChunkedDestructibleTorus::GetCellFlashTransform(FIntPoint Cell) cons
 void AChunkedDestructibleTorus::AppendPiece(FDynamicMesh3& Mesh,const FPiece& Piece,int32 Material) const
 {
     const FVector* V=Piece.V;
-    const double UVScale=FMath::Max(1.f,UVWorldUnits);
     for (int32 Face=0;Face<6;++Face)
     {
         const auto& F=TorusFaces[Face];
         const FVector& A=V[F[0]];const FVector& B=V[F[1]];const FVector& C=V[F[2]];const FVector& D=V[F[3]];
         const FVector N=FVector::CrossProduct(B-A,C-A).GetSafeNormal();
         const FVector M=FVector::CrossProduct(C-A,D-A).GetSafeNormal();
+        const FDestructibleFaceUVs UV = ProjectDestructibleFaceUVs(A, B, C, D, N + M, UVWorldUnits);
         const int32 FaceMaterial=(Piece.bShelf?Face>=2:Face<2 || Face>=4)?1:Material;
-        if (!N.IsNearlyZero()) AppendMeshTriangle(Mesh,A,B,C,FVector3f(N),FaceMaterial,FVector2f(0,0),FVector2f((B-A).Length()/UVScale,0),FVector2f((C-A).Length()/UVScale,(C-B).Length()/UVScale));
-        if (!M.IsNearlyZero()) AppendMeshTriangle(Mesh,A,C,D,FVector3f(M),FaceMaterial,FVector2f(0,0),FVector2f((C-D).Length()/UVScale,(D-A).Length()/UVScale),FVector2f(0,(D-A).Length()/UVScale));
+        if (!N.IsNearlyZero()) AppendMeshTriangle(Mesh, A, B, C, FVector3f(N), FaceMaterial, UV.A, UV.B, UV.C);
+        if (!M.IsNearlyZero()) AppendMeshTriangle(Mesh, A, C, D, FVector3f(M), FaceMaterial, UV.A, UV.C, UV.D);
     }
 }
 void AChunkedDestructibleTorus::BuildChunkMesh(int32 ChunkIndex,FDynamicMesh3& Mesh) const

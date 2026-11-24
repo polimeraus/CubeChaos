@@ -1,6 +1,6 @@
 """Save reconstructed BFG art/audio and assign one existing level pickup to BFG."""
 from pathlib import Path
-import json, math, random, struct, wave
+import json, math, random, runpy, struct, wave
 import unreal
 
 root=Path(unreal.Paths.project_dir())
@@ -93,7 +93,8 @@ factory=unreal.BlueprintFactory();factory.set_editor_property('parent_class',unr
 bp=load_or_create('BP_BFGPickup',unreal.Blueprint,factory,'/Game/Weapons/BFG/Pickups')
 cdo=unreal.get_default_object(bp.generated_class())
 settings={'weapon_reward':unreal.PickupWeapon.BFG,'icon':unreal.PickupMotif.RADIATION_BOMB,
-          'icon_color':unreal.LinearColor(.03,1,.12,1),'body_color':unreal.LinearColor(.02,.055,.025,1)}
+          'icon_color':unreal.LinearColor(.03,1,.12,1)}
+settings.update(runpy.run_path(str(Path(__file__).with_name('RetroPickupPresets.py')))['appearance'](settings['weapon_reward']))
 for key,val in settings.items():cdo.set_editor_property(key,val)
 unreal.BlueprintEditorLibrary.compile_blueprint(bp)
 assert unreal.EditorAssetLibrary.save_loaded_asset(bp,False)
