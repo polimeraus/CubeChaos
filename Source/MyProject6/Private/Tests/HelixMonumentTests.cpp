@@ -44,7 +44,7 @@ bool FHelixMonumentTest::RunTest(const FString& Parameters)
             ++Cooked;
         }
     TestEqual(TEXT("One convex hull per breakable fragment"), Cooked, Count);
-    for (const auto& Stone : Tower->Stones)
+    for (const auto& Stone : Tower->Panels)
         if (!TestTrue(TEXT("Convex damage lookup includes stone centre"), Stone.Contains(Stone.Center,.001))) return false;
 
     const double Shoulder = Tower->Height*(1.-Tower->CrownHeightRatio);
@@ -68,7 +68,7 @@ bool FHelixMonumentTest::RunTest(const FString& Parameters)
     }
 
     // Cross only the inset facade, keeping the trace away from an end joint and the adjacent deck.
-    const auto* Panel=Tower->Stones.FindByPredicate([&](const auto& S){return S.Slot==2 && S.Center.Z>Shoulder*.42;});
+    const auto* Panel=Tower->Panels.FindByPredicate([&](const auto& S){return S.Slot==2 && S.Center.Z>Shoulder*.42;});
     if (!TestNotNull(TEXT("Ribbon has smoked panels"),Panel)) return false;
     const FVector End=Panel->Center, Start=End+End.GetSafeNormal2D()*65.;
     FHitResult Hit;
@@ -93,7 +93,7 @@ bool FHelixMonumentTest::RunTest(const FString& Parameters)
 
     const FTransform Moved(FRotator(0,38,0),FVector(210,-450,100),FVector(1.32,.73,1.12));
     Tower->SetActorTransform(Moved);
-    const FVector Point=Moved.TransformPosition(Tower->Stones[Index].Center);
+    const FVector Point=Moved.TransformPosition(Tower->Panels[Index].Center);
     TestTrue(TEXT("Rotated and scaled instance resolves hit position"),Tower->WorldLocationToCell(Point,Cell));
     TestEqual(TEXT("Transformed point resolves the original fragment"),Cell.X,Index);
     const int32 LocalBlast=Tower->DestroyCellsInRadius(Point,235,EChunkedFloorBlastShape::Sphere);

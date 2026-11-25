@@ -1,12 +1,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "ChunkedDestructibleFloor.h"
+#include "ChunkedPanelStructure.h"
 #include "ChunkedDestructibleHelixMonument.generated.h"
 
 /** Tapering open-air promenade with a pierced lantern and a pointed crown. The pivot is the centre of the base at ground level. */
 UCLASS(Blueprintable, BlueprintType, meta=(DisplayName="Destructible Helix Monument"))
-class MYPROJECT6_API AChunkedDestructibleHelixMonument : public AChunkedDestructibleFloor
+class MYPROJECT6_API AChunkedDestructibleHelixMonument : public AChunkedPanelStructure
 {
     GENERATED_BODY()
 public:
@@ -109,38 +109,9 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category="Helix Monument|Statistics")
     FString GenerationWarning;
 
-    virtual bool UsesPlanarAnimation() const override { return false; }
-    virtual bool WorldLocationToCell(FVector Point, FIntPoint& Cell) const override;
-#if WITH_EDITOR
-    virtual bool CanEditChange(const FProperty* Property) const override;
-#endif
 protected:
     virtual bool CalculateLayout() override;
-    virtual bool ShouldCellExistInGeneratedShape(FIntPoint Cell) const override;
-    virtual void BuildChunkMesh(int32 Index, UE::Geometry::FDynamicMesh3& Mesh) const override;
-    virtual void BuildChunkSimpleCollision(int32 Index, FKAggregateGeom& Collision) const override;
-    virtual FVector GetCellLocalCenter(FIntPoint Cell) const override;
-    virtual FTransform GetCellFlashTransform(FIntPoint Cell) const override;
-    virtual bool ResolveExistingCellFromHit(const FHitResult& Hit, FIntPoint& Cell) const override;
-    virtual int32 EvaluatePatternMaterial(FIntPoint Cell) const override;
-    virtual int32 SelectCellsInRadius(FVector Point, float Radius, EChunkedFloorBlastShape Shape, TFunctionRef<void(int32,float)> Visit) override;
-    virtual void MarkCellChunksDirty(FIntPoint Cell) override;
 private:
     friend class FHelixMonumentTest;
     struct FBuilder;
-    struct FStone
-    {
-        FVector V[8];
-        FVector Center;
-        FBox Bounds;
-        TArray<FPlane,TInlineAllocator<12>> Planes;
-        uint8 Slot;
-        bool bMullion;
-        bool Contains(const FVector& Point, double Tolerance) const;
-    };
-    TArray<FStone> Stones;
-    TArray<FBox> ChunkBounds;
-    int32 StonesPerChunk = 48;
-    bool FindStone(const FVector& Local, FIntPoint& Cell, double Tolerance) const;
-    void DrawStone(UE::Geometry::FDynamicMesh3& Mesh, const FStone& Stone, int32 Material) const;
 };
